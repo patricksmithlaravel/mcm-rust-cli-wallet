@@ -2948,10 +2948,10 @@ fn unhex_tag(s: &str) -> [u8; ADDR_TAG_LEN] {
 /// 22-byte tag payload, plus the thousand-entry corpus, replayed through
 /// `addr::tag_to_base58` and back through `addr::tag_from_base58`.
 ///
-/// The expected values are the reference's own output, recorded by
-/// `gen-fixtures`' `group_c_addr.c` from `crc16 + put16 + base58_encode`. This
-/// file computes nothing: a wrong composition here disagrees with a string a
-/// C program emitted, which is the only kind of disagreement worth having.
+/// The expected values are the reference's own output, recorded from
+/// `crc16 + put16 + base58_encode`. This file computes nothing: a wrong
+/// composition here disagrees with a string a C program emitted, which is the
+/// only kind of disagreement worth having.
 #[test]
 fn the_destination_matches_every_group_c_vector() {
     let root = group_c();

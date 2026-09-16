@@ -3,7 +3,7 @@
 Byte-for-byte copies of the two published standards whose test vectors the
 keystore's primitives are replayed against. They exist so that the literals
 in `crates/mochimo-crypto/src/keystore/format.rs` have a provenance a reader
-can check on disk rather than a citation to a document off it (errata 195).
+can check on disk rather than a citation to a document off it.
 
 **Never edit the `.txt` files.** What enforces that is
 `format::tests::published_vector_literals_match_the_vendored_rfc_text`: it
