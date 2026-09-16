@@ -173,8 +173,8 @@ fn cannot_render(tag: &Tag, e: &Error) -> Report {
 /// What did NOT collapse is the other half of that function's finding, and it
 /// is asserted by `tests/cli.rs::the_listing_needs_no_node_and_no_seed`: the
 /// listing still derives nothing and asks no node. It needs the password
-/// because the bytes are encrypted, not because it needs a key. (Since S5
-/// one more command runs without the password: `submit`, which opens no
+/// because the bytes are encrypted, not because it needs a key. (One more
+/// command runs without the password: `submit`, which opens no
 /// store at all, and the binary dispatches it before the prompt as it does
 /// `create`.)
 /// The access an account's kind demands, chosen **per account**.
@@ -184,11 +184,7 @@ fn cannot_render(tag: &Tag, e: &Error) -> Report {
 /// key access duplicable by derive -- and `reserve_and_sign` takes it by
 /// value. Constructing one is a store view and a reference copy.
 ///
-/// Until S5 this took the master alone and answered one question -- does the
-/// store hold a master seed -- so in a store holding both a master and an
-/// imported account, the imported account was routed down the master path and
-/// refused with a key-access mismatch: fail-closed, and recorded in the
-/// specification as a limit (AGENT.md, Known-open 28). The choice is now
+/// The choice is
 /// `recon::access_for`'s, the same one `Wallet::open`, `status` and
 /// `reconcile` already made: the master for a derived account, the stored root
 /// for an imported one. Its two refusals become the errors the call sites
@@ -464,7 +460,7 @@ fn state_of(status: &AccountStatus) -> String {
 /// and `tx_val` demands
 /// `send + change + fee` equal the balance exactly, so a
 /// moved balance is dead for good; block N is the last block that can carry
-/// btl N (`tx.c:731` under `bval.c:309`) and `txclean` drops it against the
+/// btl N, and `txclean` drops it against the
 /// next block, so the artifact is dead once the tip
 /// reaches the value; zero never expires.
 /// The block-to-live marker in `tests/cli.rs` harvests every decimal token of `status`
@@ -514,8 +510,7 @@ fn reservation_lines(spent_index: WotsIndex, reservation: &Reservation, indent: 
             };
             out.push_str(&format!("{indent}block-to-live     {expiry}\n"));
             if d.is_dead() {
-                // Decided (AGENT.md, Known-open 8, closed at S7): this build
-                // offers no route out, on purpose. The first two sentences
+                // This build offers no route out, on purpose. The first two sentences
                 // are the specification's, word for word (*The block-to-live
                 // sits inside the signed digest*).
                 out.push_str(&format!(
@@ -664,7 +659,7 @@ fn cmd_address<M: Medium>(
 /// `address --account N`: the destination of an account this store does
 /// **not** hold, derived from the master it does hold and stored nowhere.
 ///
-/// # The decision this carries out (AGENT.md, Known-open 7)
+/// # The decision this carries out
 ///
 /// `create` derives account 0 and nothing else, and `restore --account N`
 /// adds an account only after the chain resolves its tag -- so nobody could
@@ -1216,13 +1211,9 @@ fn reference_line(label: &str, field: &[u8; ADDR_REF_LEN]) -> String {
 /// command printed it in any labelled or decimal form. What each phrase
 /// rests on, read on disk: zero can never expire; a non-zero
 /// value expires for every block number greater than it,
-/// which a block enforces against its own number (`bval.c:309` hands
-/// `bt.bnum` to `txe_val`) and the queue against the NEXT block (`tx.c:
-/// 1031-1034` validates against `Cblocknum + 1`), so the transaction is dead
-/// once the tip reaches the value; and on arrival a node refuses a value more
-/// than 256 blocks past its tip (`tx.c:724-734`, `bnum + 0x100`, with
-/// `Cblocknum` as `bnum`). The operator-facing text carries no
-/// citation at all; the lines are here.
+/// which a block enforces against its own number and the queue against the
+/// NEXT block, so the transaction is dead once the tip reaches the value; and
+/// on arrival a node refuses a value more than 256 blocks past its tip.
 ///
 /// The first mitigation, and no longer the only copy: the record carries the
 /// value (format version 4) and `status`/`balance` render it
@@ -1239,7 +1230,7 @@ fn block_to_live_line(blk_to_live: u64) -> String {
         // The whole of the node's rule, both sides: a value below the tip
         // at arrival is refused as surely as one more than 256 blocks past
         // it, and this page is where an operator who typed `--btl` below the
-        // tip learns why the node dropped it (Known-open 16, closed at S7).
+        // tip learns why the node dropped it.
         // The plan builder still takes no block number; nothing here asks
         // the chain.
         format!(
@@ -1338,7 +1329,7 @@ fn submitted_block(id: &TxId, settle_arg: &str) -> String {
 }
 
 /// `submit <artifact-hex>`: the artifact `send` printed, written to the
-/// socket as it is (AGENT.md, Known-open 9, closed at S5).
+/// socket as it is.
 ///
 /// # The hole this closes
 ///
@@ -1535,8 +1526,8 @@ fn cmd_send<M: Medium, T: Transport>(
 /// and is written under `submitted:` exactly as `send` writes one -- the
 /// expired-reservation scenario. `status`, `balance` and `settle` say the
 /// reservation is dead before an operator reaches this verb; whether this
-/// verb should refuse or warn instead of shipping is the route-out question
-/// left open (AGENT.md, Known-open 8). (A moved balance never reaches the write: the
+/// verb should refuse or warn instead of shipping is the route-out question,
+/// which is open. (A moved balance never reaches the write: the
 /// balance is a plan input, so the rebuilt digest differs and
 /// `DigestMismatch` refuses first.)
 ///
@@ -1726,8 +1717,7 @@ fn cmd_reconcile<M: Medium, T: Transport>(
 
 /// nanoMCM rendered beside its MCM, which is the figure a person reads.
 ///
-/// One MCM is 1,000,000,000 nanoMCM (the reference's own `tene9`,
-/// `src/bin/wallet.c:1488` at the corpus's pinned commit). The sign is
+/// One MCM is 1,000,000,000 nanoMCM. The sign is
 /// carried, because a source operation is a debit.
 fn nano_and_mcm(v: i128) -> String {
     // The leading `-` is `minus` and not `sign`: the I1 scan's taint set is a

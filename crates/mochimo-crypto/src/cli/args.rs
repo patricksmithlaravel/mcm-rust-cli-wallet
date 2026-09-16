@@ -66,7 +66,7 @@ pub enum Command {
     /// N` (exclusive with a tag), the position-0 address of account N derived
     /// from the store's master and **not stored**: the route to a second
     /// account's destination before it is funded, after which `restore
-    /// --account N` adds it (decided; AGENT.md, Known-open 7, closed at S7).
+    /// --account N` adds it.
     Address { tag: Option<Tag>, account: Option<u32> },
     /// Lay out, reserve, sign, print the artifact, submit.
     Send(Spend),
@@ -83,8 +83,8 @@ pub enum Command {
     /// Derive an account, find its index on the chain, add it to the store.
     /// `scan_to` raises the recovery ceiling for this one invocation: walk
     /// indices `0..=scan_to` instead of the default `0..=9999` -- the
-    /// recovery ceiling, which since S15 is the bound the shipped browser
-    /// extension walks for the same quantity rather than BIP-44's 20
+    /// recovery ceiling, which is the bound the shipped browser extension
+    /// walks for the same quantity rather than BIP-44's 20
     /// (`recon::RECOVERY_CEILING`).
     Restore { account: u32, scan_to: Option<u32> },
     /// Reconcile one account now and report without refusing -- before the
@@ -377,10 +377,8 @@ and requires one.";
 ///   the reference node parses it for `-m/--maddr`, `tag-utils.ts`
 ///   produces it, and the shipped extension accepts nothing else.
 /// * **`0x` followed by 40 hex characters** — the machine form, which is what
-///   every Mesh endpoint in the pinned tree uses
-///   (`reference/mochimo-mesh/handlers/call_handler.go:53` requires exactly
-///   `0x` plus 40 hex; `account_handler.go:34` the same) and what this
-///   project's fixtures record.
+///   every Mesh endpoint in the pinned tree uses -- each requires exactly
+///   `0x` plus 40 hex -- and what this project's fixtures record.
 ///
 /// # Bare forty-hex is refused, and that is the destination form correcting itself
 ///
@@ -598,7 +596,7 @@ fn reference_field(text: &str, whose: &str) -> Result<[u8; ADDR_REF_LEN], Usage>
 /// and a flag given twice, so a repeated flag is a usage error naming it
 /// rather than a silent first-one-wins (`u64_flag` reads the first
 /// occurrence, and this runs before it in every command, so the second is
-/// never reached; Known-open 30).
+/// never reached).
 ///
 /// Two lists because `--from-phrase` was the first valueless flag: a `valued`
 /// flag consumes the token after it, a `bare` one does not. One list could not
@@ -785,7 +783,7 @@ fn check_destinations(dsts: &[SpendTo]) -> Result<(), Usage> {
 /// Defaults to 5. The ceiling is the **endpoint's**, not a taste:
 /// `searchTransactionsHandler` takes the `limit` it is sent only when
 /// `0 < limit <= 100` and otherwise silently uses its own default of 10
-/// (`search_handler.go:71-74` at the Mesh commit the corpus pins). It does
+/// at the Mesh commit the corpus pins. It does
 /// not clamp. So a count of 250 would be answered with ten rows and nothing
 /// to say it had been ignored, which is worse than a refusal; the refusal is
 /// here, before any socket is opened, and it names the window.
@@ -1062,10 +1060,7 @@ pub enum ParsedArgv {
 /// The three spellings that ask for help. Recognised where a verb or a
 /// global flag is recognised -- `help` as the verb, `-h` or `--help` before
 /// it -- and nowhere else: anywhere after the verb they are unexpected
-/// tokens and are refused as such, like every other stray token. (They won
-/// from anywhere in argv for a time, so a `-h` in a tag or amount position
-/// printed the help and exited 0 where every other typo exits 1; AGENT.md,
-/// Known-open 30, closed at S7.)
+/// tokens and are refused as such, like every other stray token.
 fn asks_for_help(a: &str) -> bool {
     a == "-h" || a == "--help" || a == "help"
 }
@@ -1079,9 +1074,7 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
         match it.next() {
             None => return Err(Usage("no command".into())),
             Some(a) if asks_for_help(a) => return Ok(ParsedArgv::Help),
-            // A repeated global flag is a usage error naming the flag (the
-            // last one won silently for a time, while the tail flags took the
-            // first: two resolutions for one mistake; Known-open 30).
+            // A repeated global flag is a usage error naming the flag.
             Some(a) if a == "--dir" => {
                 if dir.is_some() {
                     return Err(Usage("--dir given twice".into()));

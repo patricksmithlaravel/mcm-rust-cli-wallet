@@ -641,10 +641,7 @@ fn after_the_store_exists(dir: &Path) -> String {
 /// The floor and the mismatch spell the sentence themselves. The two
 /// terminal reads refuse in the terminal's own words -- end of input, a
 /// read failure -- and the sentence is appended to those here, so every
-/// refusal this function returns ends the same way. For a time the two
-/// reads' errors were rendered as they came, and Ctrl-D at the first
-/// prompt exited 3 without the sentence (AGENT.md, Known-open 31, closed
-/// at S8).
+/// refusal this function returns ends the same way.
 fn read_new_password<T: Terminal>(term: &mut T) -> core::result::Result<Zeroizing<String>, String> {
     let first = term
         .read_secret_line("choose a password for this wallet (it will be needed for every command): ")

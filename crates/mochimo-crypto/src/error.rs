@@ -238,8 +238,8 @@ pub enum Error {
         kind: TransportKind,
     },
     /// The Mesh answered with an HTTP status other than 200. The middleware's
-    /// own failures are 200s carrying an error object (`giveError`,
-    /// `reference/mochimo-mesh/handlers.go:140-151`); a non-200 is a proxy, a
+    /// own failures are 200s carrying an error object (`giveError`); a
+    /// non-200 is a proxy, a
     /// route miss or the middleware's request-size gate.
     HttpStatus {
         status: u16,
@@ -330,7 +330,7 @@ pub enum Error {
         index: usize,
     },
     /// A destination reference the node's rule refuses (`mdst_val`,
-    /// `tx.c:626`, `EMCM_XTXREF`); the rule is
+    /// `EMCM_XTXREF`); the rule is
     /// `mesh::spend::reference_is_valid`, transcribed from the reference.
     InvalidReference {
         index: usize,
@@ -469,9 +469,9 @@ impl fmt::Display for Error {
                 "keystore directory has no snapshot; an absent file is not an empty store \
                  (use create only for a genuinely new keystore)",
             ),
-            // The snapshot's refusal names the next step (Known-open 19,
-            // closed at S7): a fresh store wants a different directory, and
-            // an account joins this one through `restore`.
+            // The snapshot's refusal names the next step: a fresh store
+            // wants a different directory, and an account joins this one
+            // through `restore`.
             Error::Exists { what: "snapshot" } => f.write_str(
                 "keystore: a snapshot already exists in this directory. To make a new store, use \
                  a different --dir; to add an account to this one, run `restore --account N` \
@@ -668,8 +668,8 @@ impl std::error::Error for Error {}
 /// # Why both, and why not a `Result`
 ///
 /// `mdst_val` and `tx_val__wots` report through two channels at once, and the
-/// fixtures record both. `reference/gen-fixtures/src/group_d_tx.c:124`
-/// (`verdict()`) writes `_rc` and `_rc_name` unconditionally, and then — only
+/// fixtures record both. The generator's `verdict()` writes `_rc` and
+/// `_rc_name` unconditionally, and then — only
 /// when the code is not `VEOK` — either `_errno`/`_errno_name`/`_errno_text`
 /// **or** `_errno_set: false`. That last case is real: `mdst_val__reference`
 /// fails without touching `errno`, and its caller supplies `EMCM_XTXREF`

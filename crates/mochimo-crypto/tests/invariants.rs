@@ -11392,11 +11392,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Session labels. Every one of these passed the ban until the `S` arm
     // existed to read them.
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 2, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/args.rs", 3, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/mod.rs", 5, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/mesh/spend.rs", 1, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/recon.rs", 4, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/tx/wire.rs", 1, SWEEP_SRC),
@@ -11410,11 +11405,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
     // Open-item citations, found by the matcher this change added.
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 3, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/args.rs", 4, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/mod.rs", 6, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/cli.rs", 19, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/kat.rs", 2, SWEEP_TESTS),

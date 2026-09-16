@@ -107,11 +107,10 @@ use zeroize::Zeroizing;
 const PHRASE_CAPACITY: usize = 512;
 
 /// What a prompt says when the terminal reports end-of-file before a line
-/// was typed. Zero bytes read is end of input, not an empty answer: it was
-/// trimmed to an empty line and compared for a time, so Ctrl-D at the
-/// password prompt was reported as a wrong password by the store rather than
-/// as the input it was (AGENT.md, Known-open 30, closed at S7). Refused
-/// here, before anything is compared, in the same class as "no terminal".
+/// was typed. Zero bytes read is end of input, not an empty answer, and is
+/// refused here, before anything is compared, in the same class as "no
+/// terminal" -- so Ctrl-D at the password prompt is reported as the input it
+/// was rather than as a wrong password.
 const END_OF_INPUT: &str =
     "end of input at the prompt: the terminal reported end-of-file (Ctrl-D) before a line was \
      typed, so nothing was read and nothing was compared. Type the answer and press Enter, or \
@@ -177,7 +176,7 @@ fn run_from_argv(argv: &[String]) -> Result<cli::Report, args::Usage> {
     }
     // `submit` is the other command with no store to open: the artifact is
     // its input and the socket its only output, so it is dispatched before
-    // the password prompt and the open below (AGENT.md, Known-open 9). The
+    // the password prompt and the open below. The
     // parser still requires `--dir`, as it does for every verb; the
     // directory is not read, not created and not locked here.
     if let args::Command::Submit { artifact } = &inv.command {
@@ -478,10 +477,9 @@ fn open_terminal() -> Result<Tty, String> {
 
 /// `create`'s acquisition: [`open_terminal`], in its own words. The promise
 /// every refusal from `create` keeps -- "Nothing was created." -- is appended
-/// by `orchestrate` at the one seam every refusal goes through, so this no
-/// longer appends it. It did for a time, while the seam rendered the text
-/// verbatim, which left the sentence to the caller and let the seam's other
-/// arms drop it (AGENT.md, Known-open 31, closed at S8).
+/// by `orchestrate` at the one seam every refusal goes through, so this does
+/// not append it: a seam that renders the text verbatim leaves the sentence
+/// to the caller, and an arm that forgets drops it.
 fn acquire_terminal() -> Result<Tty, String> {
     open_terminal()
 }
