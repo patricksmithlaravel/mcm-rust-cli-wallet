@@ -2659,6 +2659,62 @@ fn create_without_a_terminal_writes_nothing_and_shows_no_phrase() {
     );
 }
 
+/// **`create --from-phrase` says that one derivation scheme restores, before
+/// it reads anything.**
+///
+/// Several Mochimo wallets turn one phrase into different seeds. A phrase from
+/// another scheme is accepted here and derives a well-formed store whose
+/// accounts are empty, and an empty store is what a genuinely unfunded wallet
+/// looks like too -- so the operator sees no error and has nothing to notice.
+///
+/// The ordering is the half that matters, and this drives it rather than
+/// asserting it: the script carries **no answers at all**, so the first read
+/// fails. Whatever reached the terminal before that failure was shown before
+/// any read could be answered -- before the password, and therefore before the
+/// twenty-four words.
+#[test]
+fn create_from_phrase_warns_about_the_derivation_scheme_before_any_read() {
+    let dir = ScratchDir::new("cli-create-scheme-warning");
+    let shown: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let log = Rc::clone(&shown);
+
+    let r = create_cmd::orchestrate(
+        dir.path(),
+        true,
+        || Ok(zeroize::Zeroizing::new(test_create_entropy())),
+        || Ok(Recorder::new(log, Vec::new())),
+    );
+    assert_eq!(r.code, Code::Refused, "the empty script should have refused: {}", r.text);
+
+    let first = shown
+        .borrow()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("nothing was shown before the first read; the warning cannot be read after the phrase is typed"));
+
+    for needle in [
+        "one derivation scheme",
+        "browser extension",
+        "no error",
+        "empty",
+    ] {
+        assert!(
+            first.contains(needle),
+            "the scheme warning does not carry {needle:?}:\n{first}"
+        );
+    }
+    // What it must NOT say: that the phrase is rejected. Nothing refuses it,
+    // and an operator told to expect a refusal will wait for one.
+    for stale in ["unsupported", "invalid phrase", "will fail"] {
+        assert!(!first.contains(stale), "the warning promises an error the operator will not see: {first}");
+    }
+    assert!(
+        !dir.path().join("accounts.mks").exists(),
+        "a store was written by a run whose reads all failed"
+    );
+    println!("  create --from-phrase: the scheme warning is shown before the first read");
+}
+
 /// The positive control: with a terminal, the same call *does* write and *does*
 /// show — otherwise the assertions above would pass over a `create` that never
 /// worked at all.
@@ -2866,10 +2922,14 @@ fn a_refused_phrase_leaves_nothing_on_disk() {
     );
     assert_says(&r, "checksum mismatch", "a refused phrase");
     assert_says(&r, "Nothing was created", "a refused phrase");
+    // The one thing shown on this path is the derivation-scheme warning, which
+    // is written before any read. The phrase itself is never displayed back.
+    let shown = shown.borrow();
+    assert_eq!(shown.len(), 1, "more than the scheme warning was shown: {shown:?}");
+    assert!(shown[0].starts_with("BEFORE YOU TYPE:"), "what was shown is not the scheme warning: {shown:?}");
     assert!(
-        shown.borrow().is_empty(),
-        "something was shown on the --from-phrase path: {:?}",
-        shown.borrow()
+        !shown[0].contains(bad.split_whitespace().next().unwrap_or("?")),
+        "the supplied phrase reached the screen: {shown:?}"
     );
 }
 
@@ -3837,10 +3897,12 @@ fn the_confirmation_is_read_visibly_and_a_supplied_phrase_is_not() {
         got2[2].1.contains("recovery phrase"),
         "the third read is not the phrase prompt: {got2:?}"
     );
+    // Only the scheme warning, which is written before the first read; the
+    // phrase the operator typed is never echoed.
     assert_eq!(
         shown2.borrow().len(),
-        0,
-        "a supplied phrase was displayed back: {:?}",
+        1,
+        "the --from-phrase path showed something besides the scheme warning: {:?}",
         shown2.borrow()
     );
 }

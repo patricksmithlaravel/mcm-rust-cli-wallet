@@ -289,6 +289,38 @@ pub fn confirmation_matches(phrase: &str, answer: &str) -> bool {
 /// shown**. `show` goes through the terminal for the same reason — a `println!`
 /// is invisible to the test, and the phrase reaching a stream nobody chose is
 /// the defect itself.
+/// What `create --from-phrase` shows before it reads anything.
+///
+/// # Why a warning and not a refusal
+///
+/// Several Mochimo wallets derive a seed from a phrase, and they do not agree:
+/// they consume and produce different things, so one phrase means a different
+/// wallet under each. This program implements the shipped browser extension's
+/// scheme, which is the one the corpus pins, and it cannot tell which scheme a
+/// phrase was written under -- a phrase carries no such mark. So there is
+/// nothing to refuse on, and the common case is a phrase this program wrote.
+///
+/// # Why it names what the operator will see rather than the error they will not
+///
+/// A phrase from another scheme is accepted. It derives a real master seed, a
+/// real account 0 and a real store, and every command that follows works. The
+/// accounts are empty, and an empty account is also what an unfunded wallet
+/// has. There is no failure anywhere for the operator to notice, which is why
+/// the text describes the silence instead of promising an error.
+pub const SCHEME_WARNING: &str = "\
+BEFORE YOU TYPE: this wallet implements one derivation scheme.
+
+Mochimo wallets do not agree on how a recovery phrase becomes a seed. This one
+follows the shipped browser extension. A phrase written under a different
+scheme is accepted here and derives a working store -- there is no error, and
+nothing refuses it. What you get is a wallet whose accounts are empty, which is
+exactly what a wallet nobody has ever paid looks like.
+
+If the phrase came from this program or from the browser extension, continue.
+If it came from somewhere else, confirm what that wallet derives before you
+read an empty balance here as the truth about your funds.
+";
+
 pub trait Terminal: Sized {
     /// Show text the operator must read -- and say whether it was written.
     ///
@@ -429,6 +461,15 @@ pub fn orchestrate<T: Terminal>(
     }
 
     if from_phrase {
+        // **Before either read**, because both of them cost the operator
+        // something to undo. The password argument below is about not throwing
+        // away typed work; this is about not asking for the work at all. A
+        // phrase from another scheme restores here with no error to see, so
+        // the only moment the warning can change what somebody does is before
+        // they start typing.
+        if let Err(e) = term.show(SCHEME_WARNING) {
+            return refused(nothing_was_created(e));
+        }
         // **The password first, on this path too.** The generate path reads it
         // first so a refusal cannot leave a phrase on screen with no store
         // behind it; here nothing is displayed, so that argument does not
