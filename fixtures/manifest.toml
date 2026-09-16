@@ -170,10 +170,9 @@ sources = 11
 #
 # D5 carries both verdict keys: signed exactly as D4, and validated by the
 # tx_val__wots call D4 has. A signature the reference never validated is a
-# real signature nothing stands behind, which is what
-# `reproduced_without_verdict` in
-# native.rs::native_wots_sign_reproduces_every_validated_group_d_signature
-# names; the set is empty and is asserted empty rather than deleted.
+# real signature nothing stands behind, which is what the signature census's
+# `reproduced_without_verdict` names; the set is empty and is asserted empty
+# rather than deleted.
 #
 # TWO ITEMS HERE ARE PORT SCOPE, NOT TRANSACTION SCOPE. They are recorded on
 # this group because this is the file whoever reads group D reads.
@@ -186,8 +185,8 @@ sources = 11
 # the block has no `id`, and giving it one without an oracle behind the
 # function would produce a vector nothing can answer.
 #
-# SECOND: Ds8b is a signing-ORDER property. group_d_tx.c sets the source
-# address tag half to 20 x 0xa5 and THEN calls tx_sign, so the signature is
+# SECOND: Ds8b is a signing-ORDER property. The capture set the source
+# address tag half to 20 x 0xa5 and THEN called tx_sign, so the signature is
 # valid for the transaction as written; every other negative in Ds7..Ds11
 # mutates AFTER signing. Ds8b is therefore not a fork case, which is why
 # kat.rs::tx_val_wots_negative keys its arm on the bytes the validator saw
@@ -238,7 +237,7 @@ sources = 11
 # fixture and the harness TOGETHER and eq_bool would compare true == true. A
 # recorded boolean cannot police the shape it records.
 #
-# D18 -- four MUTUALLY DISTINCT asymmetric 64-bit header values. Gap 3 was that
+# D18 -- four MUTUALLY DISTINCT asymmetric 64-bit header values. Without them
 # change_total only ever held zero or all-0xff, a palindrome, in D8, the vector
 # whose own note explains why palindromes are insufficient. The adjacent defect
 # found while filling it: D8 gave send_total, fee_total and blk_to_live the SAME
