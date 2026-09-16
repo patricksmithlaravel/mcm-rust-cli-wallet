@@ -11871,6 +11871,49 @@ fn narrative_vector(row: &NarrativeRow) -> String {
 /// is the part that decides what a hit is, and two copies of it would be two
 /// definitions of a citation that could drift apart without either check
 /// going red.
+/// One unit of text a check's collection path can be handed, built by a test
+/// rather than read out of the tree.
+///
+/// [`crate_text_units`] is the only other producer of these, and it reads the
+/// tree. Every text ban's baseline is empty, so each of them passes by finding
+/// nothing there -- which means the tree can no longer distinguish a
+/// collection path that works from one that has stopped seeing a kind, lost a
+/// line in the join, or mislaid the offset that says which unit a hit sits in.
+/// Units built here are what does.
+fn synthetic_unit(line: usize, kind: TextKind, span: usize, text: &str) -> TextUnit {
+    TextUnit { file: "<constructed>".to_string(), line, kind, text: text.to_string(), span }
+}
+
+/// Consecutive comment units of one file, on consecutive lines, as runs.
+///
+/// The unit of the row-name needle is the run and not the line: a
+/// parenthesised row name two lines below the word *matrix* is inside the
+/// sentence that cites the matrix. Grouping is therefore part of what that
+/// needle means, and it is a function so that a test can hand it units and
+/// see what it does with them -- inline in the check, the only thing that
+/// could exercise it was the tree.
+fn comment_runs(units: &[TextUnit]) -> Vec<&[TextUnit]> {
+    let mut out: Vec<&[TextUnit]> = Vec::new();
+    let mut i = 0usize;
+    while i < units.len() {
+        if units[i].kind != TextKind::Comment {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < units.len()
+            && units[j].kind == TextKind::Comment
+            && units[j].file == units[i].file
+            && units[j].line == units[j - 1].line + 1
+        {
+            j += 1;
+        }
+        out.push(&units[i..j]);
+        i = j;
+    }
+    out
+}
+
 fn joined_text_by_file(units: &[TextUnit]) -> Vec<JoinedFile<'_>> {
     let mut by_file: BTreeMap<&str, Vec<&TextUnit>> = BTreeMap::new();
     for u in units {
@@ -11974,6 +12017,48 @@ fn no_comment_or_string_under_the_crate_cites_an_errata_entry_by_number() {
         assert!(errata_number_hit(&miss).is_none(), "the matcher fired on {miss:?}");
     }
 
+    // --- the same needles, through the collection path ---
+    //
+    // Everything above calls `errata_number_hit` on a `String`. What decides
+    // what this check finds in the tree is `window_hits`: the per-file join,
+    // the NUL fence that goes around each string literal, and the mapping
+    // from a byte offset back to the unit it sits in. None of that is
+    // exercised by calling the matcher directly, and with the baseline empty
+    // the tree cannot exercise it either -- zero is what a working path and a
+    // severed one both report.
+    //
+    // **The property is not the narrative check's equality.** That check
+    // filters the walk to one kind, so an inverted filter is its failure and
+    // an equality against the walk's own comment count is what catches one.
+    // This ban filters nothing: it reads comments and string literals alike.
+    // What can break instead is the join, the fence, or the attribution, so
+    // the property is that a citation in a unit of EITHER kind is found and
+    // reported at that unit -- asserted as the exact set of lines, because a
+    // count alone cannot tell a hit reported at the wrong line from a right
+    // one.
+    let corpus = vec![
+        synthetic_unit(10, TextKind::Comment, 1, &format!("/// see {er} 213")),
+        synthetic_unit(20, TextKind::Str, 2, &format!("{cap} 182, in a literal")),
+        // Two adjacent literals, the first ending in the word and the second
+        // opening with a number. What makes that not a citation is the fence
+        // between two spans, which lives in the join and not in the matcher.
+        synthetic_unit(30, TextKind::Str, 3, &format!("a bare {er}")),
+        synthetic_unit(31, TextKind::Str, 4, "213 is a count"),
+    ];
+    let seen: Vec<usize> = window_hits(&corpus, errata_number_hit, errata_word().len() - 1)
+        .iter()
+        .map(|(_, u)| u.line)
+        .collect();
+    assert_eq!(
+        seen,
+        vec![10, 20],
+        "the collection path reported citations at {seen:?} rather than at the comment on line \
+         10 and the literal on line 20. Missing 10 or 20 means a kind is not reaching the join; \
+         an extra 30 means the fence between two literals is gone and a word ending one runs \
+         into a number opening the next; a line that is neither means the offset-to-unit \
+         mapping is wrong and every hit this check reports names the wrong place."
+    );
+
     let (files, units) = crate_text_units();
     let (comment_lines, string_lines) = assert_text_walk_floors("errata citations", files, &units);
     // The advance is the stem's length: the matcher returns the offset of the
@@ -12025,6 +12110,36 @@ fn no_comment_or_string_under_the_crate_cites_a_document_that_is_not_in_this_rep
     assert!(needles.iter().any(|n| hit.contains(n.as_str())), "the matcher missed {hit:?}");
     let miss = "see docs/specification.md, section I3";
     assert!(!needles.iter().any(|n| miss.contains(n.as_str())), "the matcher fired on {miss:?}");
+
+    // --- the same needles, through the collection path ---
+    //
+    // This scan has no join and no window: it asks every unit whether its
+    // text contains one of the five paths. So the thing that can break is
+    // narrower than for the two window checks, and so is the property -- that
+    // the scan reads a unit of either kind, and that a document this
+    // repository does carry is not a hit.
+    //
+    // It is worth asserting anyway, because "reads every unit" is exactly
+    // what a `filter` added later would quietly narrow, and with the tree at
+    // zero citations nothing else would notice.
+    let corpus = [
+        synthetic_unit(10, TextKind::Comment, 1, &format!("/// see {}", needles[0])),
+        synthetic_unit(20, TextKind::Str, 2, &format!("a page naming {}", needles[1])),
+        synthetic_unit(30, TextKind::Comment, 3, "/// see docs/specification.md, section I3"),
+    ];
+    let seen: Vec<usize> = corpus
+        .iter()
+        .filter(|u| needles.iter().any(|n| u.text.contains(n.as_str())))
+        .map(|u| u.line)
+        .collect();
+    assert_eq!(
+        seen,
+        vec![10, 20],
+        "the collection path reported citations at {seen:?} rather than at the comment on line \
+         10 and the literal on line 20. A missing 10 or 20 means one of the two kinds is no \
+         longer read; a 30 means the scan matches a document that is in this repository, which \
+         is the one thing its premise forbids."
+    );
 
     let (files, units) = crate_text_units();
     let (comment_lines, string_lines) = assert_text_walk_floors("dead-document citations", files, &units);
@@ -12313,6 +12428,82 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
     let run_miss2: Vec<&str> = run_miss2.iter().map(String::as_str).collect();
     assert!(row_names_in_run(&run_miss2).is_empty(), "the row-name matcher fired on a five-digit code");
 
+    // --- the same needles, through the three collection paths ---
+    //
+    // This check has three, and they fail differently, so each gets its own
+    // corpus. None of them is exercised by the assertions above, which hand a
+    // `String` to a matcher; and with the baseline empty the tree reports
+    // zero whether the paths work or not.
+    //
+    // (1) Labels are read per unit, over both kinds. The property is that a
+    //     unit of either kind reaches `phase_tags_in`.
+    let label_corpus = [
+        synthetic_unit(10, TextKind::Comment, 1, &format!("// closed at {s}6")),
+        synthetic_unit(20, TextKind::Str, 2, &format!("a page naming {s}11")),
+        synthetic_unit(30, TextKind::Comment, 3, "// AES256 is not a label"),
+    ];
+    let seen: Vec<usize> = label_corpus
+        .iter()
+        .filter(|u| !phase_tags_in(&u.text).is_empty())
+        .map(|u| u.line)
+        .collect();
+    assert_eq!(
+        seen,
+        vec![10, 20],
+        "the label scan reported {seen:?} rather than the comment on line 10 and the literal on \
+         line 20; a missing one of those is a kind this check has stopped reading."
+    );
+
+    // (2) Row names are read per RUN, and the run is what carries the
+    //     qualifier: the word `matrix` on one line licenses a name on the
+    //     next. That only holds if consecutive comment units of one file
+    //     group together, which is `comment_runs`' whole job and which
+    //     nothing but the tree could exercise while it lived inline.
+    let run_corpus = vec![
+        synthetic_unit(10, TextKind::Comment, 1, "// the matrix below"),
+        synthetic_unit(11, TextKind::Comment, 2, &format!("// names {r}17")),
+        synthetic_unit(12, TextKind::Str, 3, "a literal between the runs"),
+        synthetic_unit(13, TextKind::Comment, 4, "// the matrix below"),
+        synthetic_unit(99, TextKind::Comment, 5, &format!("// names {r}18")),
+    ];
+    let grouped = comment_runs(&run_corpus);
+    let shapes: Vec<(usize, usize)> = grouped.iter().map(|r| (r[0].line, r.len())).collect();
+    assert_eq!(
+        shapes,
+        vec![(10, 2), (13, 1), (99, 1)],
+        "`comment_runs` grouped {shapes:?}. Two consecutive comment lines of one file are one \
+         run; a string literal between them ends a run; and a gap in the line numbers ends one \
+         too. Grouping too little hides a name from the qualifier a line above it, and grouping \
+         too much lends a qualifier to a name three hundred lines away."
+    );
+    let across: Vec<String> = row_names_in_run(&grouped[0].iter().map(|u| u.text.as_str()).collect::<Vec<_>>());
+    assert_eq!(
+        across,
+        vec![format!("{r}17")],
+        "the qualifier on the first line of a run did not reach the name on its second: {across:?}"
+    );
+
+    // (3) Open-item citations go through the join, where one wrapped across
+    //     two comment lines is a single hit. The property is that the join
+    //     makes it one -- a per-line scan finds neither half.
+    let item_corpus = vec![
+        synthetic_unit(10, TextKind::Comment, 1, &format!("// (AGENT.md, {ko}")),
+        synthetic_unit(11, TextKind::Comment, 1, "//  22, closed)."),
+        synthetic_unit(20, TextKind::Str, 2, &format!("a page naming {ko} 9")),
+    ];
+    let seen: Vec<usize> = window_hits(&item_corpus, board_item_hit, board_item_word().len())
+        .iter()
+        .map(|(_, u)| u.line)
+        .collect();
+    assert_eq!(
+        seen,
+        vec![10, 20],
+        "the open-item collection path reported {seen:?} rather than the wrapped citation at \
+         line 10 and the literal at line 20. A missing 10 means the join is not putting two \
+         comment lines of one span together and every wrapped citation is invisible; a missing \
+         20 means string literals are not reaching it."
+    );
+
     let (files, units) = crate_text_units();
     let (comment_lines, string_lines) = assert_text_walk_floors("phase tags", files, &units);
     let mut problems: Vec<String> = Vec::new();
@@ -12326,32 +12517,20 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
                 .push(format!("\x20     {}:{} ({:?}): {tags:?} in {}", u.file, u.line, u.kind, u.text.trim()));
         }
     }
-    // Comment runs: consecutive comment units on consecutive lines of one file.
-    let mut i = 0usize;
-    let mut runs = 0usize;
-    while i < units.len() {
-        if units[i].kind != TextKind::Comment {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        while j < units.len()
-            && units[j].kind == TextKind::Comment
-            && units[j].file == units[i].file
-            && units[j].line == units[j - 1].line + 1
-        {
-            j += 1;
-        }
-        runs += 1;
-        let lines: Vec<&str> = units[i..j].iter().map(|u| u.text.as_str()).collect();
+    // Comment runs, through the same grouping the corpus above exercises.
+    let grouped_runs = comment_runs(&units);
+    let runs = grouped_runs.len();
+    for run in &grouped_runs {
+        let lines: Vec<&str> = run.iter().map(|u| u.text.as_str()).collect();
         let names = row_names_in_run(&lines);
         if !names.is_empty() {
             problems.push(format!(
                 "\x20 - {}:{}-{}: fault-matrix row name(s) {names:?} in a comment run that speaks of a matrix or a row",
-                units[i].file, units[i].line, units[j - 1].line
+                run[0].file,
+                run[0].line,
+                run[run.len() - 1].line
             ));
         }
-        i = j;
     }
     assert!(runs >= 1_700, "the walk formed {runs} comment run(s); the four roots hold more than 2,500");
     // The open-item citations, over each file's joined text so the two that
