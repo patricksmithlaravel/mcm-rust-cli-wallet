@@ -73,41 +73,24 @@ pub fn sha3_512(input: &[u8]) -> [u8; crate::consts::SHA3LEN512] {
 /// `ripemd160(input)`, exposed for the same reason as [`sha3`] — and
 /// **total over every input length**.
 ///
-/// # The reference-faulting class is routed, not forwarded
+/// # Why one length class has its own fixture group
 ///
-/// The reference corrupts its own stack for `input.len() % 64 >= 56`,
-/// which once made this safe public function end
-/// the process — attacker-shaped input, since the caller chooses the slice.
-/// The foreign-function `ripemd160` was given that class as an `unsafe`
-/// contract and this wrapper made to answer
-/// the class with `native::ripemd160` instead: RustCrypto's `ripemd`, correct
-/// over the whole range, anchored on exactly this class by the 26 group RX
-/// vectors (`@noble/hashes`, an independent implementation of the published
-/// algorithm — see `fixtures/group_rx_ripemd.json`).
+/// This is RustCrypto's `ripemd`, defined over every length, and the corpus
+/// cannot check it that way from one side. The vendored C finalisation writes
+/// part of the length past the end of its 64-byte block buffer whenever
+/// `input.len() % 64 >= 56`, so for one length in every 64 the reference has no
+/// digest to compare against and cannot be given one — calling it is what
+/// crashes. That is the class `fixtures/group_rx_ripemd.json` exists for: its
+/// 26 vectors anchor exactly those lengths against `@noble/hashes`, an
+/// independent implementation of the published algorithm rather than the
+/// reference. `tests/kat.rs::rx_ripemd160` replays them through **this**
+/// function.
 ///
-/// On the defined domain (`len % 64 < 56`) the selected backend is called
-/// exactly as before, and the group HS sweep (`tests/kat.rs`) is the evidence
-/// that it agrees with the reference there. So this is a class-scoped,
-/// call-site-scoped routing, taken only over the lengths the reference has no
-/// defined behaviour for at all.
-///
-/// `tests/kat.rs::rx_ripemd160` replays the RX vectors through **this**
-/// function and compares every digest to the recorded `@noble/hashes` value.
+/// On the rest of the domain the reference does answer, and the group HS sweep
+/// is the evidence that this agrees with it there. Two kinds of evidence, one
+/// implementation: the length of the input selects which vectors cover a call,
+/// never which code runs.
 pub fn ripemd160(input: &[u8]) -> [u8; 20] {
-    if input.len() % 64 >= 56 {
-        return ripemd160_on_faulting_class(input);
-    }
-    ripemd160_on_defined_domain(input)
-}
-
-/// The faulting-class arm: RustCrypto, the implementation group RX anchors.
-#[cfg(feature = "native")]
-fn ripemd160_on_faulting_class(input: &[u8]) -> [u8; 20] {
-    crate::backend::native::ripemd160(input)
-}
-
-/// The defined-domain arm, through the selected backend.
-fn ripemd160_on_defined_domain(input: &[u8]) -> [u8; 20] {
     backend::ripemd160(input)
 }
 

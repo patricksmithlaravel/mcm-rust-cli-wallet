@@ -245,7 +245,7 @@ Pinned values (group C, each reproduced by a second implementation in group CX):
 
 SHA3-512 of the empty input is pinned separately, as `a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26`, so a broken composition and a broken hash report separately (group C).
 
-The `addr` module also exposes the pieces: `sha3_224`, `sha3_256`, `sha3_384` and `sha3_512` (28-, 32-, 48- and 64-byte outputs; only the 512-bit width is on the address path), and `ripemd160`. `ripemd160` answers every input length: the length class the C implementation mishandles (`len % 64 >= 56`) is routed to a second implementation rather than forwarded, so in either shipped configuration the function is total.
+The `addr` module also exposes the pieces: `sha3_224`, `sha3_256`, `sha3_384` and `sha3_512` (28-, 32-, 48- and 64-byte outputs; only the 512-bit width is on the address path), and `ripemd160`. `ripemd160` answers every input length, including the class the C implementation mishandles (`len % 64 >= 56`). There is one implementation and no length-dependent branch; what the length class selects is which fixture group covers the call, because the reference cannot be asked for a digest on it.
 
 ### Implicit addresses
 
@@ -1744,7 +1744,7 @@ An unknown global flag and an unexpected argument in a command's tail are both r
 | class | what the reference does | what the wallet does |
 | --- | --- | --- |
 | Base58 decode of an all-`'1'` string | the length probe returns 21 for the 22-character encoding of an all-zero payload — one short — and the decoding call itself computes a copy length of `(size_t)(-1)` and dies | answers the class itself: *n* `'1'` characters decode to *n* zero bytes. The value has no reference behind it and is stated as a requirement (group C), with an independent implementation pinning it (group CX). The probe still reports the reference's own number, because recording that defect is what the probe exists for |
-| RIPEMD-160 where `len % 64 >= 56` | the finalisation routine writes part of the length past the end of its 64-byte block buffer and then hashes up to 72 bytes out of it | routes the whole length class to its own implementation, anchored by 26 vectors against an independent implementation of the published algorithm (group RX), since the reference cannot be asked for a digest it dies producing |
+| RIPEMD-160 where `len % 64 >= 56` | the finalisation routine writes part of the length past the end of its 64-byte block buffer and then hashes up to 72 bytes out of it | computes the whole domain with an implementation that is defined on it, anchored over that class by 26 vectors against an independent implementation of the published algorithm (group RX), since the reference cannot be asked for a digest it dies producing |
 
 Both classes are excluded from the differential comparison, because a differential is structurally unable to see a class it skips.
 
