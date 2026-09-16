@@ -197,7 +197,7 @@ fn walk_native() -> BTreeSet<&'static str> {
         log,
         wots_pk_from_sig_counted(&sig, &msg, &pub_seed, &mut a)
     );
-    // Not a KAT -- `tests/native.rs` owns correctness. This is here so the
+    // Not a KAT -- `tests/kat.rs` owns correctness. This is here so the
     // recovered key is *read*, which is what makes an over-read past it
     // something Miri can see rather than something the optimiser deletes.
     assert_eq!(pk, recovered, "WOTS+ round trip disagreed under the walk");
@@ -360,12 +360,13 @@ fn native_backend_is_clean_under_miri() {
 
 /// The zeroization witness, run under the interpreter.
 ///
-/// # Why this test exists beside `native.rs`'s copy
+/// # Why this test exists beside the census's copy
 ///
-/// `secret_bytes_are_gone_after_drop` lives in `tests/native.rs`, which is where
-/// the execution census demands the proof be. That file is gated on **both**
-/// backends, so Miri -- which runs `--no-default-features --features native`,
-/// the only configuration an interpreter can execute -- never sees it.
+/// `secret_bytes_are_gone_after_drop` lives in `tests/invariants.rs`, which is
+/// where the execution census demands the proof be. That target spawns `cargo`
+/// and sibling test binaries, so Miri -- which runs
+/// `--no-default-features --features native`, the only configuration an
+/// interpreter can execute -- never runs it.
 ///
 /// The construction is the delicate part of that test, not the assertion: it
 /// reads storage across an object's death, and the version the marker's own doc

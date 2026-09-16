@@ -5,19 +5,18 @@
 //! `--no-default-features --features native`, the configuration Miri can
 //! interpret, and that is its purpose: it is the mechanism behind the claim
 //! that the native transaction path works **in a build where the C is
-//! absent**. The proof test in `native.rs` shares the same walk (one
-//! implementation, `support/wire_images.rs`) and adds the FFI legs; the
-//! marker in `invariants.rs` names which test carries which claim.
+//! absent**. The walk itself is `support/wire_images.rs`, one implementation
+//! shared with `spend.rs`'s loaders; the marker in `invariants.rs` names which
+//! test carries which claim.
 //!
 //! # What this file alone cannot establish
 //!
 //! A parse/serialize error pair that compensates — both sides using the same
 //! wrong offset — keeps every pure round trip here green. The recorded-field
-//! assertions in the shared walk catch the corpus-visible cases; what closes
-//! the class off-corpus is `native.rs`'s differentials against the FFI
-//! construction path, which do not run in this configuration. A green here is
-//! "the C-free build round-trips the corpus", not "the codec agrees with the
-//! C everywhere".
+//! assertions in the shared walk catch the corpus-visible cases; closing the
+//! class off-corpus would need a second construction path to differ from, and
+//! this repository has none. A green here is "the C-free build round-trips the
+//! corpus", not "the codec agrees with the C everywhere".
 
 #[path = "support/wire_images.rs"]
 mod wire_images;

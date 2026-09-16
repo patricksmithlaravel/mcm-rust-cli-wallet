@@ -2,9 +2,9 @@
 // case passes when compilation fails, so all four would go green the moment
 // `mochimo_crypto::keystore::sign` stopped building. This file exercises the
 // intended signing surface end to end -- derive, reserve, check, sign at
-// position 0, settle, reserve, sign at position 1 -- and must compile and run
-// (the argument at `handle_is_usable.rs`). trybuild compiles it as its own
-// crate, so it uses the system temp directory.
+// position 0, settle, reserve, sign at position 1 -- and must compile and run.
+// trybuild compiles it as its own crate, so it uses the system temp
+// directory.
 
 use mochimo_crypto::account::{Account, WotsIndex};
 use mochimo_crypto::keystore::{KeyAccess, Keystore};

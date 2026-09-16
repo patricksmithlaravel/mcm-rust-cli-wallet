@@ -1,10 +1,9 @@
-//! The group D wire-image walk, shared between `native.rs`'s proof test and
-//! `txwire.rs`'s C-free test.
+//! The group D wire-image walk, used by `txwire.rs`'s C-free round trip and by
+//! `spend.rs` for its loaders alone.
 //!
-//! One implementation on purpose: the two tests make different claims — the
-//! proof test adds the FFI legs, the C-free test is the build-with-no-C
-//! execution — but the native round trip they share must be the same walk, or
-//! the two would quietly diverge in which images they cover.
+//! One implementation on purpose: a second copy of the walk would diverge from
+//! this one in which images it covers, and the divergence would be invisible
+//! from either side.
 //!
 //! # The population, stated
 //!
@@ -30,8 +29,10 @@
 //! error pair — both sides using the same wrong offset cancel. Two things
 //! break the tie: the recorded-field assertions here (the parse must extract
 //! the values the generator recorded from its own inputs, e.g. `D17`'s
-//! distinct address halves and `D18`'s four asymmetric header values), and
-//! `native.rs`'s differentials against the FFI construction path.
+//! distinct address halves and `D18`'s four asymmetric header values). What
+//! they cannot break is a compensating pair no recorded field distinguishes;
+//! closing that class needs a second construction path, and there is none in
+//! this repository.
 
 use mochimo_crypto::tx::wire::Transaction;
 

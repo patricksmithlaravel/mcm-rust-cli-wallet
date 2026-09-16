@@ -15,11 +15,9 @@
 //! `Clone`), I2 and I3's (`account_advance_receipt_is_not_constructible`,
 //! `durable_is_not_constructible`, `medium_steps_are_not_reorderable`), I6's
 //! (`secret_is_not_partial_eq`, `secret_is_not_partial_ord`), the account
-//! model's, the keystore's, and the terminal's. It began as I7's compile-fail
-//! half -- the TXENTRY handle's four by-value hazards -- and that family is
-//! gone with the handle: the FFI transaction type is not a Rust value here
-//! because it does not exist here, and the file was renamed from
-//! `txentry_compile_fail.rs` to say what it runs.
+//! model's, the keystore's, and the terminal's. I7's compile-fail half -- the
+//! TXENTRY handle's four by-value hazards -- is not among them: the FFI
+//! transaction type is not a Rust value here because it does not exist here.
 //!
 //! # Why the cases live in `ui/` and not under `tests/`
 //!

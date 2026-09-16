@@ -2,8 +2,7 @@
 // every compile-fail case passes when compilation fails, so all five would go
 // green the moment `mochimo_crypto::account` stopped building at all. This
 // file exercises the intended public surface and must compile, which is what
-// makes the rejections boundaries rather than rubble (the same argument as
-// `handle_is_usable.rs`).
+// makes the rejections boundaries rather than rubble.
 
 use mochimo_crypto::account::{Account, AccountKind};
 use mochimo_crypto::Secret;

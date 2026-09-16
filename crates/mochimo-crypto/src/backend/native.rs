@@ -1167,8 +1167,8 @@ pub fn hash_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
 ///
 /// The three sizes come from `crate::consts::wire`, which carries the
 /// reference's own `STATIC_ASSERT` expressions rather than three numbers. See
-/// that module for why, and `tests/layout.rs` for the two independent things
-/// each is checked against.
+/// that module for why; `tests/txwire.rs` and `tests/kat.rs` hold each of them
+/// to the offsets `group_d_tx.json` records.
 pub fn len_min() -> usize {
     wire::SIZEOF_TXHDR + wire::SIZEOF_MDST + wire::SIZEOF_WOTSVAL
 }

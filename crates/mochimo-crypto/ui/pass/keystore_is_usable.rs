@@ -1,9 +1,9 @@
 // The inverse case for the four keystore fail cases: every compile-fail case
 // passes when compilation fails, so all four would go green the moment
 // `mochimo_crypto::keystore` stopped building. This file exercises the
-// intended public surface end to end and must compile (the argument at
-// `handle_is_usable.rs`). trybuild compiles it as its own crate, so it cannot
-// see CARGO_TARGET_TMPDIR and uses the system temp directory.
+// intended public surface end to end and must compile. trybuild compiles it as
+// its own crate, so it cannot see CARGO_TARGET_TMPDIR and uses the system temp
+// directory.
 
 use mochimo_crypto::account::{Account, AccountRecord, WotsIndex};
 use mochimo_crypto::keystore::Keystore;

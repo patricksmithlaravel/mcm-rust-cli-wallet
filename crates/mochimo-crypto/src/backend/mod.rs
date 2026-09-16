@@ -25,8 +25,11 @@
 #[cfg(feature = "native")]
 pub mod native;
 
-/// The backend every caller resolves to. A plain alias of [`native`]: the
-/// name is what the callers, the tests and the specification use, and it
-/// marks the one place a second backend would be selected if there were one.
+/// The backend every caller resolves to. A plain alias of [`native`], and the
+/// name the callers, the tests and the specification use: modules under `src/`
+/// import it as `backend`, `tests/kat.rs` replays the whole corpus through
+/// `backend::selected`, and the public surface the `raw-backend` feature opens
+/// is named through it. A few sites inside `src/` reach for [`native`] by name
+/// instead, where the point is that implementation rather than the seam.
 #[cfg(feature = "native")]
 pub use native as selected;

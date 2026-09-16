@@ -29,8 +29,7 @@
 
 #[path = "support/keystore_harness.rs"]
 mod keystore_harness;
-// Only the loaders are used here; the walk itself belongs to `native.rs`
-// and `txwire.rs`.
+// Only the loaders are used here; the walk itself belongs to `txwire.rs`.
 #[allow(dead_code)]
 #[path = "support/wire_images.rs"]
 mod wire_images;

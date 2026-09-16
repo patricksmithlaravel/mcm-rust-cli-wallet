@@ -1459,10 +1459,9 @@ fn ts_base58_decode(ctx: &mut Ctx) {
 ///
 /// There is no reference leg and there cannot be one -- calling the vendored
 /// `ripemd160` on this input class ends the process. The assertion is against
-/// `mochimo_crypto::addr::ripemd160` only where the backend is native; under
-/// the FFI backend that call would abort, so the replay asserts the fixture's
-/// internal consistency here and `tests/native.rs` carries the digest
-/// comparison against the native implementation.
+/// `mochimo_crypto::addr::ripemd160`, which computes every length with one
+/// implementation, so the recorded `@noble/hashes` digest is compared to what
+/// this crate answers as well as to the fixture's own internal consistency.
 fn rx_ripemd160(ctx: &mut Ctx) {
     let input = ctx.hex("in");
     ctx.eq_u64("in_len", input.len() as u64);
@@ -2193,14 +2192,12 @@ fn no_input_is_reconstructed_from_prose() {
 /// destination list).
 ///
 /// All six are signed and all six have `tx_val__wots` run over them, which is
-/// why `tx_val__wots_rc` rose by exactly six: an unvalidated signed vector
-/// would have joined `native.rs`'s `reproduced_without_verdict` beside `D5`.
-/// The three new `mdst_val` errnos are `EMCM_XTXREF`, `EMCM_XTXTOTALS` and
-/// `EMCM_XTXFEES`.
+/// why `tx_val__wots_rc` counts six more than the signed-image count would
+/// otherwise imply. The three `mdst_val` errnos they add are `EMCM_XTXREF`,
+/// `EMCM_XTXTOTALS` and `EMCM_XTXFEES`.
 ///
-/// `tx_val__wots_rc` moved once more, 17 → 18: a generator fix gave
-/// `D5` the verdict its emit block had been one call short of
-/// (VEOK), and `reproduced_without_verdict` emptied.
+/// `D5` is signed exactly as `D4` and carries `D4`'s `tx_val__wots` verdict
+/// (VEOK), so no signed vector in the group is missing one.
 const TX_CORE_CENSUS: &[(&str, usize)] = &[
     // The Ds12 destination-count sweep added 22 signed, validated images:
     // 25 -> 47, 22 -> 44, 18 -> 40.

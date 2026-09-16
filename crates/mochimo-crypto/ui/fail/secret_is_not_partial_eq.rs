@@ -49,10 +49,10 @@
 // to compile, and both are caught only because the recorded output no longer
 // matches.
 //
-// Row 4 is why `tests/txentry_compile_fail.rs` now censuses `ui/fail` by
-// subject: deleting this file turns the marker red, but before that census a
-// bare `fails.len() >= 4` over the directory would have stayed green while the
-// count was made up by unrelated cases.
+// Row 4 is why `tests/compile_fail.rs` censuses `ui/fail` by subject rather
+// than by count: deleting this file turns the marker red, where a bare
+// `fails.len() >= 4` over the directory would stay green with the count made
+// up by unrelated cases.
 
 fn main() {
     let a = mochimo_crypto::Secret::<32>::new([0u8; 32]);

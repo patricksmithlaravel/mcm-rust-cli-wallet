@@ -47,10 +47,9 @@ fn repo_root() -> PathBuf {
 /// `text` with `//` line comments and `/* */` block comments blanked out.
 ///
 /// Several checks here search source for a symbol name, and the files they
-/// search discuss those names deliberately — `shim.h` states in prose that
-/// `WOTS_TAG_PTR` is absent, `build.rs` explains why it was dropped. A
-/// search that could not tell a comment from code would make explaining a
-/// decision indistinguishable from reversing it.
+/// search discuss those names deliberately: a comment that states why a symbol
+/// is absent contains the symbol. A search that could not tell a comment from
+/// code would make explaining a decision indistinguishable from reversing it.
 ///
 /// String literals are opaque to the comment scanner but are **emitted
 /// verbatim**. Both halves matter. Opaque, because `t.pass("ui/pass/*.rs")` in
@@ -709,8 +708,8 @@ fn test_sources() -> String {
     //   Anchor B    subject: "does another test file still define <name>?"
     //               the matching literal was in invariants.rs, and the corpus
     //               was every file under tests/
-    //               -> the match was present whatever native.rs held. It
-    //                  SUBSTITUTED for the claim.
+    //               -> the match was present whatever the subject file held.
+    //                  It SUBSTITUTED for the claim.
     //
     // Confirmed by injection rather than argued, both directions:
     //
@@ -1655,15 +1654,22 @@ fn execution_census_population_is_libtests_run_list() {
         total += n.len();
         per_bin.push((bin.clone(), n.len()));
     }
+    // 250 is two thirds of the 375 this test printed when the floor was last
+    // re-derived, across 16 binaries. Two thirds and not a half: the floor's
+    // job is to catch a census reading a truncated population, and the loosest
+    // floor in this file is the one that catches the least. A third of the
+    // suite disappearing is a larger event than any commit should produce, so
+    // a floor that tolerates it tolerates the failure it exists to name --
+    // while leaving room for a target to be removed without a false red.
     assert!(
-        total >= 200,
-        "libtest lists {total} tests across {} binaries; it was 375 when this \
-         message was last re-derived. Two-sided in spirit: \
-         too few and the census is reading a truncated population, and the \
-         likeliest cause is that it stopped asking libtest. Re-derive by \
-         running this test and reading what it printed, not by arithmetic on \
-         the old value: the figure in this message was stale at every one of \
-         its previous re-derivations.",
+        total >= 250,
+        "libtest lists {total} tests across {} binaries; it was 375 across 16 \
+         when this floor was last re-derived, and the floor is two thirds of \
+         that. Two-sided in spirit: too few and the census is reading a \
+         truncated population, and the likeliest cause is that it stopped \
+         asking libtest. Re-derive by running this test and reading what it \
+         printed, not by arithmetic on the old value: the figure in this \
+         message was stale at every one of its previous re-derivations.",
         per_bin.len()
     );
 
@@ -4645,25 +4651,22 @@ fn attrs_in_tokens(tokens: proc_macro2::TokenStream, want: &str) -> usize {
 ///
 /// # The domain, measured rather than assumed
 ///
-/// Walking `syn`'s items only sees **109** of the suite's **138** `#[test]`
-/// attributes. The missing 29 are in
-/// `native.rs`'s ten `proptest!` blocks — 21% of the suite, in the file with
-/// the most tests — because a `proptest!` body is not parseable as Rust items
-/// (`args in strategy` is not fn syntax), so `syn` yields `Item::Macro` and
-/// stops. A ban blind to a fifth of its own domain is the failure this check
-/// exists to stop, committed by the check itself. That arm is now walked at the
-/// **token** level, which is exact rather than approximate: the tokenizer has
-/// already discarded comments, and a string literal containing `"#[ignore]"` is
-/// one `Literal`, never the ident `ignore` inside a bracket group.
+/// Walking `syn`'s items alone does not see every `#[test]` attribute in the
+/// suite. The ones it misses are inside `proptest!` blocks -- this file's, the
+/// only ones in the tree -- because a `proptest!` body is not parseable as Rust
+/// items (`args in strategy` is not fn syntax), so `syn` yields `Item::Macro`
+/// and stops. A ban blind to part of its own domain is the failure this check
+/// exists to stop, committed by the check itself. That arm is walked at the
+/// **token** level instead, which is exact rather than approximate: the
+/// tokenizer has already discarded comments, and a string literal containing
+/// `"#[ignore]"` is one `Literal`, never the ident `ignore` inside a bracket
+/// group.
 ///
-/// The corroborating numbers, recomputed rather than carried. A *line-anchored*
-/// `#[test]` grep over the same files also returns **138** — it agrees, so a
-/// text search is not wrong here by construction. A *substring* count returns
-/// **151**, and that number **rose by five while this doc comment was being
-/// written**, because the prose below mentions the attribute. A substring
-/// census of this corpus is a moving target its own documentation perturbs,
-/// which is the reason the walk is over tokens rather than bytes — not any
-/// claim that grep cannot get the count right.
+/// The count is printed from the run rather than written down here. A
+/// *substring* count over these files is a moving target its own documentation
+/// perturbs -- this paragraph mentions the attribute and would be counted --
+/// which is the second reason the walk is over tokens rather than bytes, and
+/// the reason no figure is carried in this comment.
 ///
 /// # WHAT THIS DOES NOT ESTABLISH — read before treating the guards as sound
 ///
@@ -4734,13 +4737,11 @@ fn no_test_in_the_suite_is_ignored() {
                         }
                     }
                 }
-                // `proptest! { .. }` blocks. MEASURED, not anticipated: without
-                // this arm the collector saw 109 of the suite's 138 `#[test]`
-                // attributes, because native.rs writes 29 of its 75 inside ten
-                // `proptest!` invocations -- 21% of the suite, in the file with
-                // the most tests. A ban that cannot see a fifth of its domain
-                // is the failure this check exists to stop, committed by the
-                // check itself.
+                // `proptest! { .. }` blocks. MEASURED, not anticipated:
+                // without this arm the collector misses every `#[test]` written
+                // inside a `proptest!` invocation, and this file writes ten of
+                // them. A ban that cannot see part of its domain is the failure
+                // this check exists to stop, committed by the check itself.
                 //
                 // The body is not parseable as items (`args in strategy` is not
                 // Rust fn syntax), so it is walked as TOKENS. That is exact
@@ -4919,7 +4920,7 @@ fn group_e_constants_stay_anchored() {
     //   unmodified                                 green           green
     //   checker suffix-renamed to `_v2`            GREEN, correct  RED, FALSE
     //   prefix-sharing decoy in invariants.rs      RED, false      green
-    //   prefix-sharing decoy in native.rs          green           green
+    //   prefix-sharing decoy in a file after kat.rs green           green
     //   one constant dropped from the checker      RED             RED
     //
     // **Neither spelling can produce a false GREEN**, which is what F-11 is
@@ -4930,9 +4931,8 @@ fn group_e_constants_stay_anchored() {
     // constants. Leaving it un-terminated risks a red only if somebody defines a
     // `fn` sharing this exact 37-character prefix *in a file sorting before
     // `kat.rs`* -- which is `invariants.rs` and nothing else, since the corpus is
-    // sorted by path. The decoy in `native.rs` is green precisely because
-    // `native.rs` sorts after `kat.rs`, so position and not merely existence is
-    // what would trigger it.
+    // sorted by path. A decoy in a file sorting after `kat.rs` stays green, so
+    // position and not merely existence is what would trigger it.
     //
     // A rename is a refactor somebody performs. The decoy is not something
     // anybody writes. So the needle stays as it is, and this comment is here
@@ -8295,12 +8295,11 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 /// Read this before touching the needle, the walk, or the forbidden set.
 ///
 /// Nothing else in the tree can see a native-endian conversion **on this host**.
-/// The 100,000-case differential against `ffi::put32`,
-/// `native_put32_byte_order_is_a_decision_not_a_measurement` and
-/// `native_put32_matches_the_recorded_generator_bytes` are **all three green**
+/// Any test that compares `put32`'s output to a recorded value stays green
 /// under a `to_ne_bytes` injection, because on a little-endian host
-/// `to_le_bytes` and `to_ne_bytes` compile to the same thing. That was measured,
-/// not assumed — re-measured with the third test in place.
+/// `to_le_bytes` and `to_ne_bytes` compile to the same thing. That is measured
+/// rather than assumed, and it is why this check reads the source instead of
+/// comparing outputs.
 ///
 /// The generator calls `put32` and `group_d_tx.json` records the bytes as
 /// `identity.adrs_tail12`, so `put32` has the C8-shaped anchor and lacks the
@@ -9415,8 +9414,8 @@ const DECLARED_UNIMPLEMENTED: &[(&str, &str, Owing)] = &[
 /// * five of the seven were never missing behaviour — they were the C's calling
 ///   convention and its runtime `outlen` sitting in the backend seam, and
 ///   native already had those semantics under Rust-shaped names;
-/// * `native.rs::native_put32_matches_the_recorded_generator_bytes` has been
-///   the measurement.
+/// * `put32`'s byte order is anchored by the generator's own recorded bytes,
+///   `identity.adrs_tail12` in `group_d_tx.json`, which the corpus replays.
 ///
 /// This text is not a doc comment that aged. **It is the failure message a debt
 /// marker prints on every run of the board**, so the most-read prose in the tree
@@ -9514,8 +9513,7 @@ fn every_unimplemented_site_is_knowledge_not_debt() {
 /// # What the green establishes, and what it cannot
 ///
 /// The codec agrees with the C on **layout and encoding** (49 named wire
-/// images, byte-identical both ways; differentials against the FFI
-/// construction path at native.rs), and the corpus behind it carries the two
+/// images, byte-identical both ways), and the corpus behind it carries the two
 /// offline validators' verdicts (`mdst_val`, `tx_val__wots`). **`tx_val` was
 /// never run** — it needs an open ledger — so no wire image is a transaction
 /// the C accepted end to end, and a serializer green here can still emit a
@@ -9737,10 +9735,10 @@ fn no_restricted_visibility_fn_in_the_backend() {
 /// **Sorted, and that is the point.** `read_dir` order is not sorted and is not
 /// guaranteed stable across filesystems, so an unsorted concatenation gives the
 /// checks that slice this corpus a domain that varies per machine on one commit
-/// (a corpus that varies is a different subject). Measured on this tree: the stray comment opener in
-/// `txentry_compile_fail.rs` (now `compile_fail.rs`) destroyed 19,015 bytes in `read_dir` order and 628
-/// in sorted order -- same defect, different victim, chosen by the
-/// filesystem. Sorting does not repair the stripper and was never meant to; it
+/// (a corpus that varies is a different subject). Measured on this tree: the
+/// stray comment opener in `compile_fail.rs` destroyed 19,015 bytes in
+/// `read_dir` order and 628 in sorted order -- same defect, different victim,
+/// chosen by the filesystem. Sorting does not repair the stripper and was never meant to; it
 /// makes the damage the same everywhere, so a measurement of it means something.
 fn test_source_files() -> Vec<(String, String)> {
     let root = repo_root();
@@ -9795,11 +9793,11 @@ fn test_source_files() -> Vec<(String, String)> {
 /// | old stripper, sorted order | 169,161 |
 /// | repaired stripper, sorted order | 170,303 |
 ///
-/// 13,310 bytes of code were destroyed. The single largest hole ran 19,015 bytes
-/// from the compile-fail runner+3321 to this file+1861, taking all of
-/// `txentry.rs` with it. In sorted order the same opener instead ran
-/// unterminated to EOF and took 628 -- same defect, different victim, chosen by
-/// the filesystem.
+/// 13,310 bytes of code were destroyed. The single largest hole ran 19,015
+/// bytes from the compile-fail runner+3321 to this file+1861, swallowing every
+/// file the concatenation placed between them. In sorted order the same opener
+/// instead ran unterminated to EOF and took 628 -- same defect, different
+/// victim, chosen by the filesystem.
 ///
 /// # What this asserts now
 ///
