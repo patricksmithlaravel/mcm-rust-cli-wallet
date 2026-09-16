@@ -1609,6 +1609,8 @@ At rest, the store's record body and body header — which together carry every 
 
 **Residue, stated.** Every rewrite copies the store into a new inode, and old inodes are ciphertext under the same key, because the salt lives in the header and only the nonce moves with the generation. A recovered old inode is readable by whoever has the password and worthless to whoever does not.
 
+That is the residue on disk. The residue in memory is not covered by anything here: the process's pages are not locked and core dumps are not suppressed, so a secret this invariant overwrites on drop may already have reached swap or a core file. Stated as a limit under [Limits and known-open items](#limits-and-known-open-items), with the reason it is not mitigated.
+
 ### I7 — no self-referential transaction struct is ever a Rust value
 
 The node's in-memory transaction is a 13,628-byte buffer, a size field and fifteen pointers into that same buffer, all set at construction; relocating such a struct leaves every pointer aimed at the old address. In C nothing copies one without re-initialising it. In Rust a move is a memcpy and moves are implicit, so a struct of that shape must never exist as a Rust value.
@@ -1654,6 +1656,22 @@ These are not numbered and are enforced the same way.
 ## Limits and known-open items
 
 Everything below is a present-tense property of the wallet as it ships. None of it is scheduled work.
+
+### The platform is Unix
+
+This wallet targets Unix. It is built and tested on **Linux** and **macOS**. Windows is not a goal, and a non-unix build fails at compile time rather than degrading: `lib.rs` names the three interfaces the crate needs and `keystore` names the storage guarantees it rests on.
+
+Three things make it so, and none of them is a convenience:
+
+| interface | what depends on it |
+| --- | --- |
+| Unix mode bits | the store is created `0600` and its directory `0700`, and both creating and opening a store refuse a directory that is group- or world-writable (`Error::UnsafePermissions`). This is a check against another local user; the Windows equivalent is a DACL and a second implementation of it |
+| `/dev/tty`, opened by path | the password and the recovery phrase are read from the controlling terminal, so neither can be piped or redirected into the process; echo is turned off by `stty` |
+| `/dev/urandom`, read through `std::fs` | the salt and the nonce seed the binary supplies to the keystore |
+
+The keystore additionally rests on POSIX rename atomicity, directory `fsync` and `flock`, which is why that module carries its own statement.
+
+The BSDs have all of these. Nothing in this repository builds or tests against them, so they are neither supported nor known to fail.
 
 ### A locally valid transaction can still be rejected by a node
 
@@ -1751,6 +1769,14 @@ An unknown global flag and an unexpected argument in a command's tail are both r
 - **The three diagnostic-string functions panic.** The validation-code name, the errno name and the errno text are the node software's own spellings; a Rust restatement would compare the crate's naming against its own, so they are left unimplemented and nothing on the wallet path calls them.
 - **There is no differential check against another implementation at run time.** The fixture corpus is what the crate is checked against: a frozen artifact, produced by executing the reference implementations and replayed here, never regenerated.
 - **The shipped binary requires the `mesh-https` transport feature**, which pulls in a TLS stack with its own C (`ring`). Every test target builds without it; the pty tests build the binary as a subprocess.
+
+### The process's memory is not locked, and core dumps are not suppressed
+
+The master seed, the decrypted store body, the password and the expanded WOTS+ private keys live in ordinary pageable memory while they are in use. `Zeroizing` overwrites each on drop, which is what I6 establishes and is the whole of what it establishes: it does nothing about a page the kernel has already written to swap, a core dump taken while the process is live, a hibernation image, or a debugger attached to the running process. I6's *Residue, stated* covers old store inodes on disk; this is the same question about memory, and the answer is that nothing here addresses it.
+
+This is a decision rather than an omission. Locking pages (`mlock`) and disabling core dumps (`setrlimit`) both require `unsafe` through `libc` or a dependency that wraps it, and `invariants.rs::unsafe_is_confined_to_declared_files` asserts an empty allow-list against zero `unsafe` keywords under `src/`. What the mitigations defend against is an attacker who can already read this machine's swap, core files or process memory — who, at that point, can also read the keystore file and wait for the password. The property they would cost is machine-checked and applies to every build; the property they would buy is partial and applies to one class of local attacker. The trade is refused.
+
+An operator who needs it has the platform's own tools: swap encryption, and a core-dump limit set outside this process.
 
 ### Two defects in the reference implementation that the corpus works around
 

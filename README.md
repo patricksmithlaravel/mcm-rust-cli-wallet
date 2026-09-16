@@ -28,8 +28,9 @@ It is also why the wallet **fails closed** when its stored index and the Mesh di
 
 ## Requirements
 
+- **Unix only** — built and tested on **Linux** and **macOS**. Not Windows, and not WSL's Windows side: the keystore's permission checks are Unix mode bits and secrets are read from `/dev/tty`. The BSDs have the interfaces it needs and are untested here.
 - Rust **1.89+** (see root `Cargo.toml`)
-- A normal controlling terminal (the wallet reads the password from `/dev/tty`, not from a pipe)
+- A normal controlling terminal — the password and the recovery phrase are read from `/dev/tty`, never from a pipe or a redirect
 - Network access for any command that talks to a Mesh node
 
 On some machines Cargo is not on the default `PATH`:
