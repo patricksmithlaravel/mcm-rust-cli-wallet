@@ -29,7 +29,7 @@
 //! **One key stream, one account.** Every record carries the stream's public
 //! identity since format v2 — the rotation-0 public key's hash — and
 //! [`Keystore::add`] refuses a duplicate across kinds, which is the half a
-//! drop-and-reopen used to defeat. The
+//! drop-and-reopen would otherwise defeat. The
 //! identity of the account being added is recomputed from its key material,
 //! never read off a record.
 //!
@@ -51,9 +51,9 @@
 //! `keystore.lock` is created once, never unlinked, and held with
 //! `File::try_lock` (`flock(2)`) for the handle's life; `Drop` does nothing,
 //! because the kernel releases the lock on process death — including
-//! `SIGKILL` — so a held lock always means a live holder. The `create_new`
-//! lockfile this design first sketched is the stale-lock design that
-//! manufactures the delete-the-lock workaround I4's decision warns against, and
+//! `SIGKILL` — so a held lock always means a live holder. A `create_new`
+//! lockfile instead is the stale-lock design that manufactures the
+//! delete-the-lock workaround I4's decision warns against, and
 //! unlinking on `Drop` is the classic two-holders race. Two opens in one
 //! process conflict too (`flock` is per open-file-description); that is
 //! asserted by test, not assumed. Residue: local filesystems only — NFS lock
@@ -70,12 +70,10 @@
 //! and **left**: moving `take_lock` after the read would make the read a
 //! guess, and unlinking on failure is the two-inodes race (a second process
 //! opens the old inode, this one unlinks and exits, a third creates and locks
-//! a new inode, the second locks the old one -- two holders). What changed is
-//! the other side: for a time [`Keystore::create`] refused a directory
-//! holding a lock file with no snapshot beside it, with advice to run another
-//! command against the store, every one of which refuses `Missing`. That was
-//! the stale-lock semantics this design chose `flock` to avoid, reintroduced
-//! through `create`'s pre-check; [`occupied`] now reports the snapshot alone
+//! a new inode, the second locks the old one -- two holders). On the other
+//! side, refusing a directory that holds a lock file with no snapshot beside
+//! it is the stale-lock semantics `flock` was chosen to avoid, reintroduced
+//! through `create`'s pre-check; [`occupied`] reports the snapshot alone
 //! and a live holder is refused by `take_lock`'s `Locked`, which is the only
 //! thing that can tell a holder from a leftover. Two residues, stated: a
 //! `create` killed after `write_temp` and before `rename` leaves a complete
@@ -94,12 +92,10 @@
 //! treating it as one is I5's index-zero assumption reached through the
 //! filesystem, so a genuinely new store goes through [`Keystore::create`]. A
 //! stale temp is unlinked after the lock is taken and is never adopted even
-//! when it parses: one authority, one parse path. **The second reason that
-//! used to stand here is spent and the first is not.** Under v2 a partial temp
-//! was a plaintext leak on its own; under v3 it is a plaintext header over a
-//! truncated ciphertext, which the tag refuses anyway -- so what still forbids
-//! adopting it is that two files must never both be authorities, which was
-//! always the load-bearing half.
+//! when it parses: one authority, one parse path. A partial temp under v3 is
+//! a plaintext header over a truncated ciphertext, which the tag refuses
+//! anyway, so what forbids adopting it is not the leak but that two files
+//! must never both be authorities.
 //!
 //! # The signing path
 //!
@@ -113,12 +109,7 @@
 //!
 //! # Encryption at rest: done, and the residue is a different shape
 //!
-//! **This section said the opposite for a session after it was done** -- "imported roots are
-//! written in plaintext this session" -- naming a marker under its pre-rename
-//! spelling as still red. Both halves were false once format v3 landed, and
-//! nothing caught it because a doc comment is not a check.
-//!
-//! What is true now: the record body, which carries imported roots *and* the
+//! The record body, which carries imported roots *and* the
 //! master seed, is sealed under an Argon2id key with a ChaCha20-Poly1305 tag.
 //! `imported_roots_and_the_master_seed_are_encrypted_at_rest` is green, and a
 //! stolen `accounts.mks` alone yields nothing.
@@ -360,14 +351,13 @@ fn take_lock(dir: &Path) -> Result<File> {
 /// directory to exist and the lock needs to be taken, and neither belongs in
 /// a probe.
 ///
-/// **`keystore.lock` is not a refusal**. It was, for a time, as
-/// `Some("lock file")`: a directory holding the lock and no snapshot -- what
-/// a `create` killed between `take_lock` and `commit` leaves, and what is
-/// left when the snapshot a failed `open` locked beside is then removed by
-/// hand, as one live run did (a failed `open` never leaves the lock *alone*: it got past
-/// `Missing` because the snapshot was there, and nothing in this crate unlinks
-/// one) -- refused every later `create` with advice that every other command
-/// contradicted. The file's existence says
+/// **`keystore.lock` is not a refusal.** A directory holding the lock and no
+/// snapshot is what a `create` killed between `take_lock` and `commit`
+/// leaves, and what is left when the snapshot a failed `open` locked beside
+/// is removed by hand -- a failed `open` never leaves the lock *alone*, since
+/// it got past `Missing` because the snapshot was there and nothing in this
+/// crate unlinks one. Reporting that state here would refuse every later
+/// `create` with advice every other command contradicts. The file's existence says
 /// nothing about a holder; the flock does, `take_lock` asks it, and a live
 /// holder is `Locked` there. See the module doc's "The lock".
 pub fn occupied(dir: &Path) -> Option<&'static str> {
@@ -624,11 +614,10 @@ impl<M: Medium> Keystore<M> {
 
     /// The master seed this store holds, if it holds one.
     ///
-    /// **This is what replaced the mnemonic prompt.** `Wallet::open` and
-    /// `sign_spend` used to receive a `Secret` the binary reconstructed from
-    /// twenty-four typed words; they now receive this. The seed is only in
-    /// memory because the password decrypted the file that holds it, and it
-    /// goes when the handle does.
+    /// **This is where `Wallet::open` and `sign_spend` get their seed**, and
+    /// there is no prompt behind it: the seed is in memory only because the
+    /// password decrypted the file that holds it, and it goes when the handle
+    /// does.
     pub fn master(&self) -> Result<Option<&Secret<SEED_LEN>>> {
         self.live()?;
         Ok(self.master.as_ref())

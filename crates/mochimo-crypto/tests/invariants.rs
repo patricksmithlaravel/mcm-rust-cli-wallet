@@ -11416,13 +11416,8 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Self-narrative passages, per file. The count is HITS and not
     // sentences -- see NARRATIVE_PHRASES -- and it comes down by deleting
     // prose, never by rephrasing around a row.
-    (MarkerClass::Narrative, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 8, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/args.rs", 4, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/create.rs", 15, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/mod.rs", 7, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/crypt.rs", 7, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/format.rs", 24, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/mod.rs", 7, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/src/recon.rs", 12, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/tests/cli.rs", 45, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/tests/compile_fail.rs", 1, SWEEP_NARRATIVE),

@@ -21,10 +21,7 @@
 //! `tests/cli.rs`'s pty harness spawns `cargo build --features mesh-https
 //! --bin mcm-wallet` as a subprocess and drives the result under a
 //! pseudo-terminal -- in the one configuration that compiles any C, `ring`'s,
-//! and in a subprocess. This sentence said "the board never builds this
-//! target" for a time, and the conclusion drawn from it was that what
-//! the target adds over the tested code did not need testing. Both defects
-//! found in this file were in that remainder.
+//! and in a subprocess.
 //!
 //! # Where the master seed comes from, and what that exposes
 //!
@@ -41,8 +38,7 @@
 //! being in it. It now yields everything to whoever knows the password and
 //! nothing to whoever does not, so password strength is part of the threat
 //! model in a way it was not, which is why `cli::create::MIN_PASSWORD_LEN`
-//! refuses rather than warns. This paragraph said the old file yielded
-//! *nothing* for a session. The full argument is at
+//! refuses rather than warns. The full argument is at
 //! `keystore::crypt`'s head.
 //!
 //! The mnemonic prompt's rule survives almost intact: the crate still retains nothing
@@ -58,11 +54,7 @@
 //! * **an environment variable** — `/proc/pid/environ`, every child process,
 //!   and crash handlers; and it is normally set from a plaintext rc file, so
 //!   it is at rest anyway.
-//! * **a file** — plaintext at rest. This bullet argued, before encryption
-//!   at rest, that such a path would create exactly the debt encryption
-//!   existed to remove; encryption landed and the argument survives it
-//!   **inverted**, which is why
-//!   it is restated rather than struck. The store is now sealed under this
+//! * **a file** — plaintext at rest. The store is sealed under this
 //!   password, so putting the password in a plaintext file hands back the
 //!   whole of what the encryption bought — and it buys more than sealing
 //!   the roots alone would have,
@@ -285,26 +277,19 @@ impl Transport for Node {
 ///
 /// # One impl, two callers
 ///
-/// This was once its own copy of the read: `/dev/tty` opened
-/// read-only, the prompt written with `eprint!`, the newline with `eprintln!`.
-/// So `mcm-wallet ... balance 2>/dev/null` printed nothing and waited
-/// silently -- the shape of the read-only-descriptor defect (an invisible
-/// prompt) reached by a different route, redirection rather than a dead
-/// descriptor. `create` had already argued the case exactly: its prompts were moved onto the
-/// acquired descriptor *so that a shell redirect could not separate a prompt
-/// from what it asks about*. The argument was applied to the one impl it was
-/// written beside and not to the function below it, and the containment
-/// scan's print ban was scoped to that impl, so the `eprint!` here sat one
-/// function outside its domain and stayed green.
+/// Both callers read through [`Tty`]'s own `read_secret_line`, on a terminal
+/// from the same [`open_terminal`], and that is what keeps a prompt attached
+/// to the question it asks. A second copy writing prompts with `eprint!`
+/// would put them on stderr, where `mcm-wallet ... balance 2>/dev/null`
+/// separates the prompt from what it asks about and the operator waits at a
+/// silent screen -- the read-only-descriptor defect reached by redirection
+/// rather than by a dead descriptor.
 ///
-/// A second thing the move removed, stated because it is the strongest
-/// argument for the widened ban: `eprint!` and `eprintln!` panic when stderr
-/// cannot be written, so `balance 2>&-` panicked out of this function in a
-/// binary whose parser argues that panic-freedom is structural. The three
-/// print sites left are `main`'s, on the report and the usage.
-///
-/// It is now [`Tty`]'s own `read_secret_line`, the one made to write and
-/// check, on a terminal from the same [`open_terminal`] that `create` uses.
+/// `eprint!` and `eprintln!` panic when stderr cannot be written, so a print
+/// macro on this path makes `balance 2>&-` panic out of a binary whose parser
+/// argues that panic-freedom is structural. The three print sites in this
+/// file are `main`'s, on the report and the usage, and the containment scan's
+/// ban covers everything outside it.
 /// What establishes that the prompt reaches the screen is
 /// `tests/cli.rs::pty::address_on_a_real_pty_needs_no_node_and_its_prompt_survives_a_redirected_stderr`,
 /// which runs this path with stderr redirected inside a pty and finds the
@@ -353,8 +338,8 @@ impl EchoGuard {
     /// `stty echo` and discards the result, and its `if let Ok(dup)` arm skips
     /// the call entirely when the descriptor cannot be duplicated. That
     /// asymmetry is invisible until it bites, and when it bites it reproduces
-    /// exactly the failure the first live run recorded -- an operator typing
-    /// three words into a terminal that shows nothing, and an `exit 3`.
+    /// exactly the failure this ordering exists to prevent -- an operator
+    /// typing three words into a terminal that shows nothing, and an `exit 3`.
     ///
     /// So the one caller that *depends* on echo being back — the confirmation
     /// — calls this through `?` and refuses **before** prompting. `Drop` stays
@@ -444,16 +429,13 @@ struct Tty {
     _echo: EchoGuard,
 }
 
-/// **Read AND write**. `File::open` is `O_RDONLY`, and for a time
-/// that is how this descriptor was opened -- so all three of the impl
-/// below's writes to it failed with `EBADF` (measured: `write_all` returned
-/// `Err(Os { code: 9, "Bad file descriptor" })` from a `dbg` placed on the
-/// discarded result), every one discarded by `let _ =`, and `create` showed
-/// the operator nothing: no password prompt, no phrase, no question. It then
-/// exited 3 on a confirmation nobody had been asked, having written a store
-/// whose only backup nobody had seen. Six sessions, because nobody ran
-/// `create` in a terminal again. `tests/cli.rs`'s pty harness now does, on
-/// every board.
+/// **Read AND write**. `File::open` is `O_RDONLY`, and a descriptor opened
+/// that way fails every write from the impl below with `EBADF` -- each one
+/// discarded by a `let _ =`, so `create` shows the operator nothing: no
+/// password prompt, no phrase, no question, and then an exit 3 on a
+/// confirmation nobody was asked, over a store whose only backup nobody saw.
+/// Nothing but a terminal finds that, and `tests/cli.rs`'s pty harness is
+/// what runs one on every board.
 ///
 /// **The one place the terminal is opened**. `create` acquires it through
 /// [`acquire_terminal`] and every other command through [`read_secret_line`],

@@ -382,9 +382,8 @@ and requires one.";
 ///
 /// # Bare forty-hex is refused, and that is the destination form correcting itself
 ///
-/// It was accepted in this session's first draft, on the ground that the
-/// project's own recorded values are written that way. An adversarial pass
-/// found what that costs: `address` prints the 40-byte ledger address as
+/// The recorded values are written that way, so accepting it looks free.
+/// What it costs: `address` prints the 40-byte ledger address as
 /// **eighty** hex characters, and characters 41..80 — the hash half — are
 /// forty hex characters that a bare-hex parser accepts as a tag. At `wots_index
 /// 0` both halves are the same twenty bytes (`addr_from_implicit`), which
@@ -1192,11 +1191,10 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
     };
 
     let dir = dir.ok_or_else(|| Usage("--dir is required".into()))?;
-    // **Required exactly where it is used**. This was once an
-    // unconditional `ok_or_else`, reached by every verb, and the help said
-    // otherwise. The verb is named because the refusal is about this command
-    // and not about the flag: the same argv with `address` in place of
-    // `balance` is accepted.
+    // **Required exactly where it is used**, not unconditionally: a verb
+    // that asks no node takes no `--node`. The verb is named because the
+    // refusal is about this command and not about the flag -- the same argv
+    // with `address` in place of `balance` is accepted.
     let node = match (command.needs_node(), node) {
         (true, None) => {
             return Err(Usage(format!(

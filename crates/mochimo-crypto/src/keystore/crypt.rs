@@ -12,11 +12,8 @@
 //!
 //! So this is a trade in both directions, not a loss in one: the imported roots
 //! moved from readable to sealed, the master seed moved from absent to sealed,
-//! and what used to be a property of the file alone is now a property of the
-//! password. The first draft of this paragraph said a stolen store had yielded
-//! *nothing* — flattering the old state, and contradicted by the same
-//! change's `sign.rs`, which said in as many words that possession of the directory was
-//! signing power for imported accounts.
+//! and what was a property of the file alone is now a property of the
+//! password.
 //!
 //! That is a real transfer of what the security rests on, not a pure gain, and
 //! it is the trade every wallet makes for the right reason: the alternative
@@ -97,9 +94,7 @@ pub(crate) const MAX_M_COST_KIB: u32 = 1024 * 1024;
 ///   attacker actually wants -- derives a different key, so the tag fails and
 ///   the operator sees *wrong password*.
 ///
-/// An earlier draft of this note said only the second, which was wrong about
-/// the case that matters: `parser_refuses_each_malformation_with_the_right_variant`
-/// asserts both.
+/// `parser_refuses_each_malformation_with_the_right_variant` asserts both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kdf {
     pub m_cost_kib: u32,
@@ -206,11 +201,9 @@ impl Kdf {
 /// straight-line path with no branch, so the vector RFC 9106 §5.3 records
 /// (`format::tests::argon2id_v13_matches_the_rfc9106_vector`) and every
 /// store's key derivation run through the same lines and differ only in
-/// argument values. The first draft of the anchor had two constructor arms -- one
-/// for a secret, one without -- and the design panel showed that the arm
-/// production took was anchored by nothing, because the RFC's vector carries
-/// a secret and took the other one. The branch was removed
-/// rather than covered.
+/// argument values. A second arm -- one taking a secret, one not -- would
+/// leave the arm production takes anchored by nothing, because the RFC's
+/// vector carries a secret and would exercise the other one.
 const ALGORITHM: argon2::Algorithm = argon2::Algorithm::Argon2id;
 const VERSION: argon2::Version = argon2::Version::V0x13;
 

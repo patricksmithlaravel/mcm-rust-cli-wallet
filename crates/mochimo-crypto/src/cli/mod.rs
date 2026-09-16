@@ -10,20 +10,15 @@
 //! mutable store are the pre-gate ones — [`create`], [`restore`] and
 //! [`reconcile`] — and none of them names a signer or a `Wallet`; every
 //! other command takes a `Wallet`, returns rendered text, and never names a
-//! signer. (This said *except in `restore`* for a time, false once
-//! `create` had its own store.) `Wallet::store` is
-//! `&`-only and there is no `store_mut`, but the crate cannot see whether a
-//! caller reached around the gate some other way: a fault-injection row
-//! once recorded that as *a hole no check can see*. So the CLI's own structure
-//! is the enforcement, and
+//! signer. `Wallet::store` is `&`-only and there is no `store_mut`, but the
+//! crate cannot see whether a caller reached around the gate some other way,
+//! so the CLI's own structure is the enforcement and
 //! `invariants.rs::the_cli_cannot_reach_around_the_wallet` scans these files
-//! for the names that would defeat it. It is now a hole one check does see.
+//! for the names that would defeat it.
 //!
 //! **Why `status` and `reconcile` run before the gate**: a
 //! one-shot process meets a divergence *before* a `Wallet` can exist, because
-//! `Wallet::open` refuses on one. Both were once dispatched
-//! behind that refusal, so the acknowledged path every I4 report named could
-//! not be taken through this binary. See [`reconcile`]'s module doc.
+//! `Wallet::open` refuses on one. See [`reconcile`]'s module doc.
 //!
 //! Returning `Report` rather than a signature-bearing type is load-bearing
 //! twice: it keeps these functions out of the route scan's flagged set by
@@ -122,9 +117,8 @@ fn hex_bytes(b: &[u8]) -> String {
 ///
 /// Every command that shows a tag calls this, so what `create` prints, what
 /// `address` prints, what `balance` prints and what a refusal names are the
-/// same string for the same twenty bytes. Before this existed they were four
-/// call sites of [`hex_bytes`] and the first live run found that none of them
-/// produced anything another wallet would take.
+/// same string for the same twenty bytes. Four separate call sites of
+/// [`hex_bytes`] would be four chances to print a form no other wallet takes.
 ///
 /// # The rule this establishes, and it is narrower than "print Base58"
 ///
@@ -218,9 +212,8 @@ pub fn run<M: Medium, T: Transport>(
     client: MeshClient<T>,
     command: &Command,
 ) -> Report {
-    // **The seed comes out of the store, not off the terminal**. This
-    // parameter used to be a `Secret` the binary reconstructed from twenty-four
-    // typed words; the password that opened the file is what produced it now.
+    // **The seed comes out of the store, not off the terminal**: the password
+    // that opened the file is what produced it.
     // Cloned because the store is consumed into a `Wallet` below and the seed
     // has to outlive that move; `Secret` zeroizes, and both copies go when this
     // function returns.
@@ -1468,13 +1461,13 @@ fn cmd_send<M: Medium, T: Transport>(
     };
     // **Where the money is going, read back in the checksummed form**.
     //
-    // Until this session `send` never showed the destination at all: the
-    // artifact, the locally-computed id and a `settle <src>` hint, and the
-    // value of `<to>` appeared only inside two thousand characters of wire
-    // hex. That defeated the whole argument for printing Base58 elsewhere on
-    // the one path where money actually moves -- an operator who supplied
-    // `0x`-hex, the form with no checksum, had no opportunity to compare what
-    // this program understood against what the payee's wallet says.
+    // A `send` page that showed the artifact, the locally-computed id and a
+    // `settle <src>` hint would leave the value of `<to>` visible only inside
+    // two thousand characters of wire hex -- defeating the argument for
+    // printing Base58 everywhere else, on the one path where money actually
+    // moves. An operator who supplied `0x`-hex, the form with no checksum,
+    // needs the chance to compare what this program understood against what
+    // the payee's wallet says.
     //
     // The list is read off the PLAN, not off argv, so the page cannot
     // disagree with the bytes: the planner sorted the destinations into the
@@ -1484,12 +1477,10 @@ fn cmd_send<M: Medium, T: Transport>(
         Err((tag, e)) => return cannot_render(&tag, &e),
     };
     let wire_hex = hex_bytes(&signed.wire());
-    // The block-to-live beside the other three values `resign` will demand.
-    // It went unprinted for a time while the
-    // notice below said `resign` needs it. Then the crossing line, when this
-    // reservation was the first write over a version-3 store: an
-    // ordinary `send` is that write, since `reserve_and_sign` commits
-    // before it signs.
+    // The block-to-live beside the other three values `resign` will demand,
+    // and the crossing line when this reservation is the first write over a
+    // version-3 store -- which an ordinary `send` is, since `reserve_and_sign`
+    // commits before it signs.
     let out = format!(
         "sending {} nanoMCM to {} destination(s)\n{listed}  from   {settle_arg}\n  fee    {} total \
          (the node's floor is {MFEE} per destination, {} here)\n  change {} to your own next key \
@@ -1513,9 +1504,6 @@ fn cmd_send<M: Medium, T: Transport>(
 
 /// `resign`: reproduce the reserved artifact and **submit it**.
 ///
-/// For a time this printed the bytes and shipped nothing, and the first
-/// recovery through it was finished with a hand-built POST. Two routes were
-/// admitted; this is the one taken.
 /// What it rests on is the type and the gate below it, not a check here:
 /// the bytes `resign_pending` returns are, by its digest comparison, the
 /// store's own reservation signed by the reserved key, so nothing this
