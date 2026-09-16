@@ -2811,8 +2811,8 @@ mod tests {
             parsed.slots.get(tag).expect("in the parsed state").pending,
             Some(at_zero(None)),
             "figures: None did not round-trip as None. An encoder that writes the flag as 1 over \
-             zeros fabricates a recorded zero balance for a migrated reservation, which errata \
-             213 §3's declared-absent state exists to avoid"
+             zeros fabricates a recorded zero balance for a migrated reservation, which the \
+             declared-absent state exists to avoid"
         );
 
         // 3. The settled block, retained with its figures.

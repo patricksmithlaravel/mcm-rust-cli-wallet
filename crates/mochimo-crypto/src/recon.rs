@@ -712,8 +712,7 @@ impl fmt::Display for Divergence {
                                  and the figures, but `resign` runs only after the wallet opens and the \
                                  wallet refuses on this very divergence, and both re-signers read the open \
                                  reservation, which this state leaves clear. Keep any copy of the artifact \
-                                 you have. Whether the wallet may re-open the block is not decided (errata \
-                                 213).",
+                                 you have. Whether the wallet may re-open the block is not decided.",
                                 s.spent_index.get(),
                                 hex20(&s.digest),
                                 s.spent_index.get(),

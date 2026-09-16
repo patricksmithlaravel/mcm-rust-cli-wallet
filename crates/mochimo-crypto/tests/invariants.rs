@@ -11151,11 +11151,19 @@ enum TextKind {
 
 /// One line of comment or of string-literal contents, with its file and
 /// 1-based line number.
+///
+/// `span` numbers the lexical unit the line came out of -- one string
+/// literal, one block comment, one `//` line -- and every line of the same
+/// one carries the same number. It exists because a literal continued across
+/// source lines arrives here as several `TextUnit`s, and a reader that
+/// treated each of them as a whole literal would put a boundary inside one
+/// sentence. [`joined_text_by_file`] is what needs to tell the difference.
 struct TextUnit {
     file: String,
     line: usize,
     kind: TextKind,
     text: String,
+    span: usize,
 }
 
 /// Every `.rs` under this crate's `ui/` and `examples/`, as `(path, text)`,
@@ -11212,6 +11220,9 @@ fn ui_and_example_source_files() -> Vec<(String, String)> {
 fn crate_text_units() -> (usize, Vec<TextUnit>) {
     let mut out: Vec<TextUnit> = Vec::new();
     let mut files = 0usize;
+    // Counted over the whole walk rather than per file, so two units can never
+    // share a number without having come out of the same literal.
+    let mut span = 0usize;
     let mut sources = crate_source_files();
     sources.extend(test_source_files());
     sources.extend(ui_and_example_source_files());
@@ -11225,22 +11236,25 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
             *line += text[*i..to].matches('\n').count();
             *i = to;
         };
-        let push_lines = |out: &mut Vec<TextUnit>, kind: TextKind, first_line: usize, body: &str| {
+        let push_lines = |out: &mut Vec<TextUnit>, kind: TextKind, first_line: usize, body: &str, span: usize| {
             for (k, l) in body.split('\n').enumerate() {
-                out.push(TextUnit { file: name.clone(), line: first_line + k, kind, text: l.to_string() });
+                out.push(TextUnit { file: name.clone(), line: first_line + k, kind, text: l.to_string(), span });
             }
         };
         while i < b.len() {
+            // One number per lexical unit, so the lines of one literal or one
+            // block comment stay identifiable as parts of a whole.
+            span += 1;
             if b[i..].starts_with(b"/*") {
                 let rel = text[i + 2..]
                     .find("*/")
                     .unwrap_or_else(|| panic!("{name}: block comment opened at byte {i} and never closed"));
                 let end = i + 2 + rel + 2;
-                push_lines(&mut out, TextKind::Comment, line, &text[i..end]);
+                push_lines(&mut out, TextKind::Comment, line, &text[i..end], span);
                 advance(&mut i, &mut line, end);
             } else if b[i..].starts_with(b"//") {
                 let end = text[i..].find('\n').map_or(b.len(), |rel| i + rel);
-                out.push(TextUnit { file: name.clone(), line, kind: TextKind::Comment, text: text[i..end].to_string() });
+                out.push(TextUnit { file: name.clone(), line, kind: TextKind::Comment, text: text[i..end].to_string(), span });
                 advance(&mut i, &mut line, end);
             } else if (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
                 && matches!(b[i], b'r' | b'b' | b'c')
@@ -11253,7 +11267,7 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
                 let hashes = text[i + open - 1..i + n].matches('#').count() / 2;
                 let close = n - 1 - hashes;
                 if open < close {
-                    push_lines(&mut out, TextKind::Str, line, &text[i + open..i + close]);
+                    push_lines(&mut out, TextKind::Str, line, &text[i + open..i + close], span);
                 }
                 let to = i + n;
                 advance(&mut i, &mut line, to);
@@ -11267,7 +11281,7 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
                         _ => j += 1,
                     }
                 }
-                push_lines(&mut out, TextKind::Str, line, &text[i + 1..j]);
+                push_lines(&mut out, TextKind::Str, line, &text[i + 1..j], span);
                 let to = j + 1;
                 advance(&mut i, &mut line, to);
             } else if b[i] == b'\'' {
@@ -11556,6 +11570,24 @@ fn assert_against_baseline(class: MarkerClass, found: &BTreeMap<&str, Vec<String
     declared_total
 }
 
+/// How many bytes of filler may sit between a citation's word and its number
+/// before the two stop being one sentence.
+///
+/// This is a backstop and not the discriminator. The loop it bounds stops at
+/// the first byte that is neither a separator nor one of the permitted words,
+/// so the only way to spend the budget at all is on filler; the number only
+/// decides how much filler is still one citation.
+///
+/// It is 64 because a string literal continued across source lines spends
+/// most of it on indentation the compiler put there. The gap such a citation
+/// writes is a space, a backslash, a newline and the whole indent of the
+/// following line -- 37 columns at the deepest continuation under `crates/`,
+/// so 40 bytes of pure wrapping before the number is reached. At 32 the two
+/// citations spelled that way were invisible to the ban while every byte
+/// between the word and the number was filler, which is the shape this budget
+/// is supposed to catch rather than the shape it is supposed to reject.
+const CITATION_GAP: usize = 64;
+
 /// The word the matchers look for, built from fragments so it never appears
 /// whole in this file's text.
 fn errata_word() -> String {
@@ -11564,18 +11596,27 @@ fn errata_word() -> String {
 
 /// Whether `text` names an entry of the old repository's errata document by
 /// number: the document's name, in any case and in its singular spelling too,
-/// then -- across at most 32 bytes of whitespace, comment openers (`/`, `!`,
-/// `#`), markup that decorates a number rather than separating it from its
-/// word (`*`, `_`, `(`, `[`), `§`, `:` and the words `entry`, `entries`,
-/// `no.` and `number` -- a decimal digit. Spans a line break, so a citation
-/// wrapped across two comment lines is one hit. Returns the byte offset of
-/// the word.
+/// then -- across at most [`CITATION_GAP`] bytes of whitespace, comment
+/// openers (`/`, `!`, `#`), the backslash that continues a string literal,
+/// markup that decorates a number rather than separating it from its word
+/// (`*`, `_`, `(`, `[`), `§`, `:` and the words `entry`, `entries`, `no.` and
+/// `number` -- a decimal digit. Spans a line break, so a citation wrapped
+/// across two comment lines or two halves of one string literal is one hit.
+/// Returns the byte offset of the word.
 ///
-/// The markup characters are in that set because a citation is a citation
-/// whether or not it is emphasised. Without them a bolded number read as a
-/// non-citation and this file's own doc comments carried one that the ban
-/// could not see, which is the failure mode a text ban has: it goes green on
-/// the spelling it was written against and says nothing about the rest.
+/// The markup characters and the backslash are in that set for one reason:
+/// a citation is a citation however it is typed. Without the markup a bolded
+/// number read as a non-citation; without the backslash a citation that
+/// happened to fall at the end of a source line did, and the two spelled that
+/// way sat in shipped `src/` while the ban reported none. That is the failure
+/// mode a text ban has -- it goes green on the spelling it was written
+/// against and says nothing about the rest -- and each spelling it cannot see
+/// is a place the class comes back to.
+///
+/// What it must not swallow is the generic mention. `entry` is a permitted
+/// word so that *a decision with an errata entry* stays legal prose, wrapped
+/// or not; what makes a citation is the digit, and the self-test asserts both
+/// directions over the wrapped spelling as well as the flat one.
 fn errata_number_hit(text: &str) -> Option<usize> {
     let lower = text.to_ascii_lowercase();
     let b = lower.as_bytes();
@@ -11599,7 +11640,7 @@ fn errata_number_hit(text: &str) -> Option<usize> {
         if j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
             continue;
         }
-        let window_end = b.len().min(j + 32);
+        let window_end = b.len().min(j + CITATION_GAP);
         let mut k = j;
         while k < window_end {
             let rest = &lower[k..window_end];
@@ -11607,7 +11648,7 @@ fn errata_number_hit(text: &str) -> Option<usize> {
                 k += w.len();
             } else if rest.starts_with('§') {
                 k += '§'.len_utf8();
-            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[') {
+            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[' | b'\\') {
                 k += 1;
             } else {
                 break;
@@ -11627,16 +11668,24 @@ fn board_item_word() -> String {
 }
 
 /// Whether `text` cites an entry of the board's open-item list by number: the
-/// list's name, in any case, then -- across at most 24 bytes of whitespace,
-/// comment openers (`/`, `!`, `#`), markup (`*`, `_`, `(`, `[`), `:` and the
-/// words `item`, `items` and `no.` -- a decimal digit. Spans a line break, so
-/// a citation wrapped across two comment lines is one hit. Returns the byte
-/// offset of the word.
+/// list's name, in any case, then -- across at most [`CITATION_GAP`] bytes of
+/// whitespace, comment openers (`/`, `!`, `#`), the backslash that continues
+/// a string literal, markup (`*`, `_`, `(`, `[`), `:` and the words `item`,
+/// `items` and `no.` -- a decimal digit. Spans a line break, so a citation
+/// wrapped across two comment lines or two halves of one string literal is
+/// one hit. Returns the byte offset of the word.
 ///
 /// The same window technique as [`errata_number_hit`], against the same
 /// failure: the two citations that wrap in this tree put the name at the end
 /// of one comment line and the number at the start of the next, and a
 /// line-at-a-time matcher reads both halves as innocent.
+///
+/// The backslash and the shared budget carry no site here -- every open-item
+/// citation in this tree is flat, and the two spellings this arm cannot see
+/// are the two the errata arm could not see either. They are matched to that
+/// arm deliberately: two matchers for two names of the same thing, differing
+/// in what counts as a gap, is a hole that opens the moment somebody wraps a
+/// line.
 fn board_item_hit(text: &str) -> Option<usize> {
     let lower = text.to_ascii_lowercase();
     let b = lower.as_bytes();
@@ -11652,13 +11701,13 @@ fn board_item_hit(text: &str) -> Option<usize> {
         if j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
             continue;
         }
-        let window_end = b.len().min(j + 24);
+        let window_end = b.len().min(j + CITATION_GAP);
         let mut k = j;
         while k < window_end {
             let rest = &lower[k..window_end];
             if let Some(w) = ["items", "item", "no."].iter().find(|w| rest.starts_with(*w)) {
                 k += w.len();
-            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[') {
+            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[' | b'\\') {
                 k += 1;
             } else {
                 break;
@@ -11685,6 +11734,17 @@ type JoinedFile<'a> = (&'a str, String, Vec<(usize, usize)>, Vec<&'a TextUnit>);
 /// which no matcher's window crosses, so a word at the end of one literal and
 /// a digit at the start of the next are not a citation.
 ///
+/// The fence goes around the **literal**, not around each of its lines, and
+/// that is the whole of [`TextUnit::span`]'s purpose. A literal continued
+/// across source lines arrives as one unit per line; fencing each of them put
+/// a NUL in the middle of a single sentence, and a citation that happened to
+/// wrap at the right column was hidden from every matcher by the same
+/// mechanism that is supposed to stop two unrelated literals running
+/// together. Two citations in shipped `src/` sat behind it. Opening the fence
+/// at the first line of a span and closing it at the last keeps the guarantee
+/// -- distinct literals stay distinct, because distinct literals have
+/// distinct spans -- and stops it from cutting one literal in half.
+///
 /// Shared by the two window matchers rather than written twice. The joining
 /// is the part that decides what a hit is, and two copies of it would be two
 /// definitions of a citation that could drift apart without either check
@@ -11700,14 +11760,15 @@ fn joined_text_by_file(units: &[TextUnit]) -> Vec<JoinedFile<'_>> {
             let mut joined = String::new();
             let mut starts: Vec<(usize, usize)> = Vec::new(); // (offset, unit index)
             for (idx, u) in us.iter().enumerate() {
+                let opens = idx == 0 || us[idx - 1].span != u.span;
+                let closes = idx + 1 == us.len() || us[idx + 1].span != u.span;
                 starts.push((joined.len(), idx));
-                match u.kind {
-                    TextKind::Comment => joined.push_str(&u.text),
-                    TextKind::Str => {
-                        joined.push('\u{0}');
-                        joined.push_str(&u.text);
-                        joined.push('\u{0}');
-                    }
+                if u.kind == TextKind::Str && opens {
+                    joined.push('\u{0}');
+                }
+                joined.push_str(&u.text);
+                if u.kind == TextKind::Str && closes {
+                    joined.push('\u{0}');
                 }
                 joined.push('\n');
             }
@@ -11763,6 +11824,12 @@ fn no_comment_or_string_under_the_crate_cites_an_errata_entry_by_number() {
         format!("{er} (146)"),
         format!("{er} [146]"),
         format!("{er} _146_"),
+        // Continued across two source lines. The gap is a space, a backslash,
+        // a newline and the next line's indent -- 37 columns at the deepest
+        // continuation in this tree, which is what [`CITATION_GAP`] is sized
+        // for and what the old 32 could not reach.
+        format!("{er} \\\n                                     213)."),
+        format!("{er} \\\n             213 §3's declared-absent state"),
     ] {
         assert!(errata_number_hit(&hit).is_some(), "the matcher missed {hit:?}");
     }
@@ -11776,6 +11843,11 @@ fn no_comment_or_string_under_the_crate_cites_an_errata_entry_by_number() {
         format!("an {er} document, 20,799 lines"),
         format!("in{er} 5"),
         format!("\u{0}{er}\u{0}\n213"),
+        // The generic mention, wrapped. `entry` is a permitted word and no
+        // digit follows it, so widening the gap and admitting the backslash
+        // must leave this legal -- it is a sentence about the class, not a
+        // pointer into the document, and this file writes one.
+        format!("a decision with an {er} \\\n                 entry, not a moved line."),
     ] {
         assert!(errata_number_hit(&miss).is_none(), "the matcher fired on {miss:?}");
     }
@@ -12087,7 +12159,15 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
     // form; the last miss is the NUL fence that keeps two adjacent string
     // literals from reading as one citation.
     let ko = board_item_word();
-    for hit in [format!("(AGENT.md, {ko} 22, closed"), format!("({ko}\n/// 31)."), format!("{ko} item 7")] {
+    for hit in [
+        format!("(AGENT.md, {ko} 22, closed"),
+        format!("({ko}\n/// 31)."),
+        format!("{ko} item 7"),
+        // Continued across two source lines, the spelling the errata arm was
+        // blind to. No site in this tree writes it; the arm carries it so the
+        // two matchers cannot disagree about what a gap is.
+        format!("{ko} \\\n                                     44)."),
+    ] {
         assert!(board_item_hit(&hit).is_some(), "the open-item matcher missed {hit:?}");
     }
     for miss in [
