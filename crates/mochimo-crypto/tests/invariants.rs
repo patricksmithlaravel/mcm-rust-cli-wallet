@@ -8665,7 +8665,7 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
     (
         "crates/mochimo-crypto/src/cli/args.rs",
         "assert!",
-        36,
+        41,
         "inside the #[cfg(test)] parser tests: the help \
          spellings recognised before the verb, and refused by name after it; \
          the repeated-flag test's control, each flag once parsing; the \
@@ -8687,7 +8687,10 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
          being the bounds with the value echoed, that arm's own reason, the \
          sentence saying what to do about it or what already answers it, and \
          the ABSENCE of the other arm's reason -- the assertion the defect \
-         needed and the one that was not being made.",
+         needed and the one that was not being made. Five more over the \
+         plaintext-node gate: the seven spellings it lets through, and per \
+         refused spelling the flag named, the decisions the link carries, the \
+         balance a spend is laid out against, and the flag clearing it.",
     ),
     (
         "crates/mochimo-crypto/src/cli/args.rs",

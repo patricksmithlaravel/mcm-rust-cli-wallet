@@ -1466,11 +1466,13 @@ The consequence is a present-tense limit: **an account with a zero balance canno
 
 ### The command line
 
-`mcm-wallet --dir <DIR> [--node <URL>] <command>`
+`mcm-wallet --dir <DIR> [--node <URL>] [--allow-plaintext-node] <command>`
 
 Arguments are parsed by hand. Flags take their value as a separate token — `--flag value`; `--flag=value` is not accepted. `help` as the command, or `-h`/`--help` before it, prints the help and exits 0; after the command any of the three is an unexpected token and a usage error like every other. `--dir` is always required. Any unrecognised `--flag` before the verb, any unrecognised or surplus token in a command's tail, and any flag given twice, global or tail, is a usage error rather than a silently ignored argument.
 
-`--node` is required for exactly the thirteen commands that ask a node anything. `create` and `address` run without one. A `--node` URL the program cannot use is validated and refused **before any password prompt and before any store or directory is touched**, for all fifteen verbs alike — including the two that never dial and the five that open no store.
+`--node` is required for exactly the thirteen commands that ask a node anything. `create` and `address` run without one.
+
+A plaintext `--node` that is not on the loopback interface is refused at parse time, exit 1, unless `--allow-plaintext-node` is also given. `https://` is accepted with no flag, and so is `http://` to any address in `127.0.0.0/8`, to `::1`, or to the literal name `localhost`. The name is exempt on weaker grounds than the two literals — what it resolves to comes from the host's own configuration rather than from the argv — and is exempt anyway because it is how a local node is almost always spelled, and a gate that fires on the common local case trains an operator to pass the flag by habit. The refusal names what the link decides rather than the scheme: the balance a spend is laid out against, the ledger address reconciliation compares against, the chain tip a block-to-live is judged against, and the key position that says whether a key has signed. A rewritten balance does not move funds, because the node checks `send + change + fee` against the ledger; a rewritten reconciliation report is what `reconcile --advance-to` acts on. The gate is in the command line and not in the transport, which a library caller drives directly. A `--node` URL the program cannot use is validated and refused **before any password prompt and before any store or directory is touched**, for all fifteen verbs alike — including the two that never dial and the five that open no store.
 
 | verb | argv | node | reads | writes | prints |
 | --- | --- | --- | --- | --- | --- |

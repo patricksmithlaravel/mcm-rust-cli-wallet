@@ -263,7 +263,7 @@ impl core::fmt::Display for Usage {
 }
 
 pub const HELP: &str = "\
-mcm-wallet --dir <DIR> [--node <URL>] <command>
+mcm-wallet --dir <DIR> [--node <URL>] [--allow-plaintext-node] <command>
 mcm-wallet -h | --help | help
 
   create [--from-phrase]                   make the store and account 0. Generates a
@@ -366,7 +366,10 @@ index walked costs one key derivation: name a number near where the account is. 
 for this chain walks; a search that finds nothing pays for all ten thousand, about
 sixteen seconds, and a search that finds the account stops there and pays nothing.
 create and address need no `--node`; every other command asks a node before it runs
-and requires one.";
+and requires one. An `http://` node off the loopback interface needs
+`--allow-plaintext-node`: the node's answers drive reconciliation and the amounts a
+spend is built from, and on a plaintext link anyone on the path can rewrite them.
+`https://`, and `http://` to 127.0.0.0/8, ::1 or localhost, need no flag.";
 
 /// A tag the operator supplied, in **either** accepted form.
 ///
@@ -1065,9 +1068,80 @@ fn asks_for_help(a: &str) -> bool {
 }
 
 /// Parse `argv` **without** the program name.
+/// Whether `url` is plaintext HTTP to something other than the loopback
+/// interface, which is the case `--allow-plaintext-node` exists to gate.
+///
+/// # What counts as loopback here
+///
+/// Any address in `127.0.0.0/8`, `::1`, and the literal name `localhost`.
+///
+/// The two address forms are decided by the bytes in the argv and nothing
+/// else. `localhost` is not: it is a name, and what it resolves to comes from
+/// the host's own configuration, so it is a weaker guarantee than either
+/// literal. It is exempt anyway, because it is how a local node is spelled
+/// almost every time, and a gate that fires on the common local case teaches
+/// an operator to pass the flag out of habit -- at which point it no longer
+/// gates the case it exists for. Reaching a non-loopback address through
+/// `localhost` needs control of the host's name resolution, which is a larger
+/// capability than the network position this refusal is about, and one that
+/// can replace the binary instead.
+///
+/// Anything that is not a scheme this program knows is left alone: the
+/// transport refuses it by scheme, and refusing it twice in two vocabularies
+/// helps nobody.
+fn plaintext_off_loopback(url: &str) -> bool {
+    // One trailing slash, as the transport strips before it reads the
+    // authority, so `http://localhost/` and `http://localhost` are one case.
+    let url = url.strip_suffix('/').unwrap_or(url);
+    let Some(authority) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        // `[::1]:8080`: the brackets are what separate an IPv6 literal from
+        // its port, so the host ends at the first `]`.
+        match rest.split_once(']') {
+            Some((h, _)) => h,
+            None => return true,
+        }
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+    // A host that is not an IP literal is a name, and a name that is not
+    // `localhost` is not loopback whatever it resolves to. `127.0.0.1.example.com`
+    // fails to parse and is treated as the remote name it is.
+    match host.parse::<core::net::IpAddr>() {
+        Ok(ip) => !ip.is_loopback(),
+        Err(_) => true,
+    }
+}
+
+/// What an operator is accepting when they pass `--allow-plaintext-node`.
+///
+/// The refusal names the decisions the link carries rather than the scheme,
+/// because "use https" is advice an operator who has only an http node cannot
+/// take, and it tells them nothing about what they are weighing.
+fn plaintext_node_refusal(url: &str) -> String {
+    format!(
+        "--node {url} is plaintext http to a host that is not loopback, and everything this \
+         wallet decides comes from that link: the balance a spend is laid out against, the \
+         ledger address reconciliation compares its own record to, the chain tip a \
+         block-to-live is judged against, and the key position that says whether a key has \
+         already signed. Anyone on the path can rewrite all of it, and can read every tag you \
+         ask about.\n  A rewritten balance does not move funds -- the node checks send + \
+         change + fee against the ledger and rejects a transaction built on a lie -- but a \
+         rewritten reconciliation report is what `reconcile --advance-to` acts on.\n  ACTION: \
+         use an https node, or pass --allow-plaintext-node to accept this. http to \
+         127.0.0.0/8, ::1 or localhost needs no flag."
+    )
+}
+
 pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
     let mut dir: Option<String> = None;
     let mut node: Option<String> = None;
+    let mut allow_plaintext = false;
     let mut it = argv.iter();
     let verb = loop {
         match it.next() {
@@ -1091,6 +1165,12 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
                     Some(v) => node = Some(v.clone()),
                     None => return Err(Usage("--node needs a value".into())),
                 }
+            }
+            Some(a) if a == "--allow-plaintext-node" => {
+                if allow_plaintext {
+                    return Err(Usage("--allow-plaintext-node given twice".into()));
+                }
+                allow_plaintext = true;
             }
             Some(a) if a.starts_with("--") => {
                 return Err(Usage(format!("unknown global flag `{a}`")))
@@ -1195,6 +1275,12 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
     // that asks no node takes no `--node`. The verb is named because the
     // refusal is about this command and not about the flag -- the same argv
     // with `address` in place of `balance` is accepted.
+    if let Some(url) = &node {
+        if plaintext_off_loopback(url) && !allow_plaintext {
+            return Err(Usage(plaintext_node_refusal(url)));
+        }
+    }
+
     let node = match (command.needs_node(), node) {
         (true, None) => {
             return Err(Usage(format!(
@@ -1469,6 +1555,48 @@ mod tests {
             );
         }
         println!("  --to above the ceiling: 1025, 2000 and one past u32 each refused with the ceiling's reason, and without zero's");
+    }
+
+    /// **Plaintext `--node` off the loopback interface needs the flag.**
+    ///
+    /// Three arms, because the rule has three: `https` passes untouched,
+    /// `http` to a loopback address passes untouched, and `http` anywhere else
+    /// is refused until `--allow-plaintext-node` is given. The refusal has to
+    /// name what the link decides, not merely the scheme -- an operator who
+    /// reads "use https" and cannot learns nothing about what they are
+    /// accepting.
+    #[test]
+    fn plaintext_node_off_loopback_needs_the_flag() {
+        fn with(n: &str) -> Vec<&str> {
+            vec!["--dir", "/d", "--node", n, "balance"]
+        }
+        fn allowed(n: &str) -> Vec<&str> {
+            vec!["--dir", "/d", "--node", n, "--allow-plaintext-node", "balance"]
+        }
+
+        // https, and http to every spelling of loopback: no flag, no refusal.
+        for ok in [
+            "https://api.mochimo.org",
+            "http://127.0.0.1:8080",
+            "http://127.9.9.9",
+            "http://[::1]:8080",
+            "http://localhost:8080",
+            "http://LocalHost",
+            "http://localhost/",
+        ] {
+            assert!(parse(&argv(&with(ok))).is_ok(), "{ok} was refused without the flag");
+        }
+
+        // http anywhere else: refused, and the refusal says what is at stake.
+        for bad in ["http://api.mochimo.org", "http://10.0.0.5:8080", "http://127.0.0.1.example.com"] {
+            let e = refusal(&with(bad));
+            assert!(e.contains("--allow-plaintext-node"), "the refusal does not name the flag: {e}");
+            assert!(e.contains("reconciliation"), "the refusal does not say what the link decides: {e}");
+            assert!(e.contains("balance"), "the refusal does not say a spend is laid out against it: {e}");
+            // And the flag is what clears it.
+            assert!(parse(&argv(&allowed(bad))).is_ok(), "{bad} stayed refused with the flag given");
+        }
+        println!("  --node: https and loopback http pass, other http refused until --allow-plaintext-node");
     }
 
     /// `block 0` is refused, because the endpoint serves index 0 as the tip.

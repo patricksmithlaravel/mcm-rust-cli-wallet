@@ -61,13 +61,14 @@ Everything after the `--` is passed to `mcm-wallet` itself.
 ## Invocation shape
 
 ```text
-mcm-wallet --dir <DIR> [--node <URL>] <command> ...
+mcm-wallet --dir <DIR> [--node <URL>] [--allow-plaintext-node] <command> ...
 ```
 
 | Flag | Required? | Meaning |
 | --- | --- | --- |
 | `--dir <DIR>` | **Always** | Directory that holds the encrypted keystore. There is no default path. |
 | `--node <URL>` | For commands that touch the chain | Mesh HTTP(S) base URL. There is no default URL. |
+| `--allow-plaintext-node` | Only for a plaintext node off the loopback interface | Accepts an `http://` node that is not `127.0.0.0/8`, `::1` or `localhost`. Without it such a URL is refused. |
 
 Flags take a separate token (`--dir ./my-store`), not `--dir=./my-store`.
 

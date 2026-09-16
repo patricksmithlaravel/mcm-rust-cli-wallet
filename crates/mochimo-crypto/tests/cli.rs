@@ -1910,11 +1910,13 @@ fn only_create_and_address_parse_without_a_node() {
             }
             Ok(args::ParsedArgv::Help) => panic!("`{verb}` parsed as help"),
         }
-        let mut b = vec!["--dir", "/d", "--node", "http://n"];
+        // A loopback node, so every verb also shows that the plaintext gate
+        // does not fire on the local case.
+        let mut b = vec!["--dir", "/d", "--node", "http://127.0.0.1:8080"];
         b.extend(rest.iter().copied());
         match args::parse(&argv(&b)) {
             Ok(args::ParsedArgv::Run(inv)) => {
-                assert_eq!(inv.node.as_deref(), Some("http://n"), "`{verb}` dropped a supplied --node");
+                assert_eq!(inv.node.as_deref(), Some("http://127.0.0.1:8080"), "`{verb}` dropped a supplied --node");
                 assert_eq!(inv.command.needs_node(), *needs, "`{verb}`'s needs_node disagrees with this table");
             }
             other => panic!("`{verb}` with --node did not parse to a command: {other:?}"),
