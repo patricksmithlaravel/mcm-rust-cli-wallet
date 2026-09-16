@@ -106,12 +106,14 @@ serializer. In this repository the group D handlers that called the C validators
 **What the corpus points at that is not here.** Some of the prose a vector
 carries names a document this repository does not hold: 1,564 such references
 across nine of the fifteen files, seven of them a structured header field
-rather than a sentence, and forty more in `manifest.toml`. They are part of
-the frozen record of what each generating run observed. They are not claims
-this wallet makes, and nothing replays them -- the dispatch is on `source` and
-what is asserted is values, `note` being metadata and the header field not a
-vector field at all. They are also not removable: a fixture is never edited,
-and rule 1 is what makes the corpus worth anything.
+rather than a sentence. They are part of the frozen record of what each
+generating run observed. They are not claims this wallet makes, and nothing
+replays them -- the dispatch is on `source` and what is asserted is values,
+`note` being metadata and the header field not a vector field at all. They are
+also not removable: a fixture is never edited, and rule 1 is what makes the
+corpus worth anything. `manifest.toml` carries none, and the difference is
+rule 1 rather than a different standard: its `reason` prose is hand-written, so
+a reference there could be removed and was.
 
 **Known-wrong prose in the corpus.** A fixture is never edited, so where a
 vector's own note is inaccurate the correction is recorded here instead of
@@ -206,12 +208,12 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `38fcd4d`, cargo's exit read from its own process: exit 0,
+The board on commit `2022046`, cargo's exit read from its own process: exit 0,
 **375 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 4 m 45 s on a warm `target/`. **The commit is named
+ignored, 17 result lines, 4 m 42 s on a warm `target/`. **The commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff 38fcd4d` and, if nothing
+false at the next one. A reader runs `git diff 2022046` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. The figure to compare across runs is the per-target
