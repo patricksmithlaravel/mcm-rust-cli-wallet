@@ -11041,14 +11041,12 @@ fn the_cli_cannot_reach_around_the_wallet() {
 #[test]
 fn the_wallet_has_one_route_to_argon2_and_it_is_the_anchored_one() {
     const CRYPT: &str = "crates/mochimo-crypto/src/keystore/crypt.rs";
-    // Constructed, never written literally: this file is under
-    // `crates/` and inside its own walk, and `code_only` strips comments but
-    // not string literals -- the first draft spelled all three needles as
-    // strings and the scan reported itself as the alias site on its first
-    // run; with the needles constructed, it reported itself again from the
-    // assertion MESSAGE that quoted one. A check reading its own prose,
-    // twice over -- the text explaining a needle is the likeliest place for
-    // the needle to sit -- caught both times by running the check.
+    // Constructed, never written literally: this file is under `crates/`
+    // and inside its own walk, and `code_only` strips comments but not
+    // string literals, so a needle spelled out here is a site the scan then
+    // reports -- in the code, and equally in an assertion message that
+    // quotes one. The text explaining a needle is the likeliest place for
+    // the needle to sit.
     let plain_needle = format!("Argon2::{}(", "new");
     let secret_needle = format!("Argon2::{}(", "new_with_secret");
     let alias_needle = format!("Argon2 {} ", "as");
@@ -11410,10 +11408,10 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // ban stood green over the one citation left in the tree.
     (MarkerClass::ErrataNumber, "crates/mochimo-crypto/tests/invariants.rs", 1, SWEEP_TESTS),
     // Names that DECLARED_UNRESOLVED_SRC_NAMES permits because a sentence
-    // under `src/` records what they used to assert. Each count is the
-    // number of `src/` files carrying such a sentence, so the count falls
-    // to zero as the sentences go and the permit can then be deleted with
-    // them.
+    // under `src/` cites them and nothing in the tree defines them. Each
+    // count is the number of `src/` files carrying such a sentence, so the
+    // count falls to zero as those sentences go and the permit is deleted
+    // with them. None stands today.
 ];
 
 /// The rows declared for one class, with the duplicate refused.

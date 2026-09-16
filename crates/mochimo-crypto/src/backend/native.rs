@@ -864,13 +864,10 @@ pub fn get16(bytes: &[u8; 2]) -> u16 {
 /// `crc16: 45906`, and `CX-C9` catches a `to_be_bytes` injection against
 /// the TypeScript, an implementation sharing no code with the C.
 ///
-/// An earlier draft wrote here that neither existed at 32 bits, "because nothing in the
-/// corpus' generators calls `put32`". **That was false.**
-/// calls it three times and
-/// `:894` once more, and `fixtures/group_d_tx.json` records the image as
-/// `identity.adrs_tail12= "420000000e00000001000000"`. What was true is that
-/// nothing *read* those bytes; `tests/kat.rs::reference_verdicts_native`
-/// reads every recorded field of group D, that one included.
+/// `put32`'s anchor is group D: `fixtures/group_d_tx.json` records the image
+/// as `identity.adrs_tail12 = "420000000e00000001000000"`, and
+/// `tests/kat.rs::reference_verdicts_native` reads every recorded field of
+/// group D, that one included.
 ///
 /// The second anchor is still absent: no implementation independent of the C
 /// exposes a 32-bit store, so there is no `put32` analogue of `CX-C9`.

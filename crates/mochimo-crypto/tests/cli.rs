@@ -302,11 +302,11 @@ fn address_answers_before_the_tag_is_funded_and_asks_no_node() {
 /// A transport that counts, through a handle the test keeps after the client
 /// is moved into `cli::run`.
 ///
-/// `Chain` has its own counter and `cli::run` consumes the client, so from
-/// for a time the test below said "the transport's own counter is zero"
-/// and never read it -- a `cmd_address` that dialed and tolerated the answer
-/// would have left it green (a check whose needle it did not control, found
-/// by a refutation panel). The count now lives behind an `Rc` the test holds.
+/// `Chain` has its own counter and `cli::run` consumes the client, so the
+/// count lives behind an `Rc` the test holds. Asserting on the transport's
+/// own counter would assert on a value this test cannot read once the client
+/// has moved: a `cmd_address` that dialled and tolerated the answer would
+/// leave it green.
 struct Counting {
     inner: Chain,
     calls: std::rc::Rc<std::cell::Cell<usize>>,
