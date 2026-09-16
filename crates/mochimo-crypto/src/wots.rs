@@ -1,6 +1,8 @@
 //! WOTS+ key generation, signing, and public-key recovery.
 
 use crate::backend::selected as backend;
+use zeroize::Zeroizing;
+
 use crate::consts::{PK_LEN, SEED_LEN, SIG_LEN, WOTSLEN};
 use crate::secret::Secret;
 
@@ -148,7 +150,7 @@ pub(crate) mod internals {
         backend::thash_f(input, pub_seed, &mut adrs.0)
     }
 
-    pub fn expand_seed(inseed: &Secret<SEED_LEN>) -> Box<[u8; PK_LEN]> {
+    pub fn expand_seed(inseed: &Secret<SEED_LEN>) -> Box<Zeroizing<[u8; PK_LEN]>> {
         backend::expand_seed(inseed.expose())
     }
 

@@ -418,20 +418,30 @@ pub fn chain_lengths(msg: &[u8; SEED_LEN]) -> [i32; WOTSLEN_TOTAL] {
 
 /// Expands an `n`-byte seed into the `WOTSLEN * PARAMSN` byte private key.
 ///
-/// **The return value is the WOTS+ private key, and it is not
-/// [`Zeroizing`].** Ownership passes to the caller, who is the only one who
-/// knows when it stops being secret. [`wots_pkgen`] below, the only caller in
-/// this module, does zeroize it. A caller outside this module that keeps the
-/// raw expansion around is holding key material, and nothing in this tree
-/// detects that.
+/// **The return value is the WOTS+ private key, and it clears itself.**
+/// Ownership passes to the caller, who is the only one who knows when the key
+/// stops being secret, so the caller decides when the scrub happens by
+/// deciding when to drop it. What the caller cannot do is forget: the 2,144
+/// bytes are zeroed before the allocation goes back to the allocator, whatever
+/// path the value leaves by.
+///
+/// # Why the [`Zeroizing`] is inside the [`Box`] and not around it
+///
+/// `Zeroizing<T>` needs `T: Zeroize`, and a boxed array is not — `zeroize`
+/// implements the trait for `Vec<Z>`, `Box<[Z]>` and `[Z; N]`, and `Box<[Z; N]>`
+/// matches none of the three. Wrapping the other way round satisfies it with
+/// the array's own impl and keeps `PK_LEN` in the signature, where a caller and
+/// [`expand_seed_into`]'s width check can both still see it. Dropping the `Box`
+/// drops its contents in place first, so the scrub happens while the bytes are
+/// still owned.
 ///
 /// The counter is the whole content of the function: `ull_to_bytes(ctr, 32, i)`
 /// is 31 zero bytes and `i`, big-endian, and `prf` keys on the *seed*. Omit the
 /// counter and all 67 chain seeds are identical, which the corpus's `A-expand`
 /// vector catches and `A-prf-ctr1` localises.
 #[must_use]
-pub fn expand_seed(inseed: &[u8; SEED_LEN]) -> Box<[u8; PK_LEN]> {
-    let mut out = Box::new([0u8; PK_LEN]);
+pub fn expand_seed(inseed: &[u8; SEED_LEN]) -> Box<Zeroizing<[u8; PK_LEN]>> {
+    let mut out = Box::new(Zeroizing::new([0u8; PK_LEN]));
     expand_seed_into(&mut out[..], inseed);
     out
 }
