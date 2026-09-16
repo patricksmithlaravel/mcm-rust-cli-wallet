@@ -43,19 +43,17 @@
 //! asserts it twice, once symbolically and once as
 //! `assert_eq!(image.len(), 502, "51 header + (45 + 2*195) body + 16 tag")`,
 //! and an executing assertion outranks a comment. It is written down here
-//! because that is what this header is for, and it was wrong for three
-//! sessions -- see the last section.
+//! because that is what this header is for.
 //!
 //! `MAX_IMAGE_LEN` is `image_len(MAX_ACCOUNTS)` written out as its own sum, so
 //! the two can disagree, and
 //! `max_image_len_is_the_cap_image_and_one_record_more_is_refused` holds them
 //! equal at the cap, holds one record over the cap above it, and holds
-//! `read_header`'s gate to exactly the cap. **It omitted `BODY_HEADER_LEN`
-//! for three sessions**: a store at the 65,536 cap encoded and was refused
-//! on read, and nothing below the cap could show it (an audit found it, and
-//! the test closed it rather than the one-line edit alone).
-//! `MIN_IMAGE_LEN`, the other end of the same range, was missing the same
-//! 45 bytes in the `Range` the gate reports.
+//! `read_header`'s gate to exactly the cap. A sum here that omits
+//! `BODY_HEADER_LEN` lets a store at the 65,536 cap encode and be refused on
+//! read, and nothing below the cap shows it: `45/178 < 1` puts the smallest
+//! failing count at the cap itself. `MIN_IMAGE_LEN` is the other end of the
+//! same range and carries the same 45 bytes.
 //!
 //! # What moved into the ciphertext, and why it is not just the roots
 //!
@@ -215,16 +213,13 @@
 //! `tests/keystore.rs` is what makes the slice-indexing rule -- which the
 //! census cannot see -- falsifiable.
 //!
-//! # This header was version 2's for three sessions, and that is the finding
+//! # Nothing checks this header against the layout it describes
 //!
-//! The change to version 3 left the description behind: for three sessions this
-//! block said `version u16 = 2`, `trailer[32] = sha3_256`, *"Encryption at
-//! rest is **not** here"* and *"no nonce, no timestamp"*, in the file that had
-//! just grown all four. Nothing went red. The checks in this tree count things
-//! and resolve names; **a header describing a layout has neither a count nor a
-//! name to disagree with**, and this file's doc had been maintained across
-//! v1 -> v2 well enough that the decision deferring the AEAD quoted it as
-//! its argument.
+//! The checks in this tree count things and resolve names; **a header
+//! describing a layout has neither a count nor a name to disagree with**. A
+//! version change that leaves this block behind goes red nowhere, and the
+//! block stays quotable as an argument while it is wrong. What stands against
+//! that is the assertion named above, which executes.
 
 use core::fmt;
 use std::collections::BTreeMap;
@@ -302,15 +297,14 @@ pub(crate) const MAX_ACCOUNTS: usize = 1 << 16;
 /// `max_image_len_is_the_cap_image_and_one_record_more_is_refused` holds them
 /// equal at the cap and holds the gate that reads this to exactly it.
 ///
-/// **This omitted `BODY_HEADER_LEN` for three sessions.** Version 2's image
-/// was `HEADER_LEN + count * RECORD_LEN + TRAILER_LEN` and this sum matched
-/// it; version 3 put a 45-byte body header inside the ciphertext, moved
-/// `image_len`, and did not move this -- so a store at the cap encoded and
-/// was refused on read, and nothing below the cap could show it, because
-/// `45/178 < 1` puts the smallest failing count at the cap itself. The audit
-/// that found it recorded it as owing a boundary test rather than a one-line
-/// edit; `max_image_len_is_the_cap_image_and_one_record_more_is_refused` is
-/// the test.
+/// **`BODY_HEADER_LEN` is a term of this sum, and omitting it is invisible
+/// below the cap.** Version 2's image is
+/// `HEADER_LEN + count * RECORD_LEN + TRAILER_LEN`; version 3 puts a 45-byte
+/// body header inside the ciphertext, so a sum written without it lets a
+/// store at the cap encode and be refused on read, and `45/178 < 1` puts the
+/// smallest failing count at the cap itself -- nothing below it can show the
+/// fault. `max_image_len_is_the_cap_image_and_one_record_more_is_refused` is
+/// the boundary test that does.
 pub(crate) const MAX_IMAGE_LEN: usize =
     HEADER_LEN + BODY_HEADER_LEN + MAX_ACCOUNTS * RECORD_LEN + TRAILER_LEN;
 /// The shortest image either read version's writer produces: `image_len(0)`,
@@ -1294,17 +1288,10 @@ mod tests {
     }
 
     pub(super) const TEST_SALT: [u8; crypt::SALT_LEN] = [0x5A; crypt::SALT_LEN];
-    // `TEST_NONCE_SEED` stood here and was removed. It was NOT
-    // always dead: `expected_header` derived the KAT's nonce from it through
-    // `crypt::nonce_for` -- the same function the encoder calls, which is the
-    // tautology a fault-injection row found -- and the `KAT_NONCE` literal
-    // below is what closed that and orphaned this. Two other accounts of the
-    // same repair, in `KAT_NONCE`'s own doc comment and in the `assert_ne!`
-    // row of `DECLARED_PANIC_SITES`, both name `expected_header`; this comment
-    // said `seal_at` in its first draft, which would have left the tree
-    // carrying two provenance stories. A constant that outlived its only
-    // reader -- the same class as a doc comment naming a deleted function,
-    // and caught by `-D warnings` rather than by a reader.
+    // No `TEST_NONCE_SEED` here: deriving the KAT's nonce through
+    // `crypt::nonce_for` uses the same function the encoder calls, so the two
+    // sides of the comparison move together. `KAT_NONCE` below is the literal
+    // that keeps them apart.
 
     /// The key these tests encrypt under.
     ///
@@ -1318,10 +1305,8 @@ mod tests {
     /// per derivation** (196,608 x 0.15 s = 29,491 s = 8.19 h), and this
     /// module performs two. A `cargo miri test` run was killed at 2h27m having
     /// produced no output, and this is where it was going -- nowhere near
-    /// finishing. An earlier draft wrote *two and a half to three hours* here, which is
-    /// 65,536 x 0.15 s: the `t_cost` factor dropped out of the product in the
-    /// same sentence that states it. `keystore_harness::init` had already made exactly
-    /// this choice for the integration suite; the encryption change did not carry it here.
+    /// finishing. `keystore_harness::init` makes the same choice for the
+    /// integration suite.
     ///
     /// Nothing is weakened: every assertion in this module reaches the image
     /// through `parse_with_key`, which takes the key directly and **never
@@ -1349,11 +1334,11 @@ mod tests {
     /// The KAT's nonce, a LITERAL.
     ///
     /// **Not `nonce_for(seed, generation)`**, and that is a repair rather than
-    /// a simplification. `expected_header` used to compute the nonce with the
-    /// same function the encoder calls, so the two sides of the comparison
-    /// moved together: an injection replacing `nonce_for`'s hash with a bare
-    /// generation counter left this KAT GREEN. The two-degrees-of-freedom
-    /// defect inside the test written to avoid it, found by a fault-injection row.
+    /// a simplification. Computing the nonce here with the same function the
+    /// encoder calls moves the two sides of the comparison together: an
+    /// injection replacing `nonce_for`'s hash with a bare generation counter
+    /// leaves this KAT green. A literal has one degree of freedom, which is
+    /// what a known-answer test is for.
     ///
     /// With a literal here the header is hand-assembled all the way through,
     /// and `nonce_for` is checked separately by
@@ -1647,11 +1632,10 @@ mod tests {
     /// value of the constant is the format KAT's claim (`expected_header`'s
     /// literals), not this test's. A fault-injection row showed the boundary.
     ///
-    /// This vector was once recorded as *not reachable* because
     /// `hash_password_into_with_memory` takes neither a secret nor associated
-    /// data. The premise is true and the conclusion was not:
-    /// `Argon2::new_with_secret` and `ParamsBuilder::data` are in the pinned
-    /// crate, ungated (correcting the earlier claim).
+    /// data, which is why the anchor reaches them through
+    /// `Argon2::new_with_secret` and `ParamsBuilder::data` -- both in the
+    /// pinned crate, ungated.
     ///
     /// **If this goes red, do not touch `RFC9106_TAG`.** It is compared to the
     /// vendored RFC text by `published_vector_literals_match_the_vendored_rfc_text`,
@@ -1910,14 +1894,13 @@ mod tests {
     /// crate, this reference and this corpus -- a read literal against a
     /// vendored copy of the standard, which is the anchoring floor with its
     /// transcription weakness removed, not the executed second
-    /// implementation the anchoring rule calls the standard. This said "the
-    /// second implementation the rule asks for" for three sessions.
+    /// implementation the anchoring rule calls the standard.
     #[test]
     fn chacha20poly1305_matches_rfc8439() {
         let mut buf = RFC8439_PLAINTEXT.to_vec();
         let tag = crypt::seal(&RFC8439_KEY, &RFC8439_NONCE, &RFC8439_AAD, &mut buf).expect("seal");
-        // RFC 8439 §2.8.2's recorded ciphertext -- all 114 bytes now;
-        // the first eight at first -- and tag. Every input and both
+        // RFC 8439 §2.8.2's recorded ciphertext -- all 114 bytes -- and
+        // tag. Every input and both
         // outputs are read back out of the vendored RFC by
         // `published_vector_literals_match_the_vendored_rfc_text`.
         assert_eq!(
@@ -1946,15 +1929,13 @@ mod tests {
     /// does, by replaying RFC 9106 §5.3's tag through `crypt::argon2id_v13`,
     /// the same path `derive_key` calls.
     ///
-    /// For three sessions this comment said the RFC's vector was *not
-    /// reachable* because `hash_password_into_with_memory` takes neither a
-    /// secret nor associated data. The premise is still true, and it is why
-    /// the anchor reaches them through `Argon2::new_with_secret` and
-    /// `ParamsBuilder::data` instead; the conclusion was wrong (corrected
-    /// since). The first draft of THIS test asserted a
-    /// hard-coded 32-byte expectation for the no-secret case, taken from what
-    /// the build produced -- an expectation moved to fit an observation -- and that is
-    /// still the reason the arms below are differences rather than values.
+    /// `hash_password_into_with_memory` takes neither a secret nor associated
+    /// data, which is why the anchor reaches them through
+    /// `Argon2::new_with_secret` and `ParamsBuilder::data` instead.
+    ///
+    /// **The arms below are differences rather than values.** A hard-coded
+    /// expectation for the no-secret case could only be taken from what the
+    /// build produced, which is an expectation moved to fit an observation.
     /// Each arm fails on a plausible defect the round trip alone would miss:
     ///
     /// * a KDF that ignored the password -- every store would share a key;
@@ -1967,8 +1948,7 @@ mod tests {
     /// The executed second implementation the anchoring rule calls the standard is
     /// **not owed** for this primitive, by decision: the
     /// hash-pinned published vector is the anchor class both keystore
-    /// primitives share. This paragraph said "what would close it: a
-    /// gen-fixtures crosscheck" before that decision.
+    /// primitives share.
     #[test]
     fn the_kdf_is_a_function_of_its_password_salt_and_parameters() {
         let p1 = b"password one, long enough to pass";
@@ -2179,11 +2159,11 @@ mod tests {
     /// the phrase exists for.
     #[test]
     fn an_older_format_reports_unsupported_version_before_anything_else() {
-        // v1's OWN constants, written out. They used to be spelled with this
-        // module's `HEADER_LEN` and `TRAILER_LEN`, which described v1 only for
-        // as long as v1 and the current version agreed about them -- v3 moved
-        // both, and a test describing an old format through new constants is a
-        // test that breaks on every version bump for no reason.
+        // v1's OWN constants, written out. Spelling them with this module's
+        // `HEADER_LEN` and `TRAILER_LEN` would describe v1 only for as long as
+        // v1 and the current version agree about them, and a test describing
+        // an old format through new constants breaks on every version bump
+        // for no reason.
         const V1_HEADER_LEN: usize = 22; // magic 8 | version 2 | generation 8 | count 4
         const V1_RECORD_LEN: usize = 94;
         const V1_TRAILER_LEN: usize = 32; // sha3_256, before the AEAD tag replaced it
@@ -2227,11 +2207,10 @@ mod tests {
             "version must be dispatched BEFORE the body is authenticated"
         );
 
-        // **And version 2, the one an operator actually holds**.
-        // For a time this arm set the version word of the v1 file
-        // and said "there is no v2 encoder left to capture one with". There
-        // is: the encoder at `8062c9a`, the last commit that wrote v2, and
-        // `V2_SNAPSHOT` is what it wrote for the harness's two accounts. The
+        // **And version 2, the one an operator actually holds**. `V2_SNAPSHOT`
+        // is what the last encoder that wrote v2 produced for the harness's
+        // two accounts, so this arm reads a genuine file rather than the v1
+        // file with its version word overwritten. The
         // genuine file names its first account; the forged one -- a v1 body
         // under a v2 word, 242 bytes where a v2 image is 22 + n*178 + 32 --
         // names none, which is the length gate doing its job.
@@ -2642,9 +2621,9 @@ mod tests {
     ///
     /// * `image_len(MAX_ACCOUNTS) == MAX_IMAGE_LEN` -- the constant is a
     ///   hand-written sum and `image_len` a formula, two degrees of freedom.
-    ///   This is the arm the original defect fails, and it failed
-    ///   for three sessions with nothing to show it because `45/178 < 1` puts
-    ///   the smallest failing count AT the cap.
+    ///   This is the arm a missing `BODY_HEADER_LEN` fails, and the only one
+    ///   that can: `45/178 < 1` puts the smallest failing count AT the cap,
+    ///   so no store below it shows the fault.
     /// * `image_len(MAX_ACCOUNTS + 1) > MAX_IMAGE_LEN` -- the cap means *one
     ///   record more is refused*. Redundant with the equality today, on
     ///   purpose: it is the arm that survives if someone later "simplifies"

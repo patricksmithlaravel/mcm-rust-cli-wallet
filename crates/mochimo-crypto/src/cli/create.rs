@@ -20,22 +20,12 @@
 //! * **it appears once and is not recoverable from the store.** The store holds
 //!   the derived account, not the phrase, and nothing in this crate reverses
 //!   that;
-//! * **it is the only backup that survives a forgotten password.** This bullet
-//!   said the store's imported roots were "plaintext on disk until an
-//!   encrypted format lands" after that format had landed, and the
-//!   sentence outlived it. The store is now sealed under the
+//! * **it is the only backup that survives a forgotten password.** The store
+//!   is sealed under the
 //!   password, which *raises* the phrase's importance rather than lowering it:
 //!   the password protects the file, and the phrase is what reconstructs the
 //!   accounts when the password is gone;
 //!
-//! **A correction fixed this bullet and not the string it describes**, and the
-//! string is the half an operator reads. The `term.show` beside the phrase
-//! went on telling them *"the store's imported roots are plaintext on disk
-//! until encryption at rest lands"* -- in the session that encrypted them --
-//! for three sessions, with this doc comment ten lines above asserting the
-//! correction had been made. **A doc comment claiming a fix is not the fix**,
-//! and it is worse than silence, because the next reader greps, finds the
-//! claim, and stops. Corrected since.
 //! * **it is on a terminal** — in the scrollback, in whatever the terminal
 //!   emulator logs, and in any session recording.
 //!
@@ -109,10 +99,9 @@ pub struct Created {
 ///
 /// # The password floor is asked here too, and first
 ///
-/// For a time only the prompt asked it, through
-/// [`read_new_password`], and every test in the tree came in through this
-/// function with the harness's password -- so the control was enforced
-/// exactly where no test looked. It is asked here now, before
+/// Asking it only at the prompt, through [`read_new_password`], would enforce
+/// it exactly where no test looks: every test in the tree comes in through
+/// this function with the harness's password. It is asked here, before
 /// `Keystore::create` makes the directory, and the prompt keeps its copy as
 /// the **early** one: the arrangement `occupied` already has, an early
 /// refusal at the prompt so the operator is told before typing twenty-four
@@ -192,11 +181,8 @@ pub fn create(
 /// warning that should have been a refusal. Refusing has a real cost too --
 /// it is the program overriding somebody about their own wallet -- and
 /// *"the operator chose it"* is the usual answer to that, but it is a poor one
-/// here, because what they chose is now the only barrier: before this session
-/// a stolen store file yielded every imported account and no derived one, and
-/// now it yields all of them or none depending on this password alone. (This
-/// sentence said the old file yielded *nothing* for a session — the fourth
-/// copy of one overstatement.)
+/// here, because what they chose is the only barrier: a stolen store file
+/// yields every account in it or none, depending on this password alone.
 ///
 /// So: a **length floor and nothing else**. No required digit, no required
 /// symbol, no strength meter. Those rules are heuristics about the shape of a
@@ -213,13 +199,13 @@ pub fn create(
 /// number of guesses, and below about a dozen characters that number is the
 /// whole problem.
 ///
-/// **Twelve characters, and the unit is load-bearing**.
-/// For a time the refusal compared the password's UTF-8 byte count
-/// against this constant while its message said *character(s)*, so the
-/// floor was twelve BYTES: eleven characters with one accented letter
-/// passed, four CJK characters passed, three emoji passed. The argument
-/// above is about the symbols an operator chose, not their encoding, and the
-/// count is now Unicode scalar values -- see [`short_password_chars`].
+/// **Twelve characters, and the unit is load-bearing**. Comparing the
+/// password's UTF-8 byte count against this constant makes the floor twelve
+/// BYTES, and a message saying *character(s)* then lies: eleven characters
+/// with one accented letter pass, four CJK characters pass, three emoji
+/// pass. The argument above is about the symbols an operator chose, not
+/// their encoding, so the count is Unicode scalar values -- see
+/// [`short_password_chars`].
 pub const MIN_PASSWORD_LEN: usize = 12;
 
 /// The character count of a password below [`MIN_PASSWORD_LEN`], or `None`
@@ -306,13 +292,12 @@ pub fn confirmation_matches(phrase: &str, answer: &str) -> bool {
 pub trait Terminal: Sized {
     /// Show text the operator must read -- and say whether it was written.
     ///
-    /// **Returns a `Result`.** It returned nothing at first, on the
-    /// argument that the confirmation read immediately after the
-    /// phrase is a stronger check than the write's own result. The binary's
-    /// impl wrote to a descriptor opened read-only, every write failed with
-    /// `EBADF`, and the confirmation -- asked on the same descriptor, by
-    /// design -- failed the same way, so the "stronger check" was blind to
-    /// exactly the failure it stood in for. The two are complementary: this
+    /// **Returns a `Result`.** The confirmation read immediately after the
+    /// phrase looks like a stronger check than the write's own result, and it
+    /// is not a substitute for it: the confirmation is asked on the same
+    /// descriptor by design, so a descriptor that cannot be written fails
+    /// both, and the read-back is blind to exactly the failure it would be
+    /// standing in for. The two are complementary: this
     /// result catches the descriptor class, the read-back catches the human
     /// class. [`orchestrate`] refuses on `Err` here before any store exists.
     fn show(&mut self, text: &str) -> core::result::Result<(), String>;
@@ -346,8 +331,8 @@ pub trait Terminal: Sized {
     /// The only caller asks for three words of a phrase that is on the same
     /// screen, three lines above, in the same scrollback, in the same session
     /// recording. The mnemonic prompt's argument is about **exposure**, and there is
-    /// none left to prevent here; hiding the answer bought no secrecy and cost
-    /// a real `exit 3` on the first live run. The master-seed prompt keeps echo
+    /// none left to prevent here; hiding the answer buys no secrecy and costs
+    /// a real `exit 3`. The master-seed prompt keeps echo
     /// off, where 172's argument holds unchanged: that phrase is not on screen.
     ///
     /// The answer is still [`Zeroizing`] — it is three words of a mnemonic and
@@ -368,13 +353,12 @@ pub trait Terminal: Sized {
 ///
 /// # The acquisition is first, and that is the session's subject
 ///
-/// An earlier change made the *echo* refusal structural — a guard through `?`, so no path
-/// reads with echo on. It left *terminal availability* probed at the
-/// confirmation, which sits after the store is written and after the phrase is
-/// shown. In a terminal that is invisible; without one it means a real store
-/// exists and a real phrase has been printed to whatever captured stdout,
-/// before anything discovers there is nowhere to confirm it. The first live run found it by
-/// building the binary and looking, not by a test.
+/// The *echo* refusal is structural — a guard through `?`, so no path reads
+/// with echo on. Probing *terminal availability* at the confirmation instead
+/// would put it after the store is written and after the phrase is shown: in
+/// a terminal that is invisible, and without one it means a real store exists
+/// and a real phrase has been printed to whatever captured stdout, before
+/// anything discovers there is nowhere to confirm it.
 ///
 /// `acquire()?` on the first line is the same move one level out: the `?` that
 /// already prevented reading with echo on now also prevents **generating a
@@ -384,18 +368,16 @@ pub trait Terminal: Sized {
 ///
 /// The terminal — and with it echo-off, since the binary's implementation
 /// acquires both together — is held across the password reads and the phrase
-/// display, where before echo was disabled only around each read. (It
-/// was also held across the store write for a time; the write now
-/// follows the confirmation, which consumes the terminal and releases the
-/// guard, so the store is written with echo already restored.) Three
-/// consequences, and what was done about each:
+/// display. The write follows the confirmation, which consumes the terminal
+/// and releases the guard, so the store is written with echo already
+/// restored. Three consequences, and what answers each:
 ///
 /// * **A longer window with echo disabled.** A `SIGKILL` inside it leaves the
-///   operator's terminal silent, where before the window was one `read_line`.
-///   Not defended against: `Drop` cannot run on `SIGKILL`, the remedy is
-///   `stty echo`, and the alternative — verify the terminal, restore echo,
-///   re-disable it per read — trades a recoverable annoyance for a
-///   time-of-check gap in the property this session exists to establish.
+///   operator's terminal silent. Not defended against: `Drop` cannot run on
+///   `SIGKILL`, the remedy is `stty echo`, and the alternative — verify the
+///   terminal, restore echo, re-disable it per read — trades a recoverable
+///   annoyance for a gap between the check and the use, in the property the
+///   guard establishes.
 /// * **The `show` path.** None: terminal echo governs what the driver echoes
 ///   back from *input*. Writing to the terminal is unaffected, so the phrase
 ///   displays normally with echo off.
@@ -425,11 +407,11 @@ pub fn orchestrate<T: Terminal>(
     // phrase shown and read back. Asking the keystore's check up front keeps
     // the earlier property -- a mistyped `--dir` cannot burn a phrase -- at the
     // new order. The check at write time is still the authoritative one.
-    // **What this probe no longer sees**: a lock file with
-    // no snapshot beside it. That state was once a refusal here, which
-    // also meant a concurrent `create` inside its own key-derivation window
-    // -- lock taken, snapshot not yet renamed in -- was refused before this
-    // one prompted. Such a race now reaches the write, where `take_lock`
+    // **What this probe deliberately does not see**: a lock file with no
+    // snapshot beside it. Refusing that state here would also refuse a
+    // concurrent `create` inside its own key-derivation window -- lock taken,
+    // snapshot not yet renamed in -- before this one prompted. Such a race
+    // reaches the write instead, where `take_lock`
     // refuses it with `Locked` after the password, the phrase and the
     // confirmation, with nothing written: the phrase shown is one
     // `--from-phrase` from a store and the window is one
@@ -613,10 +595,10 @@ fn after_the_store_exists(dir: &Path) -> String {
 
 /// **Takes the rendered destination rather than the [`Created`]**.
 ///
-/// The tag was printed here as forty hex characters until the first live run
-/// discovered the shipped Chrome wallet refuses that outright -- *"Tag must be
-/// between 22 and 31 characters"* -- so the operator could not fund the wallet
-/// from its own output. Passing the string in rather than the bytes means this
+/// Forty hex characters is not a destination the shipped Chrome wallet takes
+/// -- *"Tag must be between 22 and 31 characters"* -- so a wallet printing
+/// one here cannot be funded from its own output. Passing the string in
+/// rather than the bytes means this
 /// function cannot render a second form by accident: there is no tag here to
 /// render.
 /// Read a new password twice and require the two to agree.

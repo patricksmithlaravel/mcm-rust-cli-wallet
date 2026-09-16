@@ -62,11 +62,10 @@
 //!    recovery saw the third for every tag on the chain for two minutes,
 //!    funded ones included. [`Divergence::TagUnresolved`] and
 //!    [`RestoreFailure::TagUnresolved`] therefore name what was observed and
-//!    prefer no reading. For a time both were `TagUnknownToTheChain`
-//!    and their texts asserted *never funded*: the reasoning from fact 1 was
-//!    sound and the premise — that the answer was the ledger's — was never
-//!    examined. Same shape as the scan-bound diagnosis below, one layer out: there a name asserted
-//!    a cause; here a name asserted that a response was truthful.
+//!    prefer no reading. A name asserting *never funded* reasons soundly
+//!    from fact 1 about a premise fact 3 denies -- that the answer is the
+//!    ledger's. Same shape as the scan-bound diagnosis below, one layer out:
+//!    there a name would assert a cause, here that a response is truthful.
 //!
 //! # The two scans, and the two bounds
 //!
@@ -83,11 +82,10 @@
 //! and the window is 20, so that they are two quantities rather than one is
 //! a fact about the code and not a claim about it — a store at position
 //! 9,000 is restorable and a disagreement of 30 positions is still outside
-//! the window. The two numbers are argued at their own constants. For a time
-//! one constant served both and the diagnostic walked `0..20` *absolute*, so
-//! a store at position 22 whose chain sat at 24 — a gap of two, I4's
-//! two-instance case exactly — was reported as *this seed does not own this
-//! tag*.
+//! the window. The two numbers are argued at their own constants. One
+//! constant serving both, with the diagnostic walking `0..20` *absolute*,
+//! reports a store at position 22 whose chain sits at 24 — a gap of two, I4's
+//! two-instance case exactly — as *this seed does not own this tag*.
 //!
 //! **Either bound bounds only the failing search**: the ordinary case stops on
 //! the match. When the walk finds nothing, three things can be true and the
@@ -432,10 +430,9 @@ pub enum ChainPosition {
     /// times than the walk reaches, this seed may not own this tag, or the
     /// wallet may be on another chain, and this arm cannot tell which.
     ///
-    /// This was `NotThisSeed` for a time, and the name asserted at
-    /// type level the one explanation a bounded walk cannot support: every
-    /// `match` arm read *not this seed* for a wallet that was merely further
-    /// along than the walk.
+    /// A name like `NotThisSeed` asserts at type level the one explanation a
+    /// bounded walk cannot support, and every `match` arm on it then reads
+    /// *not this seed* for a wallet merely further along than the walk.
     Unlocated {
         local: WotsIndex,
         scope: ScanScope,
@@ -517,9 +514,8 @@ pub enum Divergence {
         local_address: Address,
         chain_address: Address,
         /// The balance the chain holds for the tag: what is at stake in the
-        /// decision the report asks for. Absent at first, so an
-        /// operator deciding whether to advance learned the amount only
-        /// after advancing.
+        /// decision the report asks for. Without it an operator deciding
+        /// whether to advance learns the amount only after advancing.
         balance: u64,
         stream: StreamId,
         found: ChainPosition,
@@ -547,10 +543,9 @@ pub enum Divergence {
     /// observed, and it is all that was observed** (module doc, fact 3): the
     /// Mesh gives that answer for a tag the ledger has no entry for, for a tag
     /// the ledger holds at zero balance, and for a lookup that failed, and it
-    /// does not say which. This was `TagUnknownToTheChain` for a time,
-    /// and the name asserted at type level that the answer was the
-    /// ledger's absence — which by fact 1 would mean *never funded*, and which
-    /// the report then said, to an operator whose account had been paid.
+    /// does not say which. A name like `TagUnknownToTheChain` asserts at type
+    /// level that the answer is the ledger's absence — which by fact 1 means
+    /// *never funded*, said to an operator whose account has been paid.
     TagUnresolved { tag: Tag, local: WotsIndex },
     /// The chain could not be reached. Not a divergence in itself; a
     /// reconciliation that could not be performed, which fails the same way
@@ -770,12 +765,9 @@ impl fmt::Display for Divergence {
                 balance,
                 hex20(stream.as_bytes()),
             ),
-            // Three readings, none preferred (module doc, fact 3). The
-            // sentence that stood here for a time --
-            // "absence means this tag has NEVER been funded on this chain" --
-            // reasoned correctly from fact 1 about an answer that is not the
-            // ledger's, and its ACTION sent an operator whose account had just
-            // been paid to fund it, remove it, or check the seed.
+            // Three readings, none preferred (module doc, fact 3). A page
+            // that picks one sends an operator whose account has just been
+            // paid to fund it, remove it, or check the seed.
             Divergence::TagUnresolved { tag, local } => write!(
                 f,
                 "account {}: the node did not resolve this tag -- it answered \"account not \
@@ -833,9 +825,9 @@ impl fmt::Display for Divergence {
 /// operator cannot acknowledge a divergence they did not read, and cannot
 /// acknowledge one and apply it to another.
 ///
-/// Lived in `wallet` at first and is re-exported there; it moved here
-/// because the CLI's `reconcile` runs before a `Wallet` exists and the gate
-/// is the acknowledgement, not the wallet type.
+/// Re-exported from `wallet`, and defined here because the CLI's `reconcile`
+/// runs before a `Wallet` exists: the gate is the acknowledgement, not the
+/// wallet type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OperatorAcknowledgement {
     tag: Tag,
@@ -904,8 +896,7 @@ where
 /// `address_at` is the caller's derivation, so the same routine serves an
 /// account already in a store (`Keystore::address_at`) and a seed being
 /// restored into one (`derived_address_at`). `local` is the index a window
-/// is centred on; restore has none. Took no scope and walked `0..20` at
-/// first.
+/// is centred on; restore has none.
 pub fn scan_for_address<F>(
     target: &Address,
     scope: &ScanScope,
@@ -990,10 +981,9 @@ pub enum RestoreFailure {
     /// The node answered *account not found* for the tag, so there is no
     /// address to derive an index from. Three readings and this variant
     /// cannot tell them apart (module doc, fact 3): never funded, emptied, or
-    /// a lookup that failed. Was `TagUnknownToTheChain` for a time,
-    /// with a text that said *never funded* and told the operator to create
-    /// the account rather than restore it -- for an account that, under two
-    /// of the three readings, has spent.
+    /// a lookup that failed. A text saying *never funded* would tell the
+    /// operator to create the account rather than restore it -- for an
+    /// account that, under two of the three readings, has spent.
     TagUnresolved { tag: Tag },
     /// The tag resolves, but none of the first `scanned` positions reproduces
     /// its address. Three causes, and this variant cannot tell them apart: the
@@ -1013,9 +1003,8 @@ pub enum RestoreFailure {
     CannotScan { tag: Tag, cause: Error },
     /// The scan found the index and the store refused to take the account.
     /// Nothing reached disk: the account is written in one commit, at the
-    /// found index (it was once added at zero and advanced
-    /// in a second commit, and a failure between the two was reported as
-    /// *the scan could not run*).
+    /// found index. Adding at zero and advancing in a second commit would
+    /// report a failure between the two as *the scan could not run*.
     CannotStore { tag: Tag, cause: Error },
 }
 
@@ -1334,9 +1323,7 @@ pub fn reconcile_account_with<M: Medium, T: Transport>(
 ///
 /// A free function rather than only a `Wallet` method because a one-shot CLI
 /// meets a divergence *before* a `Wallet` can exist — `Wallet::open` refuses
-/// on one — and for a time the shipped `reconcile` was dispatched
-/// behind that refusal, so the acknowledged path every report named could not
-/// be taken. `Wallet::advance_after_operator_review` delegates
+/// on one. `Wallet::advance_after_operator_review` delegates
 /// here for the long-running case where a divergence appears after open.
 pub fn advance_after_operator_review<M: Medium, T: Transport>(
     store: &mut Keystore<M>,
