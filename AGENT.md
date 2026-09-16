@@ -103,6 +103,16 @@ one. `tests/derive.rs` replays group F, `tests/mesh.rs` groups M and N,
 `tests/txwire.rs` round-trips every group D wire image through the native
 serializer. In this repository the group D handlers that called the C validators are compiled out; `reference_verdicts_native` round-trips every group D wire image through the native serializer, asserts the layout offsets the vector records, recomputes the two transaction digests, and marks the validator verdicts *not called* -- the crate has no transaction validator, and those recorded verdicts are what a node does. `derived_inputs_are_exactly_as_expected` holds the not-called set to exactly the five named vectors plus the group D vectors under the reference-only sources: 74 of 5,364.
 
+**What the corpus points at that is not here.** Some of the prose a vector
+carries names a document this repository does not hold: 1,564 such references
+across nine of the fifteen files, seven of them a structured header field
+rather than a sentence, and forty more in `manifest.toml`. They are part of
+the frozen record of what each generating run observed. They are not claims
+this wallet makes, and nothing replays them -- the dispatch is on `source` and
+what is asserted is values, `note` being metadata and the header field not a
+vector field at all. They are also not removable: a fixture is never edited,
+and rule 1 is what makes the corpus worth anything.
+
 **Known-wrong prose in the corpus.** A fixture is never edited, so where a
 vector's own note is inaccurate the correction is recorded here instead of
 being made there. Group C's `C7`-`C10` cite `tx.c:268-270` where the composing
@@ -196,15 +206,16 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `f68f741`, cargo's exit read from its own process: exit 0,
+The board on commit `12e2b2b`, cargo's exit read from its own process: exit 0,
 **374 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, about five minutes on a warm `target/`. **The commit
-is named by its hash rather than pointed at, because a commit cannot contain
-its own hash**: a sentence that says *this commit* is true when it is written
-and false at the next one, and correcting anything in this paragraph is always
-a documents-only commit. A reader runs `git diff f68f741` and, if nothing
-outside the documents moved, these figures are still theirs. The figure to
-compare across runs is the per-target one: lib 43, cli 105, compile_fail 1,
+ignored, 17 result lines, 4 m 48 s on a warm `target/`. **The commit is named
+by its hash rather than pointed at, because a commit cannot contain its own
+hash**: a sentence that says *this commit* is true when it is written and
+false at the next one. A reader runs `git diff 12e2b2b` and, if nothing
+outside the documents moved, these figures are still theirs; if something did,
+the remedy is to run the board and write down what it says, never to carry
+these numbers forward. The figure to compare across runs is the per-target
+one: lib 43, cli 105, compile_fail 1,
 derive 10, invariants 65, kat 18, keystore 33, mesh 12, mesh_http 10, miri 2,
 net 3, recon 29, signing 17, spend 19, txwire 3, wots_internals 4,
 doc-tests 0.
