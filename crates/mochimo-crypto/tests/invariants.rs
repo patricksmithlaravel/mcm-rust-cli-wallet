@@ -11311,6 +11311,10 @@ enum MarkerClass {
     /// The subject of such a row is the name, and its count is the number of
     /// `src/` files that cite it.
     DeclaredName,
+    /// A passage of prose about the code's own development, naming no
+    /// marker at all. Found by [`narrative_hits`] against
+    /// [`NARRATIVE_PHRASES`]; the subject of such a row is the file.
+    Narrative,
 }
 
 impl MarkerClass {
@@ -11321,6 +11325,7 @@ impl MarkerClass {
             MarkerClass::BoardItem => "open-item citation",
             MarkerClass::ErrataNumber => "errata citation",
             MarkerClass::DeclaredName => "declared dead name",
+            MarkerClass::Narrative => "self-narrative passage",
         }
     }
 }
@@ -11330,6 +11335,7 @@ impl MarkerClass {
 /// than numbered one through four, because the division of the prose cleanup
 /// into four passes is a schedule and the root a file sits under is not.
 const SWEEP_TESTS: &str = "the tests/ prose sweep (one of Phases 1-4)";
+const SWEEP_NARRATIVE: &str = "the self-narrative sweep";
 const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 
 /// Every site under `crates/` that carries a development-history marker
@@ -11407,6 +11413,39 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // could not see a number wrapped in markup until this change, so the
     // ban stood green over the one citation left in the tree.
     (MarkerClass::ErrataNumber, "crates/mochimo-crypto/tests/invariants.rs", 1, SWEEP_TESTS),
+    // Self-narrative passages, per file. The count is HITS and not
+    // sentences -- see NARRATIVE_PHRASES -- and it comes down by deleting
+    // prose, never by rephrasing around a row.
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/account.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/addr.rs", 2, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 8, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/address.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/args.rs", 4, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/create.rs", 15, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/mod.rs", 7, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/cli/reconcile.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/crypt.rs", 7, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/format.rs", 24, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/mod.rs", 7, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/keystore/sign.rs", 3, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/lib.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/mesh/spend.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/mnemonic/mod.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/recon.rs", 12, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/src/tx.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/cli.rs", 45, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/compile_fail.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/invariants.rs", 61, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/keystore.rs", 9, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/mesh.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/recon.rs", 6, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/signing.rs", 2, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/chain.rs", 3, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/derivation_walk.rs", 1, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/mesh_walk.rs", 3, SWEEP_NARRATIVE),
+    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/mod.rs", 2, SWEEP_NARRATIVE),
     // Names that DECLARED_UNRESOLVED_SRC_NAMES permits because a sentence
     // under `src/` cites them and nothing in the tree defines them. Each
     // count is the number of `src/` files carrying such a sentence, so the
@@ -11663,6 +11702,269 @@ fn board_item_hit(text: &str) -> Option<usize> {
 /// the offset each unit starts at paired with its index, and the units
 /// themselves.
 type JoinedFile<'a> = (&'a str, String, Vec<(usize, usize)>, Vec<&'a TextUnit>);
+
+/// The alternatives that may stand at one position of a phrase.
+type Seg = &'static [&'static str];
+/// One phrasing: segments in order, with filler permitted between them.
+type Shape = &'static [Seg];
+
+/// The sentinel alternative that matches a run of decimal digits.
+const DIGITS: &str = "<digits>";
+
+/// One class of prose about the code's own development.
+struct NarrativeRow {
+    /// What the row is called in a failure message. Rows are referred to by
+    /// index and by this name, never by quoting what they match: a document
+    /// that spells a phrase out is a site the check then reports, which is
+    /// the same trap [`DOCUMENTS_NOT_IN_THIS_REPOSITORY`] avoids by building
+    /// its needles rather than writing them.
+    name: &'static str,
+    /// Alternative phrasings. A row matches if any one of them does.
+    shapes: &'static [Shape],
+    /// Words that, standing immediately after a match, mean the match is not
+    /// narrative after all.
+    not_followed_by: Seg,
+}
+
+/// The spelled cardinals row 4 counts in, beside a run of digits.
+const CARDINALS: Seg = &[
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+    "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+    "twenty", DIGITS,
+];
+
+/// Prose about the code's own development, as phrases rather than as markers.
+///
+/// # What this is for, and why the three older bans cannot do it
+///
+/// Those bans match a *token* -- a session label, a citation of a list or of
+/// a document by number. A sentence can narrate this project's development
+/// without carrying one of those, and most of them do. The subject matter is
+/// the same and the reason for removing it is the same: a reader of a
+/// shipping wallet cannot act on what the code looked like before, and the
+/// repository does not carry the history that would make such a sentence
+/// checkable.
+///
+/// # How a row is written, and why each one is narrow
+///
+/// Every row here was measured over the tree before it was admitted, and
+/// several obvious candidates were measured and refused. The rule that
+/// decided each is precision, not recall: a row that fires on live prose
+/// teaches a maintainer to read reds as noise, and a ban read as noise is
+/// worth less than no ban.
+///
+/// Refused, with what the measurement said. A bare negation of currency: 111
+/// hits, under a third of them narrative. A bare adverb of singularity: 222
+/// hits, because one-time signing is this crate's central invariant and the
+/// word is everywhere legitimately. A bare comparative of preference: 685
+/// hits and not one narrative -- it is the house idiom for stating a
+/// decision. A bare past-tense verb of speech: 46 hits, 24 of them the node
+/// or an endpoint answering. A definite article before an adjective of age:
+/// the old address, the old inode and the old format are live nouns here.
+/// Colour words for a test's state: a test that *is* green is a live claim
+/// about a live test.
+///
+/// Where a row needs a closed set -- rows 2 and 3 -- the set is measured
+/// rather than guessed, and two verbs were dropped from row 3 after
+/// measurement because they are the purpose construction and not the
+/// narrative one: a value *used to sign* and a key *used to spend* are what
+/// the words do here, not what the code did before.
+///
+/// # The count is hits, not sentences
+///
+/// A row's count is the number of places a phrase matches, and one passage
+/// commonly produces several. **It may be lowered only by deleting prose.**
+/// Merging two narrated sentences into one, or restating a matched phrase as
+/// a synonym this table does not carry, lowers the number without
+/// discharging anything -- and the class has form for that: the same
+/// retraction about a never-funded account stands in four places and the
+/// same one about a stolen store in four more, so collapsing copies is
+/// available and is not the remedy.
+///
+/// # Two stated bounds
+///
+/// **This check reads comments and not string literals.** That is what makes
+/// row 5 safe at all -- `src/mnemonic/english.rs` carries the BIP-39
+/// wordlist, whose entries include the words rows 5, 4 and 1 match, in a
+/// file that must ship byte for byte -- and it is what keeps three live
+/// assertion messages out of reach. The cost is declared: four narrative
+/// passages live in string literals and this check cannot see them, at
+/// `tests/invariants.rs` lines 2145, 5486 and 10381 and `tests/cli.rs` line
+/// 5684. Widening the scope to reach them would put the wordlist back in.
+///
+/// **A red can therefore be answered by moving a sentence into an assertion
+/// message.** Nothing here detects that, and naming it is the only guard
+/// there is.
+const NARRATIVE_PHRASES: &[NarrativeRow] = &[
+    NarrativeRow { name: "a duration of the past", shapes: &[&[&["for"], &["a", "some"], &["time", "while"]]], not_followed_by: &[] },
+    NarrativeRow {
+        name: "a piece of prose in the past tense",
+        shapes: &[&[
+            &["this", "the"],
+            &["comment", "note", "paragraph", "section", "header", "bullet", "sentence", "test", "arm"],
+            &[
+                "said", "asserted", "claimed", "stated", "read", "called", "recorded", "demanded",
+                "promised", "was", "were", "did", "held", "outlived", "passed", "prescribed",
+                "went", "argued", "carried", "became", "documented", "closed", "measured",
+                "returned",
+            ],
+        ]],
+        not_followed_by: &[],
+    },
+    NarrativeRow {
+        name: "a former behaviour",
+        shapes: &[&[
+            &["used"],
+            &["to"],
+            &[
+                "assert", "be", "claim", "come", "compute", "defeat", "defer", "live", "read",
+                "receive", "rely", "say", "sit", "stand", "treat", "demand", "name", "call",
+                "hold", "carry", "mean", "report", "print", "exist", "run", "pin", "spell",
+                "point", "list", "cover", "walk",
+            ],
+        ]],
+        not_followed_by: &[],
+    },
+    NarrativeRow { name: "a count of work periods", shapes: &[&[CARDINALS, &["sessions"]]], not_followed_by: &[] },
+    NarrativeRow { name: "an earlier version of the text", shapes: &[&[&["draft", "drafts"]]], not_followed_by: &[] },
+    NarrativeRow { name: "the first exercise against a live chain", shapes: &[&[&["first"], &["live"], &["run"]]], not_followed_by: &[] },
+    NarrativeRow {
+        name: "the work period this text was written in",
+        shapes: &[&[&["before", "until"], &["this"], &["session"]], &[&["this"], &["session's"]]],
+        not_followed_by: &[],
+    },
+    NarrativeRow { name: "a state in the past", shapes: &[&[&["was", "were"], &["once"]]], not_followed_by: &[] },
+    NarrativeRow { name: "an initial state", shapes: &[&[&["at"], &["first"]]], not_followed_by: &["spend", "spends"] },
+    NarrativeRow { name: "the state preceding a repair", shapes: &[&[&["before"], &["the"], &["fix", "repair"]]], not_followed_by: &[] },
+    NarrativeRow { name: "a former location of the text", shapes: &[&[&["stood", "lived", "sat", "hung"], &["here", "there"]]], not_followed_by: &[] },
+    NarrativeRow {
+        name: "a review ritual",
+        shapes: &[&[&["design"], &["panel"]], &[&["adversarial"], &["pass", "passes"]], &[&["first"], &["sketched"]]],
+        not_followed_by: &[],
+    },
+    NarrativeRow { name: "an acknowledged correction", shapes: &[&[&["corrected"], &["since"]]], not_followed_by: &[] },
+];
+
+/// Whether `c` continues a word for the purpose of a phrase boundary.
+///
+/// Digits and letters only. `_` is deliberately absent, because it is handled
+/// as filler below and the two roles cannot both be served by one predicate.
+fn is_word_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric()
+}
+
+/// Whether byte `k` may sit between two segments of a phrase.
+///
+/// Whitespace and the comment openers, because a phrase that wraps across two
+/// comment lines is one phrase -- `TextUnit::text` keeps the `//` prefix, so
+/// the text between the two halves reads as a line break and an opener. `*`
+/// and `_` because a phrase is a phrase when it is emphasised, and emphasis
+/// here is markdown.
+///
+/// `_` carries the one condition: it is markup at the edge of a word and part
+/// of a name when it joins two. Without that, `for_a_time` reads as the
+/// phrase row 1 matches, and snake_case names are quoted throughout these
+/// comments.
+fn is_phrase_filler(b: &[u8], k: usize) -> bool {
+    match b[k] {
+        b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b'*' => true,
+        b'_' => !(k > 0 && b[k - 1].is_ascii_alphanumeric() && k + 1 < b.len() && b[k + 1].is_ascii_alphanumeric()),
+        _ => false,
+    }
+}
+
+/// The end offset of the longest alternative of `seg` matching at `at`.
+fn segment_match(b: &[u8], at: usize, seg: Seg) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for alt in seg {
+        let end = if *alt == DIGITS {
+            let mut j = at;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j == at {
+                continue;
+            }
+            j
+        } else {
+            if !b[at..].starts_with(alt.as_bytes()) {
+                continue;
+            }
+            at + alt.len()
+        };
+        if end < b.len() && is_word_byte(b[end]) {
+            continue;
+        }
+        best = Some(best.map_or(end, |x: usize| x.max(end)));
+    }
+    best
+}
+
+/// The end offset of `shape` matching at `at`, filler permitted between
+/// segments but required -- two segments running together are one word.
+fn shape_match(b: &[u8], at: usize, shape: Shape) -> Option<usize> {
+    let mut pos = at;
+    for (k, seg) in shape.iter().enumerate() {
+        if k > 0 {
+            let from = pos;
+            let limit = b.len().min(pos + CITATION_GAP);
+            while pos < limit && is_phrase_filler(b, pos) {
+                pos += 1;
+            }
+            if pos == from {
+                return None;
+            }
+        }
+        pos = segment_match(b, pos, seg)?;
+    }
+    Some(pos)
+}
+
+/// Every `(row index, byte offset)` a row of [`NARRATIVE_PHRASES`] matches in
+/// `text`, lower-cased first so a sentence-initial phrase is a hit.
+///
+/// The scan advances one byte at a time rather than by a needle's length:
+/// the rows have no common length, a fixed advance long enough for one row
+/// steps over a second row's hit on the same line, and one short enough
+/// finds the same hit again.
+fn narrative_hits(text: &str) -> Vec<(usize, usize)> {
+    let lower = text.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let mut out = Vec::new();
+    for i in 0..b.len() {
+        if i > 0 && is_word_byte(b[i - 1]) {
+            continue;
+        }
+        for (r, row) in NARRATIVE_PHRASES.iter().enumerate() {
+            let Some(end) = row.shapes.iter().find_map(|s| shape_match(b, i, s)) else {
+                continue;
+            };
+            if !row.not_followed_by.is_empty() {
+                let mut k = end;
+                let limit = b.len().min(end + CITATION_GAP);
+                while k < limit && is_phrase_filler(b, k) {
+                    k += 1;
+                }
+                if segment_match(b, k, row.not_followed_by).is_some() {
+                    continue;
+                }
+            }
+            out.push((r, i));
+        }
+    }
+    out
+}
+
+/// The canonical text of one row: the first alternative of every segment of
+/// its first shape, single-spaced. Built from the table so a self-test vector
+/// cannot drift from the row it is supposed to exercise.
+fn narrative_vector(row: &NarrativeRow) -> String {
+    row.shapes[0]
+        .iter()
+        .map(|seg| if seg[0] == DIGITS { "7" } else { seg[0] })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 /// Each file's text units joined in order, with the offset every unit starts
 /// at, so a matcher whose window spans a line break sees the file's text as
@@ -12202,3 +12504,204 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
         items.len()
     );
 }
+
+/// No comment under `src/`, `tests/`, `ui/` or `examples/` narrates this
+/// project's own development beyond what
+/// [`DECLARED_HISTORY_MARKER_SITES`] declares.
+///
+/// [`NARRATIVE_PHRASES`] carries the classes and the argument for each. What
+/// this test adds is the part an absence check cannot get from its subject:
+/// evidence that it ran.
+///
+/// # Why that evidence is the point of this test
+///
+/// The three bans beside it are absence checks, and they are green today
+/// partly because one site is still declared -- a red is one edit away, so a
+/// broken matcher would be found. This one is aimed at a class that goes to
+/// zero. On the day it does, a green stops distinguishing "the matcher ran
+/// over the tree and found nothing" from "the matcher matched nothing
+/// because a phrase is misspelled, or the filter is inverted, or the walk
+/// lost a root". Every one of those is silent.
+///
+/// So the matcher is exercised on text this test builds before it is pointed
+/// at the tree: a corpus of comment units constructed from the table itself,
+/// on which every row must fire, and a control paragraph on which none may.
+/// A green here reads as *the matcher ran, fired on constructed text, and
+/// found nothing else* -- which is a different sentence from *nothing ran*.
+#[test]
+fn no_comment_under_the_crate_narrates_its_own_development() {
+    // --- the table is its own vector source ---
+    //
+    // Thirteen classes were measured before any was admitted. A row removed
+    // to silence a red takes its whole class with it and nothing else would
+    // notice, so the floor is asserted and every vector below is derived
+    // from the table rather than typed beside it.
+    assert!(
+        NARRATIVE_PHRASES.len() >= 13,
+        "NARRATIVE_PHRASES carries {} row(s). Thirteen classes were measured over this tree \
+         before any was admitted, and a row deleted to answer a red takes its class out of the \
+         ban with it. Removing one is a decision argued at the table, not an edit.",
+        NARRATIVE_PHRASES.len()
+    );
+    let vectors: Vec<String> = NARRATIVE_PHRASES.iter().map(narrative_vector).collect();
+    assert_eq!(
+        vectors.len(),
+        NARRATIVE_PHRASES.len(),
+        "a row exists that no vector exercises; the vectors are built from the table so that \
+         cannot happen quietly"
+    );
+
+    // --- each row fires on its own canonical text, and on no other row's ---
+    //
+    // The second half is what keeps a widened row from swallowing a
+    // neighbour: a row that matched another row's vector would hide that
+    // row's disappearance behind its own hits.
+    for (r, v) in vectors.iter().enumerate() {
+        let hits = narrative_hits(v);
+        assert_eq!(
+            hits.len(),
+            1,
+            "row {r} ({}) matches its own canonical text {} time(s), not once. A row that \
+             matches its vector twice double-counts every site it finds; one that matches it \
+             not at all is spelled wrong and will report nothing for its whole class.",
+            NARRATIVE_PHRASES[r].name,
+            hits.len()
+        );
+        assert_eq!(
+            hits[0].0, r,
+            "row {r} ({})'s canonical text is matched by row {} ({}) instead. Two rows that \
+             overlap report one passage twice and let one of them go to zero unnoticed.",
+            NARRATIVE_PHRASES[r].name, hits[0].0, NARRATIVE_PHRASES[hits[0].0].name
+        );
+    }
+
+    // --- the spellings a line-at-a-time, case-sensitive matcher would miss ---
+    //
+    // A phrase wrapped across two comment lines reads as the first half, a
+    // line break, a comment opener and the second half, because the walk
+    // keeps the opener. A phrase opening a sentence is capitalised, and one
+    // of the sites in this tree is capitalised throughout. A phrase inside
+    // markdown emphasis is still the phrase.
+    for (r, v) in vectors.iter().enumerate() {
+        let mut spellings = vec![
+            format!("// {}", v.to_uppercase()),
+            format!("// {}{}", v[..1].to_uppercase(), &v[1..]),
+            format!("// **{v}**"),
+        ];
+        if let Some(sp) = v.find(' ') {
+            spellings.push(format!("// {}\n    /// {}", &v[..sp], &v[sp + 1..]));
+        }
+        for s in &spellings {
+            assert!(
+                narrative_hits(s).iter().any(|(row, _)| *row == r),
+                "row {r} ({}) does not match {s:?}. A matcher blind to one of these spellings \
+                 goes green on the one it was written against and silent on the rest.",
+                NARRATIVE_PHRASES[r].name
+            );
+        }
+    }
+
+    // --- and a control that must stay clean ---
+    const CONTROL: &str = "// The index advances before the signature is released, and the \n\
+                           // receipt is minted only after the advanced index is durable. A \n\
+                           // second signature at one position is refused rather than \n\
+                           // reported, because the key is a one-time key and the store is \n\
+                           // the only thing that knows it has been used.";
+    let control = narrative_hits(CONTROL);
+    assert!(
+        control.is_empty(),
+        "the control paragraph carries no prose about this project's development and {} row(s) \
+         fired on it: {:?}. A row this loose reports live sentences, and a maintainer who reads \
+         one red as noise reads the next one that way too.",
+        control.len(),
+        control.iter().map(|(r, _)| NARRATIVE_PHRASES[*r].name).collect::<Vec<_>>()
+    );
+
+    // --- the synthetic corpus, through the collection path itself ---
+    //
+    // Not the matcher alone: units of the kind the walk produces, joined the
+    // way the walk joins them, so a filter that admitted the wrong kind or a
+    // join that lost a line is caught here rather than reported as a clean
+    // tree.
+    let synthetic: Vec<TextUnit> = vectors
+        .iter()
+        .enumerate()
+        .map(|(r, v)| TextUnit {
+            file: "<constructed>".to_string(),
+            line: r + 1,
+            kind: TextKind::Comment,
+            text: format!("/// {v}"),
+            span: r,
+        })
+        .collect();
+    let joined: String = synthetic
+        .iter()
+        .filter(|u| u.kind == TextKind::Comment)
+        .map(|u| u.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let fired: BTreeSet<usize> = narrative_hits(&joined).into_iter().map(|(r, _)| r).collect();
+    let silent: Vec<&str> = NARRATIVE_PHRASES
+        .iter()
+        .enumerate()
+        .filter(|(r, _)| !fired.contains(r))
+        .map(|(_, row)| row.name)
+        .collect();
+    assert!(
+        silent.is_empty(),
+        "these row(s) found nothing in a corpus built out of their own text: {silent:?}. This is \
+         the check that a green means the matcher ran, and it is the whole reason this test does \
+         not simply walk the tree and report zero."
+    );
+
+    // --- now the tree ---
+    let (files, units) = crate_text_units();
+    let (comment_lines, string_lines) = assert_text_walk_floors("self-narrative", files, &units);
+    let mut by_file: BTreeMap<&str, Vec<&TextUnit>> = BTreeMap::new();
+    for u in units.iter().filter(|u| u.kind == TextKind::Comment) {
+        by_file.entry(u.file.as_str()).or_default().push(u);
+    }
+    let walked: usize = by_file.values().map(Vec::len).sum();
+    // What this check reads, floored against what the walk counted. A floor
+    // alone is not enough here: the tree carries more string lines than the
+    // 11,000 comment lines the shared floor demands, so a filter inverted to
+    // keep strings instead would clear that floor and change every row's
+    // subject without failing anything. Equality is the property -- this
+    // check reads every comment the walk found and nothing else.
+    assert_eq!(
+        walked, comment_lines,
+        "the comment-only filter kept {walked} unit(s) where the walk counted {comment_lines} \
+         comment line(s). A filter that admits a string literal puts the BIP-39 wordlist inside \
+         row 5's reach; one that drops comments silently shrinks every row's corpus."
+    );
+
+    let mut found: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for (file, us) in &by_file {
+        let mut joined = String::new();
+        let mut starts: Vec<(usize, usize)> = Vec::new();
+        for (idx, u) in us.iter().enumerate() {
+            starts.push((joined.len(), idx));
+            joined.push_str(&u.text);
+            joined.push('\n');
+        }
+        for (r, at) in narrative_hits(&joined) {
+            let idx = starts.iter().rev().find(|(o, _)| *o <= at).map_or(0, |(_, i)| *i);
+            let u = us[idx];
+            found
+                .entry(file)
+                .or_default()
+                .push(format!("\x20     {file}:{} [{}]: {}", u.line, NARRATIVE_PHRASES[r].name, u.text.trim()));
+        }
+    }
+    let declared = assert_against_baseline(MarkerClass::Narrative, &found);
+
+    println!(
+        "  self-narrative: {files} files walked, {walked} comment lines of {comment_lines} \
+         examined ({string_lines} string lines skipped), {} row(s) exercised on constructed \
+         text, {} passage(s) in {} file(s) against a baseline of {declared}",
+        NARRATIVE_PHRASES.len(),
+        found.values().map(Vec::len).sum::<usize>(),
+        found.len()
+    );
+}
+
