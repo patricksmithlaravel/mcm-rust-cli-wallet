@@ -142,11 +142,12 @@
 //! that *"an AEAD's per-write nonce ends the determinism three checks in this
 //! tree are written on"* -- the KAT below,
 //! `records_are_addressed_by_tag_not_position`, and the I3 crash proof's byte
-//! comparisons. All three survived. The reason is that **this crate has no RNG
-//! and never wanted one**: `cli::create` had already established that the
-//! caller supplies the entropy, so the salt and the per-open nonce seed are
-//! *parameters*. Fixed entropy in, deterministic image out. The
-//! nondeterminism is a parameter, not an ambient fact.
+//! comparisons. All three survived. The reason is that **entropy reaches this
+//! crate only as an argument**: it can reach no generator, so the salt and the
+//! per-open nonce seed are *parameters* the caller fills. Fixed entropy in,
+//! deterministic image out. The nondeterminism is a parameter, not an ambient
+//! fact, and a generator added to this graph would end all three comparisons
+//! without failing anything that would say so.
 //!
 //! What that costs, stated because the split it justified was still right:
 //! a byte comparison here is now a claim about the commit **and**

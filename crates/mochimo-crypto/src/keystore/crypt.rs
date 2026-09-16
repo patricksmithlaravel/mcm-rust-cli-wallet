@@ -33,17 +33,22 @@
 //! construction rather than by a call-site convention. Nothing in this module
 //! touches `backend::selected`.
 //!
-//! # No RNG, by the same rule as `create`
+//! # Entropy is a parameter, and that is what three proofs rest on
 //!
-//! There is no `rand` and no `getrandom` in this crate's graph, and
-//! `cli::create` already established what to do about it: **the caller
-//! supplies the entropy** and the binary reads it from `/dev/urandom` through
-//! `std::fs`. The salt and the nonce seed are parameters here for exactly that
-//! reason -- and the consequence is worth naming, because it is what saved
-//! three proofs. A test that supplies fixed entropy gets a **deterministic
-//! image**, so the format KAT, `records_are_addressed_by_tag_not_position` and
-//! the I3 crash proof keep the byte-level observables the decision deferring
-//! the AEAD predicted it would delete. The nondeterminism is a parameter, not an ambient fact.
+//! **This crate cannot reach a generator.** Neither `rand` nor `getrandom` is
+//! in its graph and nothing here opens a device, so entropy arrives as an
+//! argument: `Init`'s `salt` and `nonce_seed` and `Unlock`'s `nonce_seed` are
+//! `pub` fields the caller fills, and the binary is what reads `/dev/urandom`
+//! through `std::fs`.
+//!
+//! What the constraint buys is a **deterministic image under fixed entropy**.
+//! Three byte-level proofs depend on it -- the format KAT,
+//! `records_are_addressed_by_tag_not_position`, and the I3 crash proof --
+//! because each compares images byte for byte, and an AEAD that chose its own
+//! nonce per write would have nothing to compare. A generator reachable from
+//! this crate takes that away silently: the three checks go on compiling and
+//! stop being able to fail. The nondeterminism is a parameter, not an ambient
+//! fact, and it is load-bearing.
 
 use zeroize::Zeroizing;
 
@@ -333,9 +338,11 @@ pub(crate) fn derive_key(
 /// prevents two writers on one directory; it says nothing about two
 /// directories.
 ///
-/// **Fresh randomness per write would do, and there is no RNG here to give
-/// it** -- and adding one would put `getrandom` in a crate that has
-/// deliberately never had one (`cli::create`'s note).
+/// **Fresh randomness per write would also do, and this crate cannot reach a
+/// generator to draw it.** That is the constraint the module doc sets out:
+/// entropy enters as a parameter, which is what keeps a store image
+/// deterministic under fixed entropy and three byte-level proofs able to fail.
+/// A per-write draw costs those proofs.
 ///
 /// So: **thirty-two bytes of entropy supplied once per open**, and the nonce
 /// is `sha3_256(seed || generation)` truncated to twelve bytes. Two copies of

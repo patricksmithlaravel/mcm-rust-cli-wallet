@@ -375,10 +375,19 @@ impl Drop for EchoGuard {
 
 /// `N` bytes from the OS CSPRNG.
 ///
-/// `/dev/urandom` through `std::fs` rather than a crate: there is no RNG in
-/// this crate's graph, the command layer is under `native` alone so `ring` is
-/// not reachable, and the binary already opens `/dev/tty` by path. This is the
-/// operating system's generator, not a hand-rolled one.
+/// `/dev/urandom` through `std::fs` rather than a crate. The library takes its
+/// entropy as a parameter and can reach no generator, which is what keeps a
+/// store image deterministic under fixed entropy, so supplying the bytes is
+/// the binary's job. The command layer is under `native` alone, so `ring`'s
+/// generator is not reachable either.
+///
+/// Opening a device by path is a platform decision and not an incidental
+/// convenience: this wallet targets Unix, `lib.rs` says so at compile time,
+/// and the same binary reads secrets from `/dev/tty` by path for the same
+/// reason. This is the operating system's generator rather than a hand-rolled
+/// one, and every way it can fail is loud -- `File::open` errors and a short
+/// `read_exact` errors -- so a weak draw is never returned in place of a
+/// strong one.
 ///
 /// **Generic over the width**, because the store now needs three
 /// separate draws rather than one: the phrase entropy, the KDF salt and the
