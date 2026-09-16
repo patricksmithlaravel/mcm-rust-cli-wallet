@@ -8545,12 +8545,16 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
     (
         "crates/mochimo-crypto/src/backend/native.rs",
         "assert!",
-        2,
+        3,
         "ull_to_bytes's empty-out guard and base_w's geometry guard: contract \
          guards on the caller's own buffer geometry -- no path from network or \
          disk bytes chooses these lengths, so the hardening pass left them as panics rather \
          than widening the seam to Result. They matched the \
-         foreign-function backend's guards while that backend was here.",
+         foreign-function backend's guards while that backend was here. The \
+         third is the `const _` width assertion over the chunked chain loops: \
+         const-evaluated, so it fails a build and can never fail a run. It is \
+         counted here rather than parsed around, because a construct the \
+         census cannot see is one nobody is told about.",
     ),
     (
         "crates/mochimo-crypto/src/backend/native.rs",

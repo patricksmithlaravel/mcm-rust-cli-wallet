@@ -416,6 +416,27 @@ pub fn chain_lengths(msg: &[u8; SEED_LEN]) -> [i32; WOTSLEN_TOTAL] {
 // Step 3 --- key generation
 // -------------------------------------------------------------------------
 
+/// The widths the three chunked chain loops below split on.
+///
+/// [`wots_pkgen`], [`wots_sign_counted`] and [`wots_pk_from_sig_counted`] each
+/// take their chain count from `as_chunks`/`as_chunks_mut` over a buffer rather
+/// than from `WOTSLEN`, and each discards the remainder the split hands back.
+/// That is the same computation only while both widths are whole multiples of
+/// `PARAMSN` and equal to each other. A width that stopped being one would make
+/// the discarded remainder non-empty and the zip in recovery stop at the
+/// shorter side, and fewer chains would run with nothing said -- where the
+/// indexed form this replaced went out of bounds and panicked. This line is
+/// what makes the `_nothing_over` bindings at those three sites a check rather
+/// than a claim.
+///
+/// Stated as a `const` assertion rather than a runtime one because every
+/// operand is a constant: drift should fail the build, not one test.
+const _: () = assert!(
+    PK_LEN.is_multiple_of(PARAMSN) && PK_LEN == SIG_LEN,
+    "PK_LEN and SIG_LEN must be equal whole multiples of PARAMSN: the chunked \
+     chain loops take their bound from the buffer and discard the remainder"
+);
+
 /// Expands an `n`-byte seed into the `WOTSLEN * PARAMSN` byte private key.
 ///
 /// **The return value is the WOTS+ private key, and dropping it clears it.**
@@ -674,8 +695,8 @@ pub fn wots_pk_from_sig_counted(
     // Both widths are `WOTSLEN * PARAMSN`, so both splits are exact and the two
     // chunk sequences are the same length: signature chain `i` resumes into
     // public-key chain `i` with no index arithmetic to get wrong.
-    let (sig_chains, _nothing_over) = sig.as_chunks::<PARAMSN>();
-    let (pk_chains, _nothing_over) = pk.as_chunks_mut::<PARAMSN>();
+    let (sig_chains, _sig_nothing_over) = sig.as_chunks::<PARAMSN>();
+    let (pk_chains, _pk_nothing_over) = pk.as_chunks_mut::<PARAMSN>();
     for (i, (sig_chain, pk_chain)) in sig_chains.iter().zip(pk_chains).enumerate() {
         set_chain_addr(adrs, i as u32);
         let start = lengths[i] as u32;
