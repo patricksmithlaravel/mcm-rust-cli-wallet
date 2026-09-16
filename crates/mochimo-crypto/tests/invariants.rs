@@ -5852,6 +5852,24 @@ fn documented_counts_match_the_artifacts() {
     // dead feature is a claim about something the tree no longer has, so any
     // integer in front of that phrase is reported. (The phrase without an
     // integer is history and is left alone.)
+    //
+    // # Where the needle is anchored, and why it was moved
+    //
+    // The floor below demands the phrase occur at least once, so that the arm
+    // cannot go quiet by matching nothing. For a time the only occurrence was
+    // inside a paragraph describing the stripped feature -- prose with a
+    // finite life, which made this arm's survival depend on prose nobody was
+    // keeping for its sake. Deleting that paragraph would have failed this
+    // check with a message about its own needle, at a moment when nothing was
+    // actually wrong.
+    //
+    // The sentence was relocated rather than the needle re-pointed. Relocating
+    // keeps the arm asserting exactly what it asserted before -- no count of
+    // these sites in either document -- where re-pointing would have changed
+    // the subject to whatever the new needle happened to name. The anchor now
+    // sits in AGENT.md under "What holds this document to the code", a
+    // paragraph whose subject is this check, so the phrase stays for the
+    // reason the check needs it to.
     let cargo = std::fs::read_to_string(root.join("crates/mochimo-crypto/Cargo.toml"))
         .expect("cannot read crates/mochimo-crypto/Cargo.toml");
     let mut cfg_phrases = 0usize;
@@ -5893,7 +5911,10 @@ fn documented_counts_match_the_artifacts() {
     assert!(
         cfg_phrases >= 1,
         "the phrase `cfg` sites occurs nowhere in AGENT.md or Cargo.toml; the count arm's \
-         needle stopped matching and a count could reappear unreported"
+         needle stopped matching and a count could reappear unreported. The anchor is the \
+         paragraph in AGENT.md under \"What holds this document to the code\", which spells \
+         the phrase in a sentence about this check for exactly this reason. Put it back \
+         rather than lowering this floor."
     );
 
     println!(
@@ -6009,6 +6030,12 @@ fn lower_snake_names_of_at_least(words: usize, text: &str) -> BTreeSet<String> {
     }
     out
 }
+
+/// What a row's reason opens with when the row permits history prose rather
+/// than a live fixture key, dependency method or lint name. Spelled once, so
+/// the rows, the remedy the failure prints and
+/// [`MarkerClass::DeclaredName`]'s population cannot drift apart.
+const HISTORY_ROW_MARK: &str = "CORRECT HISTORY";
 
 /// Names cited in `crates/*/src/` that name no `fn` in the tree, declared here
 /// with the reason each is not a dangling citation.
@@ -6297,16 +6324,49 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
     // nothing cites is a permit the next rename can hide under; a row for a
     // name that now resolves is a permit that has outlived its subject.
     let mut stale: Vec<String> = Vec::new();
+    // The rows whose subject is history, and the files whose sentences keep
+    // them alive. Declared in DECLARED_HISTORY_MARKER_SITES as well, because
+    // they are debt with an owner rather than a standing permit, and a sweep
+    // reading that table would otherwise never learn these exist.
+    let mut history_rows: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for (name, reason) in DECLARED_UNRESOLVED_SRC_NAMES {
         let short = reason.split_once(". ").map_or(*reason, |(a, _)| a);
+        // What a maintainer who hits this red needs, and had to go looking
+        // for: a history row is not repaired in place. The sentence it
+        // permits and the row itself leave in one change -- delete the
+        // sentence alone and the row permits nothing, delete the row alone
+        // and the sentence becomes the dangling citation this check exists
+        // to catch.
+        let remedy = if reason.starts_with(HISTORY_ROW_MARK) {
+            format!(
+                "\n\x20     this is a {HISTORY_ROW_MARK} row. It permits nothing but the sentence \
+                 under src/ that records what the name used to assert, so the row and that \
+                 sentence are removed together, in one change, by {SWEEP_NAMES}. \
+                 DECLARED_HISTORY_MARKER_SITES declares it so that sweep can find it."
+            )
+        } else {
+            String::new()
+        };
+        if reason.starts_with(HISTORY_ROW_MARK) {
+            // A `BTreeSet` of paths, so the order is the sorted one already.
+            let files: Vec<String> = cited
+                .get(*name)
+                .into_iter()
+                .flatten()
+                .map(|f| format!("\x20     cited in: {f}"))
+                .collect();
+            if !files.is_empty() {
+                history_rows.insert(*name, files);
+            }
+        }
         match cited.get(*name) {
             None => stale.push(format!(
                 "\x20 - {name}: declared, but no file under crates/*/src cites it.\n\
-                 \x20     the row says: {short}."
+                 \x20     the row says: {short}.{remedy}"
             )),
             Some(_) if defined.contains(*name) => stale.push(format!(
                 "\x20 - {name}: declared as naming no `fn`, but the tree now defines one.\n\
-                 \x20     the row says: {short}."
+                 \x20     the row says: {short}.{remedy}"
             )),
             Some(_) => {}
         }
@@ -6337,16 +6397,20 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
         dangling.join("\n")
     );
 
+    let declared_history = assert_against_baseline(MarkerClass::DeclaredName, &history_rows);
+
     println!(
         "  cited-name resolution: {} name(s) of >= {MIN_SEGMENTS} segments across {} src \
          file(s); {} resolve to one of {} `fn`(s) in {} crates/ file(s); {} declared \
-         unresolved, all cited and all still dead",
+         unresolved, all cited and all still dead, {} of them history rows against a \
+         baseline of {declared_history}",
         cited.len(),
         src.len(),
         cited.len() - unresolved_total,
         defined.len(),
         sources.len(),
-        declared_rows
+        declared_rows,
+        history_rows.values().map(Vec::len).sum::<usize>()
     );
 }
 
@@ -11240,6 +11304,258 @@ fn assert_text_walk_floors(what: &str, files: usize, units: &[TextUnit]) -> (usi
     (comment_lines, string_lines)
 }
 
+/// The class of development-history marker a declared site carries.
+///
+/// One enumeration and one table rather than three, because the thing tracked
+/// is one thing -- prose about how the code came to be, in a repository that
+/// ships without that history -- and what a maintainer wants is to read the
+/// remaining size of it in one place and watch one total fall.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MarkerClass {
+    /// A session label, found by [`phase_tag_len`].
+    SessionLabel,
+    /// A citation of the board's open-item list by number, found by
+    /// [`board_item_hit`].
+    BoardItem,
+    /// A citation of the old repository's errata document by number, found by
+    /// [`errata_number_hit`].
+    ErrataNumber,
+    /// A row of [`DECLARED_UNRESOLVED_SRC_NAMES`] that permits a name no
+    /// longer defined anywhere, cited only by history prose under `src/`.
+    /// The subject of such a row is the name, and its count is the number of
+    /// `src/` files that cite it.
+    DeclaredName,
+}
+
+impl MarkerClass {
+    /// What the class is called in a failure message and an evidence line.
+    fn label(self) -> &'static str {
+        match self {
+            MarkerClass::SessionLabel => "session label",
+            MarkerClass::BoardItem => "open-item citation",
+            MarkerClass::ErrataNumber => "errata citation",
+            MarkerClass::DeclaredName => "declared dead name",
+        }
+    }
+}
+
+/// The sweeps that own the declared sites. Spelled once so a row cannot name
+/// a sweep by a slightly different phrase, and named after the work rather
+/// than numbered one through four, because the division of the prose cleanup
+/// into four passes is a schedule and the root a file sits under is not.
+const SWEEP_SRC: &str = "the src/ prose sweep (one of Phases 1-4)";
+const SWEEP_TESTS: &str = "the tests/ prose sweep (one of Phases 1-4)";
+const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
+
+/// Every site under `crates/` that carries a development-history marker
+/// today, declared per subject with the count it holds and the sweep that
+/// removes it.
+///
+/// # Why a baseline exists at all
+///
+/// The three text bans below were written before their matchers could see
+/// everything they ban, and the holes were shaped like the markers that
+/// remain: no arm read a session label, nothing read an open-item citation,
+/// and an emphasised errata number fell through the separator set. The bans
+/// were green, and green for the wrong reason -- the worst state for a guard,
+/// because it reads as evidence.
+///
+/// Repairing the matchers and deleting the prose are different pieces of
+/// work, and they cannot land together: the prose is thousands of sentences
+/// across the tree and the matchers are one edit here. Landing the repair
+/// alone with no baseline turns the suite red at every site at once, in files
+/// nobody is editing yet, for as long as the cleanup takes -- and a wall of
+/// red that everybody learns to run past is worth less than the broken
+/// matcher was. Landing the cleanup first means shipping bans that provably
+/// cannot see what they ban.
+///
+/// So the matchers run live, against everything, and this table says what
+/// they are allowed to find while the prose is still here. It is the same
+/// arrangement as [`NOT_THIS_WALLETS_TO_PIN`]: the exclusion is the check's
+/// own data, it carries the reason the failure message prints, and guards
+/// refuse a row that permits nothing and a row that lies.
+///
+/// # It can only shrink, and that is the whole mechanism
+///
+/// Two guards, and the second is the one that makes the cleanup
+/// self-ratcheting:
+///
+/// * **More than the row declares is a new violation.** The failure names the
+///   sites and the sweep that owns the subject. A new marker is not
+///   declarable -- the remedy is to write the sentence without it, which is
+///   what every sweep is doing to the ones already here.
+/// * **Fewer than the row declares is a stale row.** A sweep that removes
+///   four of a file's markers and leaves the row at the old count has left a
+///   permit behind for four markers that could come back unnoticed. The
+///   failure says to lower the row, or to delete it when the count reaches
+///   zero. This is why no sweep can half-finish quietly: the table is red
+///   until it matches the tree, in both directions.
+///
+/// The total prints in each check's evidence line, so shrinkage is visible
+/// run to run without reading this table.
+///
+/// # What a row is
+///
+/// `(class, subject, count, sweep)`. The subject is a path under `crates/`
+/// for the three text classes and a name for [`MarkerClass::DeclaredName`].
+/// A subject appears at most once per class; a duplicate is refused below,
+/// since the second row of a pair silently raises the first one's ceiling.
+const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
+    // Session labels. Every one of these passed the ban until the `S` arm
+    // existed to read them.
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/account.rs", 11, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 2, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/args.rs", 3, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/mod.rs", 5, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/derive.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/crypt.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/format.rs", 10, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/medium.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/mod.rs", 7, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/spend.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/mesh/spend.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/recon.rs", 4, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/tx/wire.rs", 1, SWEEP_SRC),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/cli.rs", 18, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/invariants.rs", 46, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/mesh.rs", 1, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/recon.rs", 10, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/signing.rs", 2, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
+    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
+    // Open-item citations, found by the matcher this change added.
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/account.rs", 3, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 3, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/args.rs", 4, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/mod.rs", 6, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/crypt.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/format.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/medium.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/mod.rs", 4, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/spend.rs", 1, SWEEP_SRC),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/cli.rs", 19, SWEEP_TESTS),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/kat.rs", 2, SWEEP_TESTS),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/keystore.rs", 4, SWEEP_TESTS),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
+    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
+    // Errata citations. One site, and it is emphasised: the separator set
+    // could not see a number wrapped in markup until this change, so the
+    // ban stood green over the one citation left in the tree.
+    (MarkerClass::ErrataNumber, "crates/mochimo-crypto/tests/invariants.rs", 1, SWEEP_TESTS),
+    // Names that DECLARED_UNRESOLVED_SRC_NAMES permits because a sentence
+    // under `src/` records what they used to assert. Each count is the
+    // number of `src/` files carrying such a sentence, so the count falls
+    // to zero as the sentences go and the permit can then be deleted with
+    // them.
+    (MarkerClass::DeclaredName, "import_with_unverified_tag", 1, SWEEP_NAMES),
+    (MarkerClass::DeclaredName, "imported_first_key_components_are_stored_with_the_root", 1, SWEEP_NAMES),
+    (MarkerClass::DeclaredName, "imported_root_is_encrypted_before_it_reaches_the_snapshot", 1, SWEEP_NAMES),
+    (MarkerClass::DeclaredName, "mesh_submission_is_unconfirmed_without_a_funded_account", 1, SWEEP_NAMES),
+];
+
+/// The rows declared for one class, with the duplicate refused.
+fn baseline_rows(class: MarkerClass) -> Vec<(&'static str, usize, &'static str)> {
+    let rows: Vec<(&str, usize, &str)> = DECLARED_HISTORY_MARKER_SITES
+        .iter()
+        .filter(|(c, ..)| *c == class)
+        .map(|(_, subject, count, sweep)| (*subject, *count, *sweep))
+        .collect();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for (subject, ..) in &rows {
+        assert!(
+            seen.insert(subject),
+            "DECLARED_HISTORY_MARKER_SITES carries two {} rows for `{subject}`. Two rows for one \
+             subject add their ceilings together, so the second one raises the first's permit \
+             without saying so. Merge them.",
+            class.label()
+        );
+    }
+    rows
+}
+
+/// The baseline compared against what a matcher found, in both directions.
+///
+/// `found` maps a subject to one description per site, in report order.
+/// Returns the sites no row covers and the rows the tree no longer supports,
+/// each as a block of message lines, plus the total the rows declare.
+fn baseline_verdict(class: MarkerClass, found: &BTreeMap<&str, Vec<String>>) -> (Vec<String>, Vec<String>, usize) {
+    let rows = baseline_rows(class);
+    let what = class.label();
+    let mut undeclared: Vec<String> = Vec::new();
+    for (subject, sites) in found {
+        match rows.iter().find(|(s, ..)| s == subject) {
+            Some((_, declared, sweep)) if sites.len() > *declared => undeclared.push(format!(
+                "\x20 - {subject}: {} {what}(s), and the baseline declares {declared}, owned by \
+                 {sweep}. {} site(s) beyond that count are new.\n{}",
+                sites.len(),
+                sites.len() - declared,
+                sites.join("\n")
+            )),
+            None => undeclared.push(format!(
+                "\x20 - {subject}: {} {what}(s), and the baseline declares none for it.\n{}",
+                sites.len(),
+                sites.join("\n")
+            )),
+            Some(_) => {}
+        }
+    }
+    let mut stale: Vec<String> = Vec::new();
+    for (subject, declared, sweep) in &rows {
+        let actual = found.get(subject).map_or(0, Vec::len);
+        if actual < *declared {
+            stale.push(format!(
+                "\x20 - {subject}: the row declares {declared} {what}(s) and the tree now has \
+                 {actual}. {} Owned by {sweep}.",
+                if actual == 0 {
+                    "Delete the row.".to_string()
+                } else {
+                    format!("Lower the row to {actual}.")
+                }
+            ));
+        }
+    }
+    (undeclared, stale, rows.iter().map(|(_, n, _)| n).sum())
+}
+
+/// The two assertions every baselined check makes, in the order that reports
+/// the table's own staleness first.
+///
+/// A stale row is a defect in this check's data and must not hide behind a red
+/// about the tree -- the same ordering [`DECLARED_UNRESOLVED_SRC_NAMES`] uses,
+/// and for the same reason. Returns the declared total for the evidence line.
+fn assert_against_baseline(class: MarkerClass, found: &BTreeMap<&str, Vec<String>>) -> usize {
+    let (undeclared, stale, declared_total) = baseline_verdict(class, found);
+    let what = class.label();
+    assert!(
+        stale.is_empty(),
+        "DECLARED_HISTORY_MARKER_SITES declares more {what}(s) than the tree carries:\n{}\n\n\
+         The baseline only shrinks, and a row left at its old count is a permit for markers \
+         that are gone -- exactly the room a marker needs to come back unnoticed. Lower each \
+         row to what its subject holds now, or delete the row when nothing is left.",
+        stale.join("\n")
+    );
+    assert!(
+        undeclared.is_empty(),
+        "{what}(s) under crates/ that DECLARED_HISTORY_MARKER_SITES does not declare:\n{}\n\n\
+         This repository ships without its development history, so a marker naming a session, \
+         a board item or an entry of a document that is not here points at nothing a reader \
+         can follow. The baseline is the count that existed when the matchers were repaired \
+         and it only shrinks: write the sentence without the marker. Raising a row is not the \
+         remedy -- if the count genuinely belongs, that is a decision argued here, not a number \
+         edited.",
+        undeclared.join("\n")
+    );
+    declared_total
+}
+
 /// The word the matchers look for, built from fragments so it never appears
 /// whole in this file's text.
 fn errata_word() -> String {
@@ -11249,9 +11565,17 @@ fn errata_word() -> String {
 /// Whether `text` names an entry of the old repository's errata document by
 /// number: the document's name, in any case and in its singular spelling too,
 /// then -- across at most 32 bytes of whitespace, comment openers (`/`, `!`,
-/// `#`), `§`, `:` and the words `entry`, `entries`, `no.` and `number` -- a
-/// decimal digit. Spans a line break, so a citation wrapped across two comment
-/// lines is one hit. Returns the byte offset of the word.
+/// `#`), markup that decorates a number rather than separating it from its
+/// word (`*`, `_`, `(`, `[`), `§`, `:` and the words `entry`, `entries`,
+/// `no.` and `number` -- a decimal digit. Spans a line break, so a citation
+/// wrapped across two comment lines is one hit. Returns the byte offset of
+/// the word.
+///
+/// The markup characters are in that set because a citation is a citation
+/// whether or not it is emphasised. Without them a bolded number read as a
+/// non-citation and this file's own doc comments carried one that the ban
+/// could not see, which is the failure mode a text ban has: it goes green on
+/// the spelling it was written against and says nothing about the rest.
 fn errata_number_hit(text: &str) -> Option<usize> {
     let lower = text.to_ascii_lowercase();
     let b = lower.as_bytes();
@@ -11283,7 +11607,7 @@ fn errata_number_hit(text: &str) -> Option<usize> {
                 k += w.len();
             } else if rest.starts_with('§') {
                 k += '§'.len_utf8();
-            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':') {
+            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[') {
                 k += 1;
             } else {
                 break;
@@ -11294,6 +11618,120 @@ fn errata_number_hit(text: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// The word the board's open-item citations name, built from fragments so it
+/// never appears whole in this file's text.
+fn board_item_word() -> String {
+    ["Known", "-open"].concat()
+}
+
+/// Whether `text` cites an entry of the board's open-item list by number: the
+/// list's name, in any case, then -- across at most 24 bytes of whitespace,
+/// comment openers (`/`, `!`, `#`), markup (`*`, `_`, `(`, `[`), `:` and the
+/// words `item`, `items` and `no.` -- a decimal digit. Spans a line break, so
+/// a citation wrapped across two comment lines is one hit. Returns the byte
+/// offset of the word.
+///
+/// The same window technique as [`errata_number_hit`], against the same
+/// failure: the two citations that wrap in this tree put the name at the end
+/// of one comment line and the number at the start of the next, and a
+/// line-at-a-time matcher reads both halves as innocent.
+fn board_item_hit(text: &str) -> Option<usize> {
+    let lower = text.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let word = board_item_word().to_ascii_lowercase();
+    let mut from = 0usize;
+    while let Some(rel) = lower[from..].find(&word) {
+        let at = from + rel;
+        from = at + word.len();
+        if at > 0 && (b[at - 1].is_ascii_alphanumeric() || b[at - 1] == b'_') {
+            continue;
+        }
+        let j = at + word.len();
+        if j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
+            continue;
+        }
+        let window_end = b.len().min(j + 24);
+        let mut k = j;
+        while k < window_end {
+            let rest = &lower[k..window_end];
+            if let Some(w) = ["items", "item", "no."].iter().find(|w| rest.starts_with(*w)) {
+                k += w.len();
+            } else if matches!(b[k], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'!' | b'#' | b':' | b'*' | b'_' | b'(' | b'[') {
+                k += 1;
+            } else {
+                break;
+            }
+        }
+        if k < b.len() && b[k].is_ascii_digit() && k > j {
+            return Some(at);
+        }
+    }
+    None
+}
+
+/// One file's share of the walk: its path, its units joined into one string,
+/// the offset each unit starts at paired with its index, and the units
+/// themselves.
+type JoinedFile<'a> = (&'a str, String, Vec<(usize, usize)>, Vec<&'a TextUnit>);
+
+/// Each file's text units joined in order, with the offset every unit starts
+/// at, so a matcher whose window spans a line break sees the file's text as
+/// one string and a hit can still be reported at the unit it starts in.
+///
+/// Comment lines are joined with their line breaks, so a citation wrapped
+/// across two of them is one citation. String units are fenced by NUL bytes,
+/// which no matcher's window crosses, so a word at the end of one literal and
+/// a digit at the start of the next are not a citation.
+///
+/// Shared by the two window matchers rather than written twice. The joining
+/// is the part that decides what a hit is, and two copies of it would be two
+/// definitions of a citation that could drift apart without either check
+/// going red.
+fn joined_text_by_file(units: &[TextUnit]) -> Vec<JoinedFile<'_>> {
+    let mut by_file: BTreeMap<&str, Vec<&TextUnit>> = BTreeMap::new();
+    for u in units {
+        by_file.entry(u.file.as_str()).or_default().push(u);
+    }
+    by_file
+        .into_iter()
+        .map(|(file, us)| {
+            let mut joined = String::new();
+            let mut starts: Vec<(usize, usize)> = Vec::new(); // (offset, unit index)
+            for (idx, u) in us.iter().enumerate() {
+                starts.push((joined.len(), idx));
+                match u.kind {
+                    TextKind::Comment => joined.push_str(&u.text),
+                    TextKind::Str => {
+                        joined.push('\u{0}');
+                        joined.push_str(&u.text);
+                        joined.push('\u{0}');
+                    }
+                }
+                joined.push('\n');
+            }
+            (file, joined, starts, us)
+        })
+        .collect()
+}
+
+/// Every hit `matcher` finds in the joined text of each file, as the unit the
+/// hit starts in. `advance` is what to add to a hit's offset before searching
+/// on, so a matcher that returns the offset of a word it then looks past does
+/// not re-find the same word.
+fn window_hits(units: &[TextUnit], matcher: fn(&str) -> Option<usize>, advance: usize) -> Vec<(&str, &TextUnit)> {
+    let mut out: Vec<(&str, &TextUnit)> = Vec::new();
+    for (file, joined, starts, us) in joined_text_by_file(units) {
+        let mut from = 0usize;
+        while let Some(rel) = matcher(&joined[from..]) {
+            let at = from + rel;
+            let idx = starts.iter().rev().find(|(o, _)| *o <= at).map_or(0, |(_, i)| *i);
+            out.push((file, us[idx]));
+            from = at + advance;
+        }
+    }
+    out
 }
 
 /// No comment or string literal under `src/`, `tests/`, `ui/` or `examples/`
@@ -11319,11 +11757,20 @@ fn no_comment_or_string_under_the_crate_cites_an_errata_entry_by_number() {
         format!("({er}\n/// 213 §5)"),
         format!("{er} entry 51"),
         format!("{um} #4"),
+        // Decorated numbers. The bolded form is the one this file's own doc
+        // comments carried while the separator set could not see it.
+        format!("{cap} **146** records"),
+        format!("{er} (146)"),
+        format!("{er} [146]"),
+        format!("{er} _146_"),
     ] {
         assert!(errata_number_hit(&hit).is_some(), "the matcher missed {hit:?}");
     }
     for miss in [
         format!("{er}-style discipline"),
+        // Markup with no number behind it: widening the separator set must
+        // not turn emphasis itself into a citation.
+        format!("{er} **the whole document**"),
         format!("the {er} number to a page that carried four"),
         format!("the old repository's {er} entry, not these lines"),
         format!("an {er} document, 20,799 lines"),
@@ -11335,50 +11782,23 @@ fn no_comment_or_string_under_the_crate_cites_an_errata_entry_by_number() {
 
     let (files, units) = crate_text_units();
     let (comment_lines, string_lines) = assert_text_walk_floors("errata citations", files, &units);
-    // Per file, the units joined in order: comment lines with their line
-    // breaks, so a citation wrapped across two comment lines is one citation;
-    // string units fenced by NUL bytes, which the matcher's window does not
-    // cross, so a word at the end of one literal and a digit at the start of
-    // the next are not a citation. A hit is reported at the unit the word sits in.
-    let mut problems: Vec<String> = Vec::new();
-    let mut by_file: std::collections::BTreeMap<&str, Vec<&TextUnit>> = std::collections::BTreeMap::new();
-    for u in &units {
-        by_file.entry(u.file.as_str()).or_default().push(u);
+    // The advance is the stem's length: the matcher returns the offset of the
+    // word and then looks past it, so searching on from the word itself would
+    // find the same one again.
+    let mut found: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for (file, u) in window_hits(&units, errata_number_hit, errata_word().len() - 1) {
+        found
+            .entry(file)
+            .or_default()
+            .push(format!("\x20     {file}:{} ({:?}): {}", u.line, u.kind, u.text.trim()));
     }
-    for (file, us) in by_file {
-        let mut joined = String::new();
-        let mut starts: Vec<(usize, usize)> = Vec::new(); // (offset, unit index)
-        for (idx, u) in us.iter().enumerate() {
-            starts.push((joined.len(), idx));
-            match u.kind {
-                TextKind::Comment => joined.push_str(&u.text),
-                TextKind::Str => {
-                    joined.push('\u{0}');
-                    joined.push_str(&u.text);
-                    joined.push('\u{0}');
-                }
-            }
-            joined.push('\n');
-        }
-        let mut from = 0usize;
-        while let Some(rel) = errata_number_hit(&joined[from..]) {
-            let at = from + rel;
-            let idx = starts.iter().rev().find(|(o, _)| *o <= at).map_or(0, |(_, i)| *i);
-            let u = us[idx];
-            problems.push(format!("\x20 - {file}:{} ({:?}): {}", u.line, u.kind, u.text.trim()));
-            from = at + 5;
-        }
-    }
-    assert!(
-        problems.is_empty(),
-        "comment(s) or string(s) under the crate cite an entry of the old repository's errata \
-         document by number; the document is not in this repository, so write the reason at the \
-         site or point at the specification:\n{}",
-        problems.join("\n")
-    );
+    let declared = assert_against_baseline(MarkerClass::ErrataNumber, &found);
     println!(
         "  errata citations: {files} files walked, {comment_lines} comment lines and {string_lines} \
-         string lines examined, 0 numbered citations"
+         string lines examined, {} numbered citation(s) in {} file(s), all declared in \
+         DECLARED_HISTORY_MARKER_SITES against a baseline of {declared}",
+        found.values().map(Vec::len).sum::<usize>(),
+        found.len()
     );
 }
 
@@ -11434,10 +11854,32 @@ fn no_comment_or_string_under_the_crate_cites_a_document_that_is_not_in_this_rep
 /// The byte length of a session label starting at `i`, if one starts there:
 /// the old repository's phase labels -- a `W`, `1`, dash and digits; a `P`
 /// with one or two digits and an optional dash-number; an `H`, `L` or `V`
-/// with one digit; a `Q`, digit, dash and lower-case letter -- each with an
-/// optional lower-case suffix and delimited by non-word characters on both
-/// sides. `S1`, `S2`, `S3`, `S4` are this repository's own labels and are not
-/// matched.
+/// with one digit; a `Q`, digit, dash and lower-case letter -- and this
+/// repository's own session labels, an `S` with one or two digits; each with
+/// an optional lower-case suffix and delimited by non-word characters on both
+/// sides.
+///
+/// # The `S` arm takes a bare label, and the reason is measured
+///
+/// `S` is an ordinary letter, so this is the arm that could fire on prose,
+/// and the alternative was to demand a neighbouring word -- `closed at`,
+/// `measured at`, `since`. Two measurements decide it for the bare form.
+///
+/// The tree carries its session labels in shapes no such qualifier reaches: a
+/// label glued to a hyphenated adjective, a parenthesised label standing as a
+/// whole clause, a label as the object of a verb the qualifier list does not
+/// hold. A qualified matcher would ban the citations that read like sentences
+/// and permit the ones that read like tags, which is backwards -- the tags
+/// are the harder half to find by eye and the half a reader most needs gone.
+///
+/// And the letter followed immediately by a digit is not otherwise vocabulary
+/// here: every occurrence in the four walked roots when this arm was written
+/// was a session label -- 138 of them across 24 files, the count the baseline
+/// declares -- with no bucket name, signal name or standard number among
+/// them. The delimiters carry the rest -- a letter
+/// before the `S` rejects `AES256`, a word character after the digits rejects
+/// an identifier that merely begins that way, and a third digit rejects the
+/// match as it does for `P`.
 fn phase_tag_len(b: &[u8], i: usize) -> Option<usize> {
     if i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_') {
         return None;
@@ -11465,6 +11907,16 @@ fn phase_tag_len(b: &[u8], i: usize) -> Option<usize> {
                 }
                 j += 1 + m;
             }
+        }
+        // This repository's own session labels. One or two digits, as `P`
+        // takes: the sequence reached the high teens, and a third digit
+        // rejects the match below rather than truncating it.
+        Some(b'S') => {
+            let n = digits(i + 1, 2);
+            if n == 0 {
+                return None;
+            }
+            j = i + 1 + n;
         }
         Some(b'H') | Some(b'L') | Some(b'V') if b.get(i + 1).is_some_and(u8::is_ascii_digit) => j = i + 2,
         Some(b'Q')
@@ -11559,19 +12011,38 @@ fn row_names_in_run(lines: &[&str]) -> Vec<String> {
 }
 
 /// No comment or string literal under `src/`, `tests/`, `ui/` or `examples/`
-/// carries a session label of the old repository, and no comment run that speaks of a fault
-/// matrix or a row names one of its rows.
+/// carries a session label or cites the board's open-item list by number
+/// beyond what [`DECLARED_HISTORY_MARKER_SITES`] declares, and no comment run
+/// that speaks of a fault matrix or a row names one of its rows.
 ///
 /// The labels named sessions of a history that is not here; every sentence
 /// that stood without its label kept the sentence, and every label that was
 /// the sentence went. The matcher covers the brief's forms, the bare `P`
-/// labels, the `L`, `Q` and `V` labels, and the lower-case suffixes a
-/// word-boundary regex over the brief's forms would miss. The row-name needle
-/// is qualified by the words `matrix` or `row` in the same comment run, so an
-/// `R` with a digit that is a register, a revision or a table cell is not a
-/// false positive (this repository's own fault tables live in `AGENT.md` and
-/// in commit messages, which are not walked); and it is applied to comments
-/// only, since no string literal in the tree names a row.
+/// labels, the `L`, `Q` and `V` labels, this repository's own `S` labels, and
+/// the lower-case suffixes a word-boundary regex over the brief's forms would
+/// miss.
+///
+/// # Three findings, and only one of them is a hard zero
+///
+/// * **Session labels** are baselined. The `S` arm was missing when this
+///   check was written, so the labels it now finds have been passing it all
+///   along; they leave with the prose, sweep by sweep, and until then the
+///   count each file holds is declared.
+/// * **Open-item citations** are baselined for the same reason: nothing
+///   matched them before, and the list they cite is going.
+/// * **Fault-matrix row names** stay a hard zero, because the tree holds
+///   none. The needle is qualified by the words `matrix` or `row` in the same
+///   comment run, so an `R` with a digit that is a register, a revision or a
+///   table cell is not a false positive (this repository's own fault tables
+///   live in `AGENT.md` and in commit messages, which are not walked); and it
+///   is applied to comments only, since no string literal in the tree names a
+///   row.
+///
+/// The open-item scan reads each file's joined text rather than each unit's,
+/// because two of the citations in the tree wrap: the name ends one comment
+/// line and the number opens the next. Session labels need no such joining --
+/// a label is one token and cannot be split by a line break without ceasing
+/// to be one.
 #[test]
 fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
     // The matchers, both directions, on constructed needles.
@@ -11586,11 +12057,46 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
         format!("{}2-c pinned", "Q"),
         format!("as {}1 did", "V"),
     ];
-    for hit in &tagged {
+    // This repository's own labels, built from fragments like the rest: a
+    // needle spelled whole here would be a site this check then reports.
+    let s = "S";
+    let own = [
+        format!("closed at {s}6)"),
+        format!("({s}10)."),
+        format!("the {s}11-gated tests"),
+        format!("since {s}15 the ceiling is"),
+        format!("re-derived at {s}9:"),
+    ];
+    for hit in tagged.iter().chain(own.iter()) {
         assert!(!phase_tags_in(hit).is_empty(), "the tag matcher missed {hit:?}");
     }
-    for miss in ["SHA3-224", "P2P", "RFC 9106", "S1 and S2", "S4 widened", "MP13", "P13_OFF", "TXHDR", "V1_SNAPSHOT", "Q6", "IPv6", "E0603"] {
+    // `AES256` and `HS256` are the shape the `S` arm could plausibly fire on
+    // and does not: a letter precedes the `S`, so the left delimiter refuses
+    // it before the digits are read.
+    let mut missed: Vec<String> = ["SHA3-224", "P2P", "RFC 9106", "MP13", "P13_OFF", "TXHDR", "V1_SNAPSHOT", "Q6", "IPv6", "E0603", "AES256", "HS256"]
+        .iter()
+        .map(|m| (*m).to_string())
+        .collect();
+    missed.push(format!("{s}6_LIMIT"));
+    missed.push(format!("{s}123 is three digits"));
+    missed.push(format!("_{s}6"));
+    for miss in &missed {
         assert!(phase_tags_in(miss).is_empty(), "the tag matcher fired on {miss:?}");
+    }
+    // The open-item matcher, both directions. The second hit is the wrapped
+    // form; the last miss is the NUL fence that keeps two adjacent string
+    // literals from reading as one citation.
+    let ko = board_item_word();
+    for hit in [format!("(AGENT.md, {ko} 22, closed"), format!("({ko}\n/// 31)."), format!("{ko} item 7")] {
+        assert!(board_item_hit(&hit).is_some(), "the open-item matcher missed {hit:?}");
+    }
+    for miss in [
+        format!("{ko} items, all of them"),
+        format!("the {ko} list"),
+        format!("un{ko} 3"),
+        format!("\u{0}{ko}\u{0}\n22"),
+    ] {
+        assert!(board_item_hit(&miss).is_none(), "the open-item matcher fired on {miss:?}");
     }
     let r = "R";
     let e = "E";
@@ -11610,10 +12116,14 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
     let (files, units) = crate_text_units();
     let (comment_lines, string_lines) = assert_text_walk_floors("phase tags", files, &units);
     let mut problems: Vec<String> = Vec::new();
+    let mut labels: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for u in &units {
-        let found = phase_tags_in(&u.text);
-        if !found.is_empty() {
-            problems.push(format!("\x20 - {}:{} ({:?}): {found:?} in {}", u.file, u.line, u.kind, u.text.trim()));
+        let tags = phase_tags_in(&u.text);
+        if !tags.is_empty() {
+            labels
+                .entry(u.file.as_str())
+                .or_default()
+                .push(format!("\x20     {}:{} ({:?}): {tags:?} in {}", u.file, u.line, u.kind, u.text.trim()));
         }
     }
     // Comment runs: consecutive comment units on consecutive lines of one file.
@@ -11644,13 +12154,32 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
         i = j;
     }
     assert!(runs >= 1_700, "the walk formed {runs} comment run(s); the four roots hold more than 2,500");
+    // The open-item citations, over each file's joined text so the two that
+    // wrap across a comment line are one hit each rather than none. The
+    // advance past a hit is the name's own length.
+    let mut items: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for (file, u) in window_hits(&units, board_item_hit, board_item_word().len()) {
+        items
+            .entry(file)
+            .or_default()
+            .push(format!("\x20     {file}:{} ({:?}): {}", u.line, u.kind, u.text.trim()));
+    }
+    // Row names first and unconditionally: that half of this check is a hard
+    // zero, and a red about the baseline must not bury it.
     assert!(
         problems.is_empty(),
-        "comment(s) or string(s) under the crate carry a session label or a fault-matrix row name of the old repository:\n{}",
+        "comment run(s) under the crate name a fault-matrix row of the old repository:\n{}",
         problems.join("\n")
     );
+    let declared_labels = assert_against_baseline(MarkerClass::SessionLabel, &labels);
+    let declared_items = assert_against_baseline(MarkerClass::BoardItem, &items);
     println!(
         "  phase tags: {files} files walked, {comment_lines} comment lines ({runs} runs) and {string_lines} \
-         string lines examined, 0 labels, 0 row names"
+         string lines examined, 0 row names, {} session label(s) in {} file(s) against a baseline of \
+         {declared_labels}, {} open-item citation(s) in {} file(s) against a baseline of {declared_items}",
+        labels.values().map(Vec::len).sum::<usize>(),
+        labels.len(),
+        items.values().map(Vec::len).sum::<usize>(),
+        items.len()
     );
 }

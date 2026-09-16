@@ -138,6 +138,23 @@ specification.
 - **I8 -- an imported account keeps a path back to its key material** and its
   first key is verified against the root.
 
+### What holds this document to the code
+
+`tests/invariants.rs::documented_counts_match_the_artifacts` reads this file
+and `crates/mochimo-crypto/Cargo.toml` and refuses a figure that disagrees
+with the artifact it describes: the vector totals against `fixtures/`, the
+corpus table row by row, and -- the arm with no artifact behind it -- any
+number written in front of the phrase `cfg` sites. There are none to count,
+so a count appearing there would be a claim about a feature this crate does
+not have.
+
+That phrase is written out here deliberately, and this paragraph is its
+anchor. The check refuses to pass if the phrase occurs nowhere in either
+file, because a needle that matches nothing is a tripwire that has been
+stepped over rather than one that holds; keeping the phrase in a sentence
+*about the check* means no edit to the prose elsewhere can quietly retire the
+arm. Leave the phrase in place when rewriting around it.
+
 ## The board
 
 `cargo test --workspace --no-fail-fast` is **green** in this repository since
