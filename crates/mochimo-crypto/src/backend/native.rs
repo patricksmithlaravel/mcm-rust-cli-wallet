@@ -418,12 +418,24 @@ pub fn chain_lengths(msg: &[u8; SEED_LEN]) -> [i32; WOTSLEN_TOTAL] {
 
 /// Expands an `n`-byte seed into the `WOTSLEN * PARAMSN` byte private key.
 ///
-/// **The return value is the WOTS+ private key, and it clears itself.**
+/// **The return value is the WOTS+ private key, and dropping it clears it.**
 /// Ownership passes to the caller, who is the only one who knows when the key
 /// stops being secret, so the caller decides when the scrub happens by
-/// deciding when to drop it. What the caller cannot do is forget: the 2,144
-/// bytes are zeroed before the allocation goes back to the allocator, whatever
-/// path the value leaves by.
+/// deciding when to drop it.
+///
+/// # Which path the scrub covers
+///
+/// The `Box`'s ordinary drop, and that is the whole of it. Going out of scope,
+/// being handed to `drop`, and dying as a temporary all run [`Zeroizing`]'s
+/// `Drop` on the pointee and then free the block, so the 2,144 bytes are
+/// cleared while they are still owned.
+///
+/// Moving the pointee out is the path it does not cover:
+/// `let key = *expand_seed(&seed)` is safe stable Rust, and a moved-from `Box`
+/// frees its block without running `Drop` on what was in it. The moved-to value
+/// scrubs; the heap block goes back to the allocator holding the plaintext.
+/// Nothing in this crate spells that, and the type does not forbid it -- a
+/// caller who wants the guarantee keeps the `Box` and reads through it.
 ///
 /// # Why the [`Zeroizing`] is inside the [`Box`] and not around it
 ///
@@ -448,13 +460,13 @@ pub fn expand_seed(inseed: &[u8; SEED_LEN]) -> Box<Zeroizing<[u8; PK_LEN]>> {
 
 /// The expansion itself, writing into a caller-owned buffer.
 ///
-/// This exists so that [`wots_pkgen`] can expand into a [`Zeroizing`] buffer
-/// **without** first materializing the private key in a `Box` that would then be
-/// dropped unscrubbed. Calling `expand_seed` and copying out of it would leave a
-/// 2144-byte plaintext private key on the heap with nothing to clear it — the
-/// exact leak the module header claims not to have. The two entry points share
-/// this body rather than duplicating the loop, so the corpus's `A-expand` vector
-/// covers both.
+/// This exists so that [`wots_pkgen`] and [`wots_sign_counted`] can expand
+/// straight into the buffer they are about to run the chains in. Reaching them
+/// through [`expand_seed`] would allocate a second 2,144-byte block, copy the
+/// private key across, and leave it live in two places until the first is
+/// dropped -- twice the allocation and twice the window, for a copy neither
+/// caller needs. The entry points share this body rather than duplicating the
+/// loop, so the corpus's `A-expand` vector covers all of them.
 fn expand_seed_into(out: &mut [u8], inseed: &[u8; SEED_LEN]) {
     assert_eq!(
         out.len(),
@@ -501,9 +513,12 @@ pub fn wots_pkgen(
 
     // `PK_LEN` is `WOTSLEN * PARAMSN`, so this splits into exactly `WOTSLEN`
     // chains with nothing over: the remainder is empty as arithmetic on the
-    // constants and the chunk count is the loop bound. Each chain is run where
-    // it lies, inside the buffer that zeroizes, so no copy of a private chain
-    // element is made to run it.
+    // constants and the chunk count is the loop bound. Each chain is read and
+    // written back in place in the buffer that zeroizes, so the loop itself
+    // holds no copy of a private chain element. `gen_chain` holds one -- it
+    // copies its input into a `Zeroizing` working value -- and returns the
+    // chain's end by value, which is public key material rather than secret.
+    // What this shape removes is the caller's second copy, not that one.
     let (chains, _nothing_over) = buf.as_chunks_mut::<PARAMSN>();
     for (i, chain) in chains.iter_mut().enumerate() {
         set_chain_addr(adrs, i as u32);
@@ -585,8 +600,11 @@ pub fn wots_sign_counted(
 
     let mut counts = [0u32; WOTSLEN_TOTAL];
     // `SIG_LEN` is `WOTSLEN * PARAMSN`, so the split is exact and the chunk
-    // count is `WOTSLEN`. Signing runs each chain where it lies, inside the
-    // buffer that zeroizes.
+    // count is `WOTSLEN`. Each chain is read and written back in place in the
+    // buffer that zeroizes, so the loop itself holds no copy of a private chain
+    // element; `gen_chain_counted` copies its input into a `Zeroizing` working
+    // value and returns the chain's end, which is the signature block that goes
+    // on the wire.
     let (chains, _nothing_over) = buf.as_chunks_mut::<PARAMSN>();
     for (i, chain) in chains.iter_mut().enumerate() {
         set_chain_addr(adrs, i as u32);
