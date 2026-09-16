@@ -760,14 +760,13 @@ fn test_sources() -> String {
 ///
 /// # The population is libtest's, and that is the whole point
 ///
-/// The alternative was measured: `cargo test --workspace -- --list`
-/// reports **148** tests, a `syn` walk over the same tree parses **119**, and
-/// the 29 missing are all emitted inside `proptest!` bodies — the differential
-/// suite, the fifth of the tree nobody re-reads. Nothing in this module parses
-/// Rust. The names come from libtest's own `--list`, the verdicts from libtest's
-/// own summary line, and `execution_census_population_is_libtests_run_list`
-/// asserts a `proptest!`-emitted name is in the population so that a future
-/// rewrite cannot quietly swap the run list for a parsed one.
+/// Nothing in this module parses Rust. The names come from libtest's own
+/// `--list` and the verdicts from libtest's own summary line, because a parser
+/// and the runner can disagree about what the suite contains: a test emitted by
+/// a macro, or nested in a `cfg`-gated inline module, is a name the runner has
+/// and an item walk does not. `execution_census_population_is_libtests_run_list`
+/// holds the population to the run list so that a later rewrite cannot quietly
+/// swap it for a parsed one.
 ///
 /// # Why the guard drives the run, rather than reading a manifest
 ///
@@ -1331,8 +1330,9 @@ mod census {
 
     /// libtest's own enumeration for one binary.
     ///
-    /// `--list` and not a parser: it was measured that a `syn` walk misses
-    /// the 29 `proptest!`-emitted tests, a fifth of this suite.
+    /// `--list` and not a parser: the runner's names are the population the
+    /// guards are checked against, and an item walk can spell a nested or
+    /// macro-emitted name differently or miss it.
     pub fn listed(bin: &str) -> BTreeSet<String> {
         static LISTS: OnceLock<Mutex<BTreeMap<String, BTreeSet<String>>>> = OnceLock::new();
         let cache = LISTS.get_or_init(|| Mutex::new(BTreeMap::new()));
@@ -1635,16 +1635,13 @@ mod census {
 ///
 /// The census's question, asked of the instrument: *is the set I am counting the
 /// set I am checking?* A census that silently fell back to a source parser would
-/// still answer every guard, and would answer them over 119 tests instead of
-/// 148 — that gap was measured, and the missing 29 are all emitted inside
-/// `proptest!` bodies, which is the differential suite.
+/// still answer every guard, over whatever population the parser happened to
+/// reach.
 ///
-/// So the witness is not the total. It is a **named `proptest!`-emitted test**:
-/// `native_addr_from_wots_matches_ffi_differentially` is declared as
-/// `fn name(seed in any::<[u8; 32]>())`, which is not fn syntax and which `syn`
-/// yields as `Item::Macro` and stops on. Its presence in what the census reads
-/// cannot be produced by any parser of Rust items, so it is proof of provenance
-/// rather than of size.
+/// So the witness is not the total. It is one name the two instruments spell
+/// differently: a test inside a `cfg`-gated inline module, which libtest lists
+/// under its module path. The body names it and says in the same place why it
+/// is a weaker witness than a macro-emitted name would be.
 #[test]
 fn execution_census_population_is_libtests_run_list() {
     let mut total = 0usize;
@@ -4651,16 +4648,16 @@ fn attrs_in_tokens(tokens: proc_macro2::TokenStream, want: &str) -> usize {
 ///
 /// # The domain, measured rather than assumed
 ///
-/// Walking `syn`'s items alone does not see every `#[test]` attribute in the
-/// suite. The ones it misses are inside `proptest!` blocks -- this file's, the
-/// only ones in the tree -- because a `proptest!` body is not parseable as Rust
-/// items (`args in strategy` is not fn syntax), so `syn` yields `Item::Macro`
-/// and stops. A ban blind to part of its own domain is the failure this check
-/// exists to stop, committed by the check itself. That arm is walked at the
-/// **token** level instead, which is exact rather than approximate: the
-/// tokenizer has already discarded comments, and a string literal containing
-/// `"#[ignore]"` is one `Literal`, never the ident `ignore` inside a bracket
-/// group.
+/// Walking `syn`'s items alone cannot see a `#[test]` written inside a macro
+/// invocation: the body is not parseable as Rust items, so `syn` yields
+/// `Item::Macro` and stops on it. No test in this tree is written that way, and
+/// a ban blind to part of its own domain is the failure this check exists to
+/// stop, committed by the check itself -- so the macro arm is walked at the
+/// **token** level, which is exact rather than approximate: the tokenizer has
+/// already discarded comments, and a string literal containing `"#[ignore]"` is
+/// one `Literal`, never the ident `ignore` inside a bracket group. The arm
+/// costs nothing while it matches nothing, and it is what would see the next
+/// one.
 ///
 /// The count is printed from the run rather than written down here. A
 /// *substring* count over these files is a moving target its own documentation
@@ -4695,8 +4692,8 @@ fn attrs_in_tokens(tokens: proc_macro2::TokenStream, want: &str) -> usize {
 ///   and never reads the word `ok`, which libtest prints for an ignored test
 ///   too;
 /// * this ban's remaining value is **suite-wide coverage**. The census reaches
-///   sixteen edges; the ban reaches all 148 tests, including every one no guard
-///   names.
+///   sixteen edges; the ban reaches every test in the tree, including every one
+///   no guard names. Its own floor prints the count it walked.
 ///
 /// Still open, and not closed by either: a test **renamed with its census row
 /// updated to match** is green over whatever the new test does. Execution is not
@@ -4737,11 +4734,11 @@ fn no_test_in_the_suite_is_ignored() {
                         }
                     }
                 }
-                // `proptest! { .. }` blocks. MEASURED, not anticipated:
-                // without this arm the collector misses every `#[test]` written
-                // inside a `proptest!` invocation, and this file writes ten of
-                // them. A ban that cannot see part of its domain is the failure
-                // this check exists to stop, committed by the check itself.
+                // Macro invocation bodies. Without this arm the collector
+                // misses every `#[test]` written inside one. No test in this
+                // tree is, and the arm stays because a ban that cannot see part
+                // of its domain is the failure this check exists to stop,
+                // committed by the check itself.
                 //
                 // The body is not parseable as items (`args in strategy` is not
                 // Rust fn syntax), so it is walked as TOKENS. That is exact
