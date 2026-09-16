@@ -11176,16 +11176,46 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
     (files, out)
 }
 
-/// The floors the three walks share, derived from the measurement
-/// the evidence lines print: 82 files, 16,799 comment lines in 2,550 runs and
-/// 11,955 string lines. Each floor sits at roughly two thirds of its
+/// The floors the four walks share, derived from the measurement the evidence
+/// lines print: 82 files, 16,799 comment lines in 2,550 runs and 11,955
+/// string lines. The three volume floors sit at roughly two thirds of their
 /// measurement -- well above what a walk that dropped a directory, a kind, or
-/// the strip would report, and the files floor sits above the 58 the two
-/// original roots hold, so a walk that lost `ui/` and `examples/` is red.
+/// the strip would report.
+///
+/// # The files floor is structural, and two thirds is the wrong rule for it
+///
+/// The other three bound a QUANTITY: a walk that stopped seeing comments
+/// reports a fraction of them, and two thirds is comfortably above any
+/// fraction and comfortably below the whole. The files floor bounds a
+/// STRUCTURE -- the walk covers four roots -- and a root is not a fraction of
+/// a count. What it has to exceed is the largest total a walk that lost one
+/// root can still report, which is a number about the roots' relative sizes
+/// and not about the tree's total.
+///
+/// Measured, per root: `src/` 38, `tests/` 22, `ui/` 23, `examples/` 1, for
+/// 84. A walk that lost `src/` reports 46, one that lost `tests/` reports 62,
+/// one that lost `ui/` reports 61. The floor is **70**: above all three, and
+/// fourteen below the measurement, so ordinary file churn does not red it
+/// while any of those three losses does.
+///
+/// **`examples/` holds one file and is below this floor's resolution.** A
+/// walk that lost it reports 83, which no floor can distinguish from the
+/// deletion of one example -- so that root's coverage is not what this
+/// assertion establishes, and the synthetic corpora in the four checks are.
+/// Stated because a floor whose reach is assumed rather than derived stops
+/// covering what its own sentence describes as soon as the roots change size,
+/// and nothing reports that while every root is still present. `src/` and
+/// `tests/` hold 60 between them; a floor at 60 is a floor two roots can
+/// satisfy alone.
 fn assert_text_walk_floors(what: &str, files: usize, units: &[TextUnit]) -> (usize, usize) {
     let comment_lines = units.iter().filter(|u| u.kind == TextKind::Comment).count();
     let string_lines = units.iter().filter(|u| u.kind == TextKind::Str).count();
-    assert!(files >= 60, "{what}: walked {files} file(s); src/, tests/, ui/ and examples/ together hold more than 60");
+    assert!(
+        files >= 70,
+        "{what}: walked {files} file(s). The four roots hold 84, and 70 is above the 62 a walk \
+         that lost `tests/` would report -- the largest of the three root losses a count can \
+         see. Either a root is missing from the walk or the tree has shrunk by fourteen files."
+    );
     assert!(
         comment_lines >= 11_000,
         "{what}: examined {comment_lines} comment line(s); the four roots carry far more, so the walk is not seeing comments"
