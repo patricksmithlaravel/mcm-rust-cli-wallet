@@ -317,11 +317,10 @@ Success reports go to **stdout**. Non-zero reports go to **stderr**. That matter
 
 ## Limits and missing product surface
 
-These are present-tense limits of this binary (also tracked in the repository’s known-open notes):
+These are present-tense limits of this binary:
 
 - **No default `--dir` / `--node`** — you must pass them.
 - **Accounts past 0 enter the store only once funded** — `create` makes account 0; `address --account N` prints account N's destination without storing it; fund that destination, then `restore --account N` adds the account. An unfunded account cannot be stored, because the Mesh cannot tell never-funded from emptied. `discover` will tell you which indices the node *does* resolve, without storing anything — but it cannot tell you that an index has no account, for the same reason.
-- **`restore` has not yet been run against a live chain** — every other command has. It is covered by tests against a stand-in node, and the loop it belongs to (`address --account N`, fund, `restore --account N`) is driven end to end there, but the real exercise needs a funded account on mainnet and a person at a terminal, which no test stands in for. Read what it prints before you rely on it.
 - **History comes from the Mesh's indexer, and not every deployment runs one** — `transaction` and `recent-transactions` read `/search/transactions`, which a node serves only if it was configured to index. Where it was not, the endpoint answers an internal error and those two verbs report that rather than an empty list; `block` and `blocks` do not depend on it. History is also rendered *gross* there — a spend's source shows its whole balance leaving and the change coming back as a separate credit — while `block` shows the same spend *net*. Both are correct; each page says which it is showing.
 - **Dead reservation** — if signed bytes can no longer be accepted (e.g. balance moved another way, or `--btl` expired), the wallet explains the cost but has no dedicated “clear dead reservation” command.
 - **Seed derivation** — several schemes exist across Mochimo clients and they do not agree. This wallet matches the **browser extension** scheme (fixture group F). A phrase from another scheme will not restore here, and the program does not currently warn about that.
@@ -340,7 +339,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --features mesh-https --bin mcm-wallet
 ```
 
-The full test board replays thousands of fixture vectors and can take several minutes. Details, invariants (I1–I8), and known-open items live in [`AGENT.md`](AGENT.md) and [`docs/specification.md`](docs/specification.md).
+The full test board replays thousands of fixture vectors and can take several minutes. Details, invariants (I1–I8), and the open items live in [`AGENT.md`](AGENT.md) and [`docs/specification.md`](docs/specification.md).
 
 Features of note:
 
@@ -356,7 +355,7 @@ Features of note:
 ## Further reading
 
 - [`docs/specification.md`](docs/specification.md) — wire formats, keystore, reconciliation, Mesh client, CLI semantics
-- [`AGENT.md`](AGENT.md) — repository orientation, fixture corpus, invariants, known-open list
+- [`AGENT.md`](AGENT.md) — repository orientation, fixture corpus, invariants, the board
 - `mcm-wallet --help` — same command list as shipped in the binary
 
 ---
