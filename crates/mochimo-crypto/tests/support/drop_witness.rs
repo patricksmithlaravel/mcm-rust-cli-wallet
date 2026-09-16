@@ -1,8 +1,8 @@
 //! The zeroization drop-witness, in one place because two binaries need it.
 //!
-//! `tests/native.rs` runs it as `secret_bytes_are_gone_after_drop`, which is
-//! where the execution census demands the proof live. `tests/miri.rs` runs it
-//! under the interpreter, which is the only thing that can say whether the
+//! `tests/invariants.rs` runs it as `secret_bytes_are_gone_after_drop`, which
+//! is where the execution census demands the proof live. `tests/miri.rs` runs
+//! it under the interpreter, which is the only thing that can say whether the
 //! construction below is sound rather than merely appearing to work. One
 //! implementation, two consumers: a second copy could drift into unsoundness
 //! in the binary Miri does not execute.
