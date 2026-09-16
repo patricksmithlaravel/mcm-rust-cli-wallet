@@ -7,12 +7,12 @@ edition = "2021"
 # 1.89 for `std::fs::File::try_lock` (stable since 1.89.0): the keystore holds
 # `keystore.lock` with flock(2), which the kernel releases on any process death
 # including SIGKILL, so a held lock always means a live holder. The alternative
-# -- an O_EXCL lockfile removed on Drop -- is the stale-lock design that
-# manufactures the delete-the-lock workaround errata 97 warns against, and
-# unlinking on Drop is the classic two-holders race. Bumped in W1-3; errata 152.
+# -- an O_EXCL lockfile removed on Drop -- is the stale-lock design, whose
+# stale locks teach an operator to delete the lock file, and unlinking on Drop
+# is the classic two-holders race.
 rust-version = "1.89"
-# The Mochimo Cryptocurrency Engine License Agreement, version 1.0, decided
-# by the operator on 2026-09-14 for a derivative work of Mochimo; the text is
-# the root `LICENSE.md`, copied byte for byte from the supplied file. It
-# replaced an `MIT` declaration that stood from the fork to S10.
+# The Mochimo Cryptocurrency Engine License Agreement, version 1.0: the
+# licence a derivative work of Mochimo is published under. The text is the
+# root `LICENSE.md`, copied byte for byte from the supplied file, and the
+# crate inherits this declaration from the workspace.
 license-file = "LICENSE.md"

@@ -8,20 +8,16 @@ description = "Safe Rust API over the Mochimo cryptographic primitives."
 publish = false
 
 [features]
-# The one backend, by default. A second feature, `ffi-oracle`, once routed
-# every primitive through a vendored C reference and made the differential
-# tests possible; the reference is not in this repository, and S2 stripped
-# the feature and every site that named it. The corpus under `fixtures/` is
-# what the native code is checked against now.
+# The one backend, by default. There is no second one: the C reference a
+# differential would need is not in this repository, and the corpus under
+# `fixtures/` is what the native code is checked against.
 default = ["native"]
 
 # The hand-written Rust WOTS+ core and address path, and the whole wallet
 # above them.
 #
-# It became independently buildable late, and the reason it was not before
-# is worth keeping: `consts` used to be sourced out of the generated bindings
-# alone, on the principle that a protocol constant retyped in Rust is a
-# constant nobody checked. That principle stands -- `lib.rs::consts` declares
+# The principle behind `consts` is that a protocol constant retyped in Rust
+# is a constant nobody checked, and it stands -- `lib.rs::consts` declares
 # each constant as a literal read from the reference, and `kat.rs`'s
 # `constants_match_the_reference` and `group_e_constants_match_the_reference`
 # compare them to the `constants` blocks the C printf'd into groups A and E.
@@ -69,10 +65,10 @@ mesh-https = ["mesh-http", "ureq/rustls"]
 zeroize = { version = "1", features = ["zeroize_derive"] }
 # The one comparison of key material this crate makes, `Secret::ct_eq`:
 # a root or seed compared against every stored imported root, so that
-# two accounts cannot sit over one key stream. secret.rs's doc has said since
-# it was written that if comparing secrets ever became necessary it goes
-# through `subtle::ConstantTimeEq`, never `==`; this is that day. Already in
-# Cargo.lock through `digest`; a direct dependency because the call is ours.
+# two accounts cannot sit over one key stream. The rule in secret.rs's doc is
+# that comparing secrets goes through `subtle::ConstantTimeEq` and never `==`.
+# Already in Cargo.lock through `digest`; a direct dependency because the call
+# is ours.
 subtle = { version = "2", default-features = false }
 # WOTS+ `core_hash` is SHA-256 -- `#define core_hash(out, in, inlen)
 # sha256(in, inlen, out)` at wots.c:28, with SHA256LEN 32 at sha256.h:22.
@@ -82,9 +78,9 @@ subtle = { version = "2", default-features = false }
 # second unproven thing inside the diff whenever the port disagreed with the C.
 #
 sha2 = { version = "0.10", default-features = false, optional = true }
-# The address path, added with the code that uses it (ledger.c:95-102 is
-# `ripemd160(sha3_512(x))`). They were deliberately absent until now: an unused
-# dependency is the same defect as the unused binding hole 2 was about.
+# The address path, carried only because code uses it (ledger.c:95-102 is
+# `ripemd160(sha3_512(x))`). An unused dependency is the same defect as an
+# unused binding: a thing in the graph that nothing answers for.
 #
 # `Sha3_512` and not `Keccak512`. The two differ only in the domain-separation
 # byte and the reference picks the FIPS-202 one: `sha3.c:79` is
@@ -107,8 +103,8 @@ sha3 = { version = "0.10", default-features = false, optional = true }
 ripemd = { version = "0.1", default-features = false, optional = true }
 # BIP39's `mnemonicToSeed` is PBKDF2-HMAC-SHA512 (2048 rounds, 64 bytes;
 # `@scure/bip39/index.js:128`, read on disk), and the shipped extension keeps
-# its first 32 bytes as the master seed (`MasterSeed.ts:55-56`). Added
-# with `src/mnemonic`, the code that uses it.
+# its first 32 bytes as the master seed (`MasterSeed.ts:55-56`). Used by
+# `src/mnemonic` and by nothing else.
 #
 # RustCrypto again, with its `hmac` feature, on the same `digest` 0.10 line as
 # `sha2` above. The project does not itself verify HMAC or PBKDF2 -- this is
@@ -118,21 +114,20 @@ ripemd = { version = "0.1", default-features = false, optional = true }
 # become the only evidence for the primitive, and `src/mnemonic/mod.rs`'s note
 # on where the primitives come from must change with the artifact.
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"], optional = true }
-# The Mesh API speaks JSON (`reference/mochimo-mesh`, every handler
-# `json.NewDecoder(r.Body).Decode`s a request and `json.NewEncoder(w).Encode`s
-# a reply). Consumed by `mesh::codec` alone, and consumed as `serde_json::Value`
-# walked by hand -- deliberately NOT `serde` with `derive`. The keystore session
-# rejected `Deserialize` for the record types because a derived constructor is
-# a forged constructor; a network response is the same shape of
-# input with a worse author, and every field this crate reads from one is
-# checked for presence, type, width and range before it becomes a Rust value.
+# The Mesh API speaks JSON: every middleware handler decodes a request and
+# encodes a reply with the Go standard library's streaming codec. Consumed by
+# `mesh::codec` alone, and consumed as `serde_json::Value` walked by hand --
+# deliberately NOT `serde` with `derive`. `Deserialize` is refused for the
+# record types because a derived constructor is a forged constructor; a network
+# response is the same shape of input with a worse author, and every field this
+# crate reads from one is checked for presence, type, width and range before it
+# becomes a Rust value.
 # Requests are built with `json!` so the key order is `serde_json`'s sorted
 # default, which is what makes the request KATs in `tests/mesh.rs` byte-equal
-# to the bodies `reference/gen-fixtures/net/group_n_mesh_live.py` sent
-# (`sort_keys=True`); `preserve_order` must never be unified in, and
+# to the bodies group N's capture sent (its generator sorted keys too);
+# `preserve_order` must never be unified in, and
 # `mesh::request_bodies_serialise_with_sorted_keys` holds that. Under `native`
-# because the codec's consumers (`tx::wire`, the keystore) are. Already in
-# Cargo.lock as a dev-dependency since the fixture harness was written.
+# because the codec's consumers (`tx::wire`, the keystore) are.
 serde_json = { version = "1", default-features = false, features = ["std"], optional = true }
 # The HTTP transport for the Mesh client. Chosen over
 # `minreq` for first-class connect/global timeouts, a redirect policy that can
@@ -175,12 +170,10 @@ argon2 = { version = "0.5", default-features = false, features = ["zeroize"], op
 # anywhere wants. Nonce discipline is the real hazard either way, and it is
 # argued at `keystore::crypt::nonce_for`.
 #
-# PURE RUST, and that is not incidental: the keystore was designed under the
-# rule that the plaintext image never transit the C's stack, which is why
-# version 2's trailer called `backend::native::sha3_256` directly rather than
-# through the backend wrapper. A pure-Rust AEAD satisfies that rule by construction rather than by
-# a call-site convention. No default features: the in-place detached API needs
-# no `alloc`.
+# PURE RUST, and that is not incidental: the keystore's rule is that the
+# plaintext image never transits a C stack. A pure-Rust AEAD satisfies that by
+# construction rather than by a call-site convention. No default features: the
+# in-place detached API needs no `alloc`.
 chacha20poly1305 = { version = "0.10", default-features = false, optional = true }
 
 # The shipped binary. Built with `mesh-https`, so it links rustls and
@@ -193,22 +186,20 @@ name = "mcm-wallet"
 # exercises every command there against a fake transport, so what this target
 # adds over the tested code is argv, a tty prompt and `UreqTransport`.
 #
-# This comment said "the board never builds this target" for a time, and the
-# conclusion drawn from it was that the remainder did not need testing. Both
-# defects found in this binary -- the store-before-terminal order and the
-# read-only `/dev/tty` -- were in that remainder. The default board now
-# builds and executes it: `tests/cli.rs`'s pty harness runs `cargo build
-# --features mesh-https --bin mcm-wallet` as a subprocess and drives the
-# result under a pseudo-terminal -- the one place the board compiles any C,
-# `ring`'s, and in a subprocess. The same harness drives the other two items
-# of that list: argv (`--node` is optional for the two commands that never
-# dial) and the shared password prompt. Same feature shape as the example
-# below.
+# A board that never built this target would leave that remainder untested,
+# and both defects found in this binary -- the store-before-terminal order and
+# the read-only `/dev/tty` -- are in it. So the default board builds and
+# executes it: `tests/cli.rs`'s pty harness runs `cargo build --features
+# mesh-https --bin mcm-wallet` as a subprocess and drives the result under a
+# pseudo-terminal -- the one place the board compiles any C, `ring`'s, and in a
+# subprocess. The same harness drives the rest of the remainder: argv (`--node`
+# is optional for the two commands that never dial) and the shared password
+# prompt. Same feature shape as the example below.
 required-features = ["mesh-https"]
 
-# The one live run of the transport with TLS: three reads against a Mesh
+# The one exercise of the transport with TLS: three reads against a Mesh
 # endpoint, no submit path. Built only with `mesh-https`, so the board never
-# compiles ring for it; run by hand, and its record is in the old repository.
+# compiles ring for it; run by hand, and nothing here records its output.
 [[example]]
 name = "mesh_probe"
 required-features = ["mesh-https"]
@@ -217,8 +208,8 @@ required-features = ["mesh-https"]
 # This crate, as its own dev-dependency, to turn `raw-backend` on for every
 # test target without putting it in `default`. `default-features =
 # false` is LOAD-BEARING: it is what keeps the test tree's feature set the
-# one written here rather than `default` unified back in, which is how a
-# second backend would have re-entered the test graph while there was one.
+# one written here rather than `default` unified back in, which is the route
+# by which a feature nobody asked for re-enters the test graph.
 # The I1 marker anchors on both halves of this line.
 #
 # `mesh-http` rides on the same line, for the same reason: the
@@ -239,9 +230,10 @@ toml = "0.8"
 # needing its own runner. A hand-rolled `cargo build` driven from a test would
 # be a new verification path with its own fault injection owed.
 #
-# The cost is real and stated rather than discovered later: the .stderr files
-# pin rustc's exact wording, so a toolchain bump can turn them red without any
-# change to the property. They were generated on rustc 1.98.0. Regenerate with
+# The cost is real and is stated here rather than met by surprise: the .stderr
+# files pin rustc's exact wording, so a toolchain bump can turn them red
+# without any change to the property. They are generated on rustc 1.98.0.
+# Regenerate with
 # `TRYBUILD=overwrite cargo test --test compile_fail` and *read the diff* --
 # a case that starts failing for a new reason is the finding, not the noise.
 trybuild = "1.0.116"
@@ -261,10 +253,10 @@ trybuild = "1.0.116"
 # under-approximates Rust" by writing a second hand parser. The base rate in
 # this tree argues against that: `code_only` opened comments inside string
 # literals, the endian scan anchored on a leading dot, `public_fn_names` missed
-# three qualifier forms, and `strip_comments` still carries a raw-string defect
-# deferred to its own session. Four in one file, none from carelessness --
-# approximating a grammar with string operations is simply hard, and the
-# standing rule is against re-deriving a thing that already exists.
+# three qualifier forms, and `strip_comments` still carries a raw-string
+# defect. Four in one file, none from carelessness -- approximating a grammar
+# with string operations is simply hard, and the standing rule is against
+# re-deriving a thing that already exists.
 #
 # The usual dependency argument does not apply the way it normally does. This is
 # a dev-dependency on a test target: it never ships, never touches key material,
