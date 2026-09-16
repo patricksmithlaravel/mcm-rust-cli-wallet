@@ -1,0 +1,558 @@
+//! The wallet: a keystore and a chain client that were reconciled against
+//! each other before either could be used to spend (I4).
+//!
+//! # What this type is for, in one sentence
+//!
+//! [`Wallet::open`] is the only constructor and it reconciles every account or
+//! refuses, so **a `Wallet` that exists is a wallet that was reconciled** —
+//! and every spend path is a method on it.
+//!
+//! # THE BOUND, and it is exactly [`crate::keystore::Keystore::sign_spend`]'s
+//!
+//! *Gated at the wallet layer, not absent.* The raw [`Keystore`] is still
+//! reachable in-crate and from the test tree, and in-crate code can still
+//! call `persist_advance` and `sign_spend` directly — the keystore's own
+//! proofs must, because they have no chain to reconcile against. What is
+//! enforced is that **this type's users cannot spend unreconciled**, in the
+//! same sense and with the same honesty as I1's
+//! `key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent`.
+//! A caller who wants the unreconciled path must go and get a `Keystore`,
+//! which is conspicuous, rather than forgetting to reconcile, which is not.
+//!
+//! The witness is the type itself rather than a token, deliberately: a token
+//! nothing consumes is a claim with nothing behind it, and its presence on a
+//! type surface reads as enforcement to whoever audits it — the well-named
+//! empty check's shape one layer out. `AdvanceReceipt` is the precedent for the shape that works:
+//! unforgeable, bound, minted at one site from a proof token, and consumed.
+//!
+//! # Why reconciliation is at construction and not at first spend
+//!
+//! I4's enforcement clause: *reconciliation runs before any signing operation
+//! is permitted, not lazily on first spend.* A wallet that reconciles when the
+//! user tries to spend has already let the divergent state be the basis for
+//! something — a displayed balance, an address handed out, a decision to send.
+//!
+//! # What the constructor refuses, each with its own message
+//!
+//! An unreachable chain; **any** divergent account; a tag the ledger does not
+//! hold; and a derived account with no master seed to derive it from.
+//! [`StartupRefusal`] renders **every** failing account rather than the first,
+//! because an operator who fixes one and restarts into the next has been told
+//! the truth twice and helped once.
+//!
+//! ## One accepted cost, recorded as accepted
+//!
+//! Refusing on a tag the ledger does not hold means **a freshly added,
+//! never-funded account blocks startup** until it is funded or removed. The
+//! alternative — treating *absent, index 0, nothing pending* as never-funded
+//! rather than divergent — is defensible: a tag enters the ledger when it is
+//! first paid and is never removed (`recon`'s module doc, fact 1), so the
+//! ledger's absence really does mean never funded. But what this wallet
+//! observes is the Mesh's answer, and the Mesh answers *account not found*
+//! for an emptied tag and for a failed lookup as well (`recon`'s fact 3).
+//! It is refused anyway because that answer alone cannot separate
+//! *never funded* from *emptied*, *lookup failed*, *wrong chain* and *wrong
+//! seed*, and I4's posture is fail-closed. The cost is recorded here the way
+//! I4's decision records its own, and the refusal's message names every reading
+//! and prefers none.
+//!
+//! **What would reopen it:** the CLI session finding that a never-funded
+//! account blocks startup often enough to matter in the ordinary create-then-
+//! fund flow. That is the condition, stated so the evidence is recognisable
+//! when it arrives.
+
+use core::fmt;
+
+use crate::account::{AdvanceReceipt, WotsIndex};
+use crate::addr::Tag;
+use crate::consts::SEED_LEN;
+use crate::error::{Error, Result};
+use crate::keystore::{KeyAccess, Keystore, Medium, SpendAddresses};
+use crate::mesh::spend::{SignedTransaction, SpendPlan};
+use crate::mesh::{MeshClient, Transport, TxId};
+use crate::recon::{self, AccountStatus, Divergence, Reservation, ScanScope};
+
+/// The acknowledgement type lives in `recon` -- the CLI's `reconcile` runs
+/// before a `Wallet` exists and the gate is the acknowledgement, not this
+/// type -- and is re-exported here where it first lived.
+pub use crate::recon::OperatorAcknowledgement;
+use crate::secret::Secret;
+use crate::tx::wire::Destination;
+
+/// Why the wallet would not start: every account that failed, in tag order.
+///
+/// `Display` renders each one's full report. Not an [`Error`] variant: an
+/// `Error` is one line and this is a page, and flattening it would lose the
+/// per-account detail that I4 makes part of the requirement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StartupRefusal {
+    /// Every account that could not be reconciled. Non-empty by construction:
+    /// [`Wallet::open`] returns `Ok` when this would be empty.
+    pub diverged: Vec<Divergence>,
+    /// How many accounts the store held.
+    pub accounts: usize,
+}
+
+impl fmt::Display for StartupRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "WALLET WILL NOT START: {} of {} account(s) could not be reconciled against the \
+             chain.\n\nThis is invariant I4 failing closed, and it is deliberate. Divergence \
+             between a local key index and the chain has three causes -- a crash between signing \
+             and persisting, a restored seed with incomplete history, or a second wallet live on \
+             this seed -- and the divergence alone does not say which. Advancing to match the \
+             chain is correct for the first and destroys keys for the third. So nothing is \
+             advanced automatically.\n",
+            self.diverged.len(),
+            self.accounts
+        )?;
+        for d in &self.diverged {
+            writeln!(f, "{d}\n")?;
+        }
+        write!(
+            f,
+            "Do not delete local state, reinstall, or restore this seed elsewhere to get past \
+             this. Each of those is a path back to the key reuse this refusal exists to prevent."
+        )
+    }
+}
+
+/// What settling found. Not `Copy`: `StillOutstanding` carries the
+/// reservation's diagnosis, which may hold the error a tip read returned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Settlement {
+    /// The chain holds the change key's address; the reservation moved to the
+    /// retained settled block and the account can spend
+    /// again.
+    Settled { spent_index: WotsIndex, index: WotsIndex },
+    /// The chain still holds the key that signed; the reservation stands.
+    /// `reservation` is what reconciliation made of it from the store and
+    /// the chain alone -- live, dead, or not
+    /// classifiable -- carried here rather than discarded, so `settle`'s
+    /// page can say which.
+    StillOutstanding {
+        spent_index: WotsIndex,
+        reservation: Reservation,
+    },
+    /// Nothing was reserved.
+    NothingPending { index: WotsIndex },
+}
+
+/// A keystore and a chain client, reconciled (module doc).
+#[must_use]
+pub struct Wallet<M: Medium, T: Transport> {
+    store: Keystore<M>,
+    client: MeshClient<T>,
+    accounts: Vec<(Tag, AccountStatus)>,
+}
+
+impl<M: Medium, T: Transport> Wallet<M, T> {
+    /// Open a wallet over a store and a client, reconciling every account
+    /// first. **The only constructor.**
+    ///
+    /// `clippy::result_large_err` allowed for [`StartupRefusal`] on the same
+    /// ground as `recon::reconcile_account`: the error is the report.
+    ///
+    /// `master` is borrowed for this call and not retained: derived accounts
+    /// reconcile through [`KeyAccess::Master`] and imported ones through
+    /// [`KeyAccess::StoredRoot`], which is the domain's own shape (a wallet
+    /// has one master seed plus imported roots) and keeps the signing path's
+    /// rule that the caller lends the master per call. A derived account with no
+    /// master is a refusal, not a skip.
+    #[allow(clippy::result_large_err)]
+    pub fn open(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+    ) -> core::result::Result<Wallet<M, T>, StartupRefusal> {
+        let tags = match store.tags() {
+            Ok(t) => t,
+            Err(cause) => {
+                return Err(StartupRefusal {
+                    diverged: vec![Divergence::CannotReconcile {
+                        tag: [0u8; 20],
+                        cause,
+                    }],
+                    accounts: 0,
+                })
+            }
+        };
+        let accounts = tags.len();
+        let mut ok: Vec<(Tag, AccountStatus)> = Vec::new();
+        let mut diverged: Vec<Divergence> = Vec::new();
+        for tag in tags {
+            match Self::access_for(&store, &tag, master) {
+                Err(d) => diverged.push(d),
+                Ok(access) => match recon::reconcile_account(&store, &client, &tag, &access) {
+                    Ok(status) => ok.push((tag, status)),
+                    Err(d) => diverged.push(d),
+                },
+            }
+        }
+        if !diverged.is_empty() {
+            return Err(StartupRefusal { diverged, accounts });
+        }
+        Ok(Wallet {
+            store,
+            client,
+            accounts: ok,
+        })
+    }
+
+    /// Which access an account's kind needs. A derived account with no master
+    /// supplied cannot have its addresses computed at all, so it is a
+    /// divergence (unreconcilable) rather than a silently skipped account.
+    /// The choice is `recon::access_for`'s, because the pre-gate
+    /// commands need the same per-account answer.
+    #[allow(clippy::result_large_err)]
+    fn access_for<'a>(
+        store: &Keystore<M>,
+        tag: &Tag,
+        master: Option<&'a Secret<SEED_LEN>>,
+    ) -> core::result::Result<KeyAccess<'a>, Divergence> {
+        recon::access_for(store, tag, master)
+    }
+
+    /// Every account as reconciliation found it at open.
+    #[must_use]
+    pub fn accounts(&self) -> &[(Tag, AccountStatus)] {
+        &self.accounts
+    }
+
+    /// Read-only view of the store. There is no `&mut` counterpart: a caller
+    /// holding one could `persist_advance` without the plan this type builds,
+    /// which is the gate.
+    pub fn store(&self) -> &Keystore<M> {
+        &self.store
+    }
+
+    #[must_use]
+    pub fn client(&self) -> &MeshClient<T> {
+        &self.client
+    }
+
+    /// Reconcile one account again, now — the same comparison `open` made,
+    /// with the default diagnostic scope. Reports without refusing.
+    ///
+    /// The CLI's `status` no longer reaches this: a one-shot process meets a
+    /// divergence before a `Wallet` can exist, so it runs `recon` directly
+    /// before the gate. This is the long-running caller's
+    /// `status`, for a divergence that appears after open.
+    #[allow(clippy::result_large_err)]
+    pub fn status(
+        &self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+    ) -> core::result::Result<AccountStatus, Divergence> {
+        self.status_with(tag, access, &ScanScope::DIAGNOSTIC)
+    }
+
+    /// [`Wallet::status`] with a caller-set diagnostic scope — a raised
+    /// ceiling to search further along than the window reaches.
+    #[allow(clippy::result_large_err)]
+    pub fn status_with(
+        &self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        scope: &ScanScope,
+    ) -> core::result::Result<AccountStatus, Divergence> {
+        recon::reconcile_account_with(&self.store, &self.client, tag, access, scope)
+    }
+
+    /// The addresses a spend from `tag` is built for.
+    pub fn spend_addresses(&self, tag: &Tag, access: &KeyAccess<'_>) -> Result<SpendAddresses> {
+        self.store.spend_addresses(tag, access)
+    }
+
+    /// Lay out a spend: resolve the tag, then build and check the plan.
+    /// `SpendPlan::new`'s own `ChainAddressMismatch` is the spend-time guard
+    /// beside `open`'s startup reconciliation, and it is not redundant — the
+    /// chain can move between the two.
+    pub fn plan(
+        &self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        dsts: Vec<Destination>,
+        fee_total: u64,
+        blk_to_live: u64,
+    ) -> Result<SpendPlan> {
+        let addresses = self.store.spend_addresses(tag, access)?;
+        let entry = self.client.resolve_tag(tag)?;
+        SpendPlan::new(&addresses, &entry, dsts, fee_total, blk_to_live)
+    }
+
+    /// Reserve the key the plan names, sign, and assemble the wire image.
+    ///
+    /// **The returned bytes are the retry artifact and this wallet does not
+    /// keep them**: the caller owns them from here until the
+    /// reservation resolves. They are not persisted because the format's
+    /// crash-consistency argument is one snapshot, one write, every member
+    /// together, and a second on-disk artifact is a second thing that can be
+    /// torn. If they are lost while the reservation is open, the recovery is
+    /// [`Wallet::resign_pending`], which reproduces them byte for byte from
+    /// the store's own reservation — and is the ONLY recovery, because the
+    /// index cannot roll back to the reserved key.
+    pub fn reserve_and_sign(
+        &mut self,
+        plan: &SpendPlan,
+        access: KeyAccess<'_>,
+    ) -> Result<SignedTransaction> {
+        let tag = plan.tag();
+        // The reservation carries the plan's two figures: the balance it
+        // was built against and its block-to-live, so a
+        // later `open` can compare them to the entry and the tip.
+        let receipt = self.store.persist_advance(&tag, &plan.digest(), plan.figures())?;
+        let signature = self.store.sign_spend(&plan.digest(), receipt, access)?;
+        SignedTransaction::attach(plan, &signature)
+    }
+
+    /// Submit the signed bytes. `Ok` means the middleware wrote them to a
+    /// node's socket and echoed their id — **a socket write, not a verdict**.
+    /// Whether it landed is `settle_if_landed`'s question.
+    pub fn submit(&self, signed: &SignedTransaction) -> Result<TxId> {
+        self.client.submit(signed)
+    }
+
+    /// Settle a reservation **when the chain holds the tag at the change
+    /// key's address**. One observation, no depth.
+    ///
+    /// # The argument for one confirmation
+    ///
+    /// Being wrong in the two directions is not symmetric:
+    ///
+    /// * **Settling too early** — a reorg later reverts the spend — leaves the
+    ///   store one position past a key that never signed on chain. That
+    ///   **skips a key**. A skipped key costs one position out of 2^32 and
+    ///   exposes nothing: the key that signed signed once, and clearing the
+    ///   reservation only permits the *next* key to sign. No reuse is created.
+    /// * **Settling too late** freezes the account. `persist_advance` refuses
+    ///   while a reservation is unresolved, so a depth rule that never clears
+    ///   is an account that can never spend again.
+    ///
+    /// And the early-settle risk lands in the mechanism built for it: a reorg
+    /// that reverts a settled spend leaves the chain at the old address with
+    /// no reservation, which the next `open` refuses as an index mismatch. A
+    /// depth rule buys nothing that check does not already catch, and costs
+    /// the unbounded direction.
+    pub fn settle_if_landed(&mut self, tag: &Tag, access: &KeyAccess<'_>) -> Result<Settlement> {
+        match recon::reconcile_account(&self.store, &self.client, tag, access) {
+            Ok(AccountStatus::SpendLanded {
+                spent_index,
+                settled_index,
+                ..
+            }) => {
+                self.store.persist_settled(tag)?;
+                Ok(Settlement::Settled {
+                    spent_index,
+                    index: settled_index,
+                })
+            }
+            Ok(AccountStatus::SpendOutstanding {
+                spent_index,
+                reservation,
+                ..
+            }) => Ok(Settlement::StillOutstanding {
+                spent_index,
+                reservation,
+            }),
+            Ok(AccountStatus::InSync { index, .. }) => Ok(Settlement::NothingPending { index }),
+            Err(d) => Err(Error::ReconciliationRefused {
+                what: divergence_kind(&d),
+            }),
+        }
+    }
+
+    /// Re-produce the signed bytes an outstanding reservation already
+    /// released, when the caller has lost them. **The one recovery**
+    /// (as corrected by the audit that retired `abandon_reservation`).
+    ///
+    /// The caller supplies the spend's *parameters* — the destinations, the
+    /// fee, the block-to-live — which is what a human remembers ("I was
+    /// sending 1 MCM to X"), not the 2,408 bytes they lost. Everything else
+    /// is rebuilt from the store and the chain, and then **the rebuilt plan's
+    /// digest must equal the reserved one** or nothing signs. So the
+    /// signature is over the reserved digest by construction, and the output
+    /// is byte-identical to the artifact that was lost (WOTS+ signing is
+    /// deterministic).
+    ///
+    /// # The three refusals, and the one a live chain found
+    ///
+    /// `NothingPending` when no reservation is open, `DigestMismatch` when
+    /// the rebuilt plan is not the reserved one, and
+    /// [`Error::ReservationLanded`] when the chain has already moved to the
+    /// reservation's change key -- the state `settle` resolves, which this
+    /// verb reported as I4's divergence until a run against mainnet walked
+    /// into it. The classification is `reconcile_account_with`'s, the same
+    /// one [`Wallet::settle_if_landed`] acts on, so the two cannot drift.
+    ///
+    /// # Why this exists, and why `abandon_reservation` does not
+    ///
+    /// Rolling the index back to `spent_index` is correctly forbidden — that
+    /// is the road to a second, *different* digest under one key. So a
+    /// signature from the reserved key is the **only** way the funds at its
+    /// address can ever move, and this is the only way to that signature.
+    ///
+    /// The first design shipped an `abandon_reservation` instead, on the argument that
+    /// giving up cost "one key out of 2^32". The audit measured what it
+    /// actually cost: the store advances to `spent_index + 1` while the chain
+    /// still holds `spent_index`'s address, so the balance there becomes
+    /// unspendable, reconciliation reports a `Behind` divergence for which no
+    /// acknowledgement exists, `Wallet::open` refuses forever, and later
+    /// deposits credit the same unreachable address (`'A'` does not rehash,
+    /// `reference/mochimo-core/src/ledger.c:640-646`). **It bricked the
+    /// account.** It was removed rather than documented: a function with no
+    /// safe use is worse than an absent one, and through this type every
+    /// reservation has a non-zero balance behind it — `plan` refuses
+    /// `InsufficientBalance` otherwise — so there is no state in which
+    /// abandoning was right and settling was not.
+    pub fn resign_pending(
+        &mut self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        dsts: Vec<Destination>,
+        fee_total: u64,
+        blk_to_live: u64,
+    ) -> Result<SignedTransaction> {
+        let view = self.store.view(tag)?.ok_or(Error::NoSuchAccount)?;
+        let pending = view.pending.ok_or(Error::NothingPending)?;
+        // The addresses the reserved spend was built for. `address_at` does
+        // not refuse an outstanding reservation, which is exactly why it
+        // exists (see its doc): this is the moment the question is asked.
+        let source = self.store.address_at(tag, pending.spent_index, access)?;
+        let change = self.store.address_at(tag, view.wots_index, access)?;
+        let addresses = SpendAddresses::of_derived_addresses(*tag, pending.spent_index, source, change);
+        let entry = self.client.resolve_tag(tag)?;
+        let plan = match SpendPlan::new(&addresses, &entry, dsts, fee_total, blk_to_live) {
+            Ok(plan) => plan,
+            // **The planner's opening guard is right, and on this path it is
+            // right about the wrong thing.** `SpendPlan::new` refuses when
+            // the chain does not hold the tag at the source it is laying out
+            // against; for `send` that source is the key the store signs with
+            // next, so the refusal is I4's divergence and its page names I4's
+            // three causes. Here the source is the RESERVED key, and a
+            // reservation that landed moves the chain to the change key, so
+            // the guard must fire -- on the commonest mistaken route to this
+            // verb, running it after a `send` that worked. A run against
+            // mainnet got the three-cause page for a spend that had settled,
+            // none of the three applying, and `settle` resolved the same
+            // state one command later.
+            //
+            // The guard stays in the planner unchanged: the planner's rules
+            // are the node's, and a refusal about this wallet's reservation
+            // state is not one of them. What the state IS is asked of the
+            // classifier that owns the question, rather than re-derived by
+            // comparing `entry.address` against `change` here, so there is
+            // one definition of a landed spend in the crate and not two that
+            // can drift.
+            Err(Error::ChainAddressMismatch { position }) => {
+                // The scope walks nothing, deliberately. The comparison that
+                // decides *landed* -- the chain's address against the address
+                // at the stored position -- is scope-free; the scope shapes
+                // only the walk behind a divergence's report, and this path
+                // discards the divergence and keeps the guard's own page for
+                // it. Under the diagnostic scope a chain standing at neither
+                // key would pay a full exhaustion to build a report nothing
+                // here renders.
+                let comparison_only = ScanScope {
+                    ceiling: 0,
+                    window: None,
+                };
+                let status = recon::reconcile_account_with(
+                    &self.store,
+                    &self.client,
+                    tag,
+                    access,
+                    &comparison_only,
+                );
+                return Err(match status {
+                    Ok(AccountStatus::SpendLanded {
+                        spent_index,
+                        settled_index,
+                        ..
+                    }) => Error::ReservationLanded {
+                        spent_index: spent_index.get(),
+                        settled_index: settled_index.get(),
+                    },
+                    // Every other answer is the guard's own. A chain at
+                    // neither of the reservation's two keys is the divergence
+                    // the three-cause page describes, and it keeps that page.
+                    _ => Error::ChainAddressMismatch { position },
+                });
+            }
+            Err(e) => return Err(e),
+        };
+        // THE check: the rebuilt plan must be the reserved one. Without this
+        // the caller could re-sign the reserved key over a spend it never
+        // reserved, which is the second-signature-under-one-key catastrophe.
+        if plan.digest() != pending.digest {
+            return Err(Error::DigestMismatch);
+        }
+        let signature = self.store.resign_reserved(tag, access)?;
+        SignedTransaction::attach(&plan, &signature)
+    }
+
+    /// Advance past a divergence the operator read and acknowledged.
+    ///
+    /// The **only** route from this type to `persist_advance_to`, and it is
+    /// `recon::advance_after_operator_review` over this wallet's store with
+    /// the default diagnostic scope: the acknowledgement names a tag and a
+    /// target, and both must equal what the store is diverged by *now* — so
+    /// an acknowledgement of a stale report, or of a different account's
+    /// divergence, is refused. Advancing without having read a report is
+    /// unrepresentable: [`OperatorAcknowledgement::of`] takes a
+    /// [`Divergence`].
+    ///
+    /// A one-shot CLI cannot reach this method for the divergence it was
+    /// started to reconcile — `open` refuses on it first — which is why the
+    /// function it delegates to exists. This is the
+    /// long-running caller's route.
+    pub fn advance_after_operator_review(
+        &mut self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        ack: OperatorAcknowledgement,
+    ) -> Result<AdvanceReceipt> {
+        self.advance_after_operator_review_with(tag, access, ack, &ScanScope::DIAGNOSTIC)
+    }
+
+    /// [`Wallet::advance_after_operator_review`] under a caller-set scope,
+    /// which must be the scope the acknowledged report was made with — a
+    /// raised ceiling, for a divergence the default window did not reach.
+    pub fn advance_after_operator_review_with(
+        &mut self,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        ack: OperatorAcknowledgement,
+        scope: &ScanScope,
+    ) -> Result<AdvanceReceipt> {
+        recon::advance_after_operator_review(&mut self.store, &self.client, tag, access, ack, scope)
+    }
+
+    /// Take the halves back. The wallet's claim ends here: whoever holds the
+    /// keystore afterwards holds an unreconciled one.
+    pub fn into_parts(self) -> (Keystore<M>, MeshClient<T>) {
+        (self.store, self.client)
+    }
+}
+
+/// A one-word kind for a divergence, so [`Error`] can carry which one without
+/// carrying a page of text or a server-authored string.
+fn divergence_kind(d: &Divergence) -> &'static str {
+    match d {
+        Divergence::IndexMismatch { .. } => "index mismatch",
+        Divergence::ReservationUnexplained { .. } => "reservation unexplained",
+        Divergence::TagUnresolved { .. } => "tag unresolved by the node",
+        Divergence::ChainUnreachable { .. } => "chain unreachable",
+        Divergence::NoMasterForDerivedAccount { .. } => "no master for a derived account",
+        Divergence::CannotReconcile { .. } => "reconciliation could not run",
+    }
+}
+
+impl<M: Medium, T: Transport> fmt::Debug for Wallet<M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Wallet")
+            .field("accounts", &self.accounts.len())
+            .finish_non_exhaustive()
+    }
+}

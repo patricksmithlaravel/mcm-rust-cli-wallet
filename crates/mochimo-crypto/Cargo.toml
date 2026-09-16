@@ -1,0 +1,297 @@
+[package]
+name = "mochimo-crypto"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+description = "Safe Rust API over the Mochimo cryptographic primitives."
+publish = false
+
+[features]
+# The one backend, by default. A second feature, `ffi-oracle`, once routed
+# every primitive through a vendored C reference and made the differential
+# tests possible; the reference is not in this repository, and S2 stripped
+# the feature and every site that named it. The corpus under `fixtures/` is
+# what the native code is checked against now.
+default = ["native"]
+
+# The hand-written Rust WOTS+ core and address path, and the whole wallet
+# above them.
+#
+# It became independently buildable late, and the reason it was not before
+# is worth keeping: `consts` used to be sourced out of the generated bindings
+# alone, on the principle that a protocol constant retyped in Rust is a
+# constant nobody checked. That principle stands -- `lib.rs::consts` declares
+# each constant as a literal read from the reference, and `kat.rs`'s
+# `constants_match_the_reference` and `group_e_constants_match_the_reference`
+# compare them to the `constants` blocks the C printf'd into groups A and E.
+#
+# COMPILES IS NOT WORKS, still: the three diagnostic-string functions panic
+# (`every_unimplemented_site_is_knowledge_not_debt` says why that is knowledge
+# rather than debt), and there is no transaction validator -- the recorded
+# verdicts in group D are what a node does. The transaction ACCESSORS
+# and the CONSTRUCTION PATH -- `tx::wire` -- both work; see
+# `invariants.rs::native_transaction_path_is_checked_on_layout_not_acceptance`.
+native = ["dep:sha2", "dep:sha3", "dep:ripemd", "dep:pbkdf2", "dep:serde_json", "dep:argon2", "dep:chacha20poly1305"]
+
+# The primitive surface: makes `backend::{native, selected}` -- the raw
+# primitives, INCLUDING the raw WOTS+ signer -- nameable from outside the
+# crate. Exists for the test tree alone: `tests/kat.rs` replays groups A and
+# B through `selected` deliberately, and the test tree's own probes reach the
+# native primitives through it. Never in `default`,
+# never in a wallet: with it off, `backend` is `pub(crate)`, `wots::sign` is
+# `pub(crate)` regardless, and the only path to a signature is
+# `Keystore::sign_spend` behind an `AdvanceReceipt` (I1).
+#
+# The test tree gets it through the dev-dependency on this crate itself,
+# below -- so `cargo test`, `cargo clippy --all-targets` and Miri see the
+# backend, while `cargo build` and any dependent do not.
+# `invariants.rs`'s I1 marker anchors on `default` not naming this feature.
+raw-backend = []
+
+# The Mesh API transport: `mesh::http::UreqTransport`, an HTTP client
+# with NO TLS provider in its graph. That is what the test tree turns on
+# (through the dev-dependency below) so a loopback `TcpListener` can exercise
+# the real transport end to end with no network and no C anywhere in the
+# test or Miri build graphs. A wallet that talks to `https://api.mochimo.org`
+# needs `mesh-https`. The codec, the spend builder and every parser are under
+# `native` and need neither feature; only the socket does.
+mesh-http = ["native", "dep:ureq"]
+# TLS for the transport: rustls with `ring` and the bundled webpki roots.
+# `ring` compiles C and assembly through `cc`, which is why this is a second
+# feature rather than part of `mesh-http`: it is off by default, outside every
+# test target, and never in the configuration Miri interprets. Every other
+# configuration of this crate is pure Rust, and this feature is the one place
+# a C toolchain is needed.
+mesh-https = ["mesh-http", "ureq/rustls"]
+
+[dependencies]
+zeroize = { version = "1", features = ["zeroize_derive"] }
+# The one comparison of key material this crate makes, `Secret::ct_eq`:
+# a root or seed compared against every stored imported root, so that
+# two accounts cannot sit over one key stream. secret.rs's doc has said since
+# it was written that if comparing secrets ever became necessary it goes
+# through `subtle::ConstantTimeEq`, never `==`; this is that day. Already in
+# Cargo.lock through `digest`; a direct dependency because the call is ours.
+subtle = { version = "2", default-features = false }
+# WOTS+ `core_hash` is SHA-256 -- `#define core_hash(out, in, inlen)
+# sha256(in, inlen, out)` at wots.c:28, with SHA256LEN 32 at sha256.h:22.
+#
+# RustCrypto rather than hand-rolled, deliberately: robustness here means the
+# audited, widely-exercised implementation, and a hand-rolled hash would put a
+# second unproven thing inside the diff whenever the port disagreed with the C.
+#
+sha2 = { version = "0.10", default-features = false, optional = true }
+# The address path, added with the code that uses it (ledger.c:95-102 is
+# `ripemd160(sha3_512(x))`). They were deliberately absent until now: an unused
+# dependency is the same defect as the unused binding hole 2 was about.
+#
+# `Sha3_512` and not `Keccak512`. The two differ only in the domain-separation
+# byte and the reference picks the FIPS-202 one: `sha3.c:79` is
+# `ctx->st.b[ctx->pt] ^= 0x06`, where its own `keccak_final` (same file) uses
+# 0x07. The rate agrees independently -- `rsiz = 200 - (outlen << 1)` gives 72
+# for outlen 64, which is FIPS-202's SHA3-512 rate. Two independent reads of the
+# same conclusion, because the wrong one of these compiles and produces
+# confident garbage.
+#
+# NOTE, and it is not a footnote: the reference's `sha3_final` ends with
+# `memcpy(out, ctx->st.q, ctx->outlen)` over a `uint64_t[25]`, so the C is
+# FIPS-202 only on a little-endian host. RustCrypto normalizes that: this
+# crate is little-endian-normalized by decision, not by accident
+# (`backend::native::put16`'s doc carries the reason).
+#
+# Pinned to the 0.10/0.1 line rather than the newer 0.12/0.2, because those
+# track `digest` 0.11 and `sha2` here is 0.10. Mixing them would link two
+# incompatible `Digest` traits into one crate.
+sha3 = { version = "0.10", default-features = false, optional = true }
+ripemd = { version = "0.1", default-features = false, optional = true }
+# BIP39's `mnemonicToSeed` is PBKDF2-HMAC-SHA512 (2048 rounds, 64 bytes;
+# `@scure/bip39/index.js:128`, read on disk), and the shipped extension keeps
+# its first 32 bytes as the master seed (`MasterSeed.ts:55-56`). Added
+# with `src/mnemonic`, the code that uses it.
+#
+# RustCrypto again, with its `hmac` feature, on the same `digest` 0.10 line as
+# `sha2` above. The project does not itself verify HMAC or PBKDF2 -- this is
+# a dependency choice, not evidence -- and the two BIP39 vectors in group F
+# check only that the composition agrees with the library the extension
+# uses. If this ever becomes a hand-rolled fallback, those same two vectors
+# become the only evidence for the primitive, and `src/mnemonic/mod.rs`'s note
+# on where the primitives come from must change with the artifact.
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"], optional = true }
+# The Mesh API speaks JSON (`reference/mochimo-mesh`, every handler
+# `json.NewDecoder(r.Body).Decode`s a request and `json.NewEncoder(w).Encode`s
+# a reply). Consumed by `mesh::codec` alone, and consumed as `serde_json::Value`
+# walked by hand -- deliberately NOT `serde` with `derive`. The keystore session
+# rejected `Deserialize` for the record types because a derived constructor is
+# a forged constructor; a network response is the same shape of
+# input with a worse author, and every field this crate reads from one is
+# checked for presence, type, width and range before it becomes a Rust value.
+# Requests are built with `json!` so the key order is `serde_json`'s sorted
+# default, which is what makes the request KATs in `tests/mesh.rs` byte-equal
+# to the bodies `reference/gen-fixtures/net/group_n_mesh_live.py` sent
+# (`sort_keys=True`); `preserve_order` must never be unified in, and
+# `mesh::request_bodies_serialise_with_sorted_keys` holds that. Under `native`
+# because the codec's consumers (`tx::wire`, the keystore) are. Already in
+# Cargo.lock as a dev-dependency since the fixture harness was written.
+serde_json = { version = "1", default-features = false, features = ["std"], optional = true }
+# The HTTP transport for the Mesh client. Chosen over
+# `minreq` for first-class connect/global timeouts, a redirect policy that can
+# be set to zero, and a response-body limit applied before the bytes are
+# buffered; over `reqwest` because a wallet that must never sign concurrently
+# gains nothing from an async runtime and its dependency tree. Every default
+# feature is off: no `gzip` (the Go server does not compress, and a
+# decompressor over untrusted input is a bomb surface with nothing to buy), no
+# `json` (it would pull `serde` back in through the transport; the codec parses
+# by hand), no cookies, no proxies. TLS lives behind `mesh-https` above.
+# rust-version 1.85, under this workspace's 1.89. The transport never sees key
+# material: it carries a signed public image and JSON.
+ureq = { version = "3", default-features = false, optional = true }
+# Encryption at rest. Two crates,
+# eleven in the graph with their transitive set, and the argument for each:
+#
+# ARGON2ID rather than the `pbkdf2` already above. PBKDF2 is a loop over a
+# PRF; its cost per guess is time alone, which is exactly the axis a GPU or an
+# ASIC is cheap on. This password is the only thing standing between a stolen
+# store file and the seed that derives every account, so the KDF wants a cost
+# an attacker cannot buy his way out of: Argon2id is memory-hard, is RFC
+# 9106's recommendation for precisely this use, and BLAKE2b (its `blake2` dep)
+# is the algorithm rather than a choice. `pbkdf2` stays for BIP39, where 2048
+# rounds is the SPEC's number for a different job and must not be raised.
+#
+# NO DEFAULT FEATURES, and `alloc` deliberately off: `alloc` is defined as
+# `password-hash/alloc`, so asking for it drags in `password-hash` and
+# `base64ct`'s PHC-string machinery this crate never uses. Without it the only
+# entry point is `hash_password_into_with_memory`, which takes the block buffer
+# from the caller -- which is BETTER here, not a workaround: the KDF's working
+# memory is ours, so it lives in a `Zeroizing<Vec<Block>>` and clears on drop
+# instead of being handed back to the allocator warm. `zeroize` is on for the
+# same reason and is already in the graph.
+argon2 = { version = "0.5", default-features = false, features = ["zeroize"], optional = true }
+# CHACHA20-POLY1305 rather than AES-GCM. Both are AEADs on the same RustCrypto
+# `aead` line; the difference is what they do on a machine with no AES
+# instructions, where a portable AES is table-driven and therefore
+# cache-timing-shaped. ChaCha20 is add-rotate-xor and constant-time by
+# construction on every target, which is the property a wallet that may run
+# anywhere wants. Nonce discipline is the real hazard either way, and it is
+# argued at `keystore::crypt::nonce_for`.
+#
+# PURE RUST, and that is not incidental: the keystore was designed under the
+# rule that the plaintext image never transit the C's stack, which is why
+# version 2's trailer called `backend::native::sha3_256` directly rather than
+# through the backend wrapper. A pure-Rust AEAD satisfies that rule by construction rather than by
+# a call-site convention. No default features: the in-place detached API needs
+# no `alloc`.
+chacha20poly1305 = { version = "0.10", default-features = false, optional = true }
+
+# The shipped binary. Built with `mesh-https`, so it links rustls and
+# `ring`'s C; the board builds and drives it in a subprocess through
+# `tests/cli.rs`'s pty harness (see the note below `required-features`).
+[[bin]]
+name = "mcm-wallet"
+# No test target links this binary's graph, deliberately: `mesh-https` drags
+# in rustls and `ring`'s C, which the test and Miri configurations keep out. The command layer is under `native` alone and `tests/cli.rs`
+# exercises every command there against a fake transport, so what this target
+# adds over the tested code is argv, a tty prompt and `UreqTransport`.
+#
+# This comment said "the board never builds this target" for a time, and the
+# conclusion drawn from it was that the remainder did not need testing. Both
+# defects found in this binary -- the store-before-terminal order and the
+# read-only `/dev/tty` -- were in that remainder. The default board now
+# builds and executes it: `tests/cli.rs`'s pty harness runs `cargo build
+# --features mesh-https --bin mcm-wallet` as a subprocess and drives the
+# result under a pseudo-terminal -- the one place the board compiles any C,
+# `ring`'s, and in a subprocess. The same harness drives the other two items
+# of that list: argv (`--node` is optional for the two commands that never
+# dial) and the shared password prompt. Same feature shape as the example
+# below.
+required-features = ["mesh-https"]
+
+# The one live run of the transport with TLS: three reads against a Mesh
+# endpoint, no submit path. Built only with `mesh-https`, so the board never
+# compiles ring for it; run by hand, and its record is in the old repository.
+[[example]]
+name = "mesh_probe"
+required-features = ["mesh-https"]
+
+[dev-dependencies]
+# This crate, as its own dev-dependency, to turn `raw-backend` on for every
+# test target without putting it in `default`. `default-features =
+# false` is LOAD-BEARING: it is what keeps the test tree's feature set the
+# one written here rather than `default` unified back in, which is how a
+# second backend would have re-entered the test graph while there was one.
+# The I1 marker anchors on both halves of this line.
+#
+# `mesh-http` rides on the same line, for the same reason: the
+# loopback transport tests need the real `ureq` client compiled into every
+# test target, and putting the feature in `default` would put a socket
+# library into every wallet build. NOT `mesh-https`: that would carry `ring`'s
+# C into the test and Miri graphs (see the feature's own note).
+mochimo-crypto = { path = ".", default-features = false, features = ["raw-backend", "mesh-http"] }
+serde_json = "1"
+toml = "0.8"
+# The compile-fail partition, `tests/compile_fail.rs`: properties of the form
+# "this cannot be written" -- the raw signer unnameable, the receipt consumed,
+# `Secret` without comparison, the commit steps not reorderable -- are about
+# code that must *not* compile, which no runtime assertion can observe.
+#
+# trybuild over compiletest_rs: one dependency, expected output checked into the
+# tree beside each case, and it runs under the normal `cargo test` rather than
+# needing its own runner. A hand-rolled `cargo build` driven from a test would
+# be a new verification path with its own fault injection owed.
+#
+# The cost is real and stated rather than discovered later: the .stderr files
+# pin rustc's exact wording, so a toolchain bump can turn them red without any
+# change to the property. They were generated on rustc 1.98.0. Regenerate with
+# `TRYBUILD=overwrite cargo test --test compile_fail` and *read the diff* --
+# a case that starts failing for a new reason is the finding, not the noise.
+trybuild = "1.0.116"
+# The parser behind the source scans in `tests/invariants.rs` -- the I1 route
+# scan, the Debug-holder scan, the `Durable` construction count, the `Secret`
+# comparison scan -- and the only dependency in this file that
+# exists to make a CHECK correct rather than to make the crate work.
+#
+# It replaced a line-oriented substring scan, which read a return type only
+# when `->` shared a physical line with `fn`. Multi-line signatures are the
+# house style in the very tree it scans, so a multi-line `pub fn take(self) ->
+# <forbidden type>` compiled and left the scan green through clippy -D
+# warnings and the trybuild suite. Measured, not argued.
+#
+# Why a parser and not a better scan. The alternative was to join continuation
+# lines by counting parentheses, which answers "our hand parser
+# under-approximates Rust" by writing a second hand parser. The base rate in
+# this tree argues against that: `code_only` opened comments inside string
+# literals, the endian scan anchored on a leading dot, `public_fn_names` missed
+# three qualifier forms, and `strip_comments` still carries a raw-string defect
+# deferred to its own session. Four in one file, none from carelessness --
+# approximating a grammar with string operations is simply hard, and the
+# standing rule is against re-deriving a thing that already exists.
+#
+# The usual dependency argument does not apply the way it normally does. This is
+# a dev-dependency on a test target: it never ships, never touches key material,
+# and never appears in the wallet. A defective `syn` produces a misparsing
+# check, which is precisely the failure state that already existed.
+#
+# It cannot creep from dev into real unnoticed:
+# `invariants.rs::syn_is_confined_to_the_test_targets` asserts it. Read that
+# check before assuming what it proves -- `syn` is ALREADY in this crate's
+# normal dependency closure via zeroize -> zeroize_derive (proc-macro), so the
+# naive "not in the graph" formulation is false at HEAD and would be red for a
+# reason unrelated to creep.
+#
+# `quote` rides with it for `ToTokens`, so a failure message can render the
+# offending return type instead of naming the function and leaving the reader to
+# find it. Both are already in Cargo.lock via zeroize_derive.
+syn = { version = "2", features = ["full", "parsing", "printing"] }
+quote = "1"
+# The token-level half of `no_test_in_the_suite_is_ignored`: a macro
+# invocation's body is not parseable as Rust items, so its `#[ignore]`/`#[test]`
+# attributes are counted over the TOKEN stream instead. Already in Cargo.lock
+# via syn.
+#
+# `span-locations` is on for `no_native_endian_conversions_anywhere_in_the_crate`,
+# which became a token walk. Without it a hit can name
+# the file but not the line, and a check whose failure message says "somewhere in
+# native.rs" costs the reader the search this file keeps insisting on paying for
+# them. It affects only proc-macro2's fallback (non-proc-macro) mode, which is
+# the mode a test binary runs in, and nothing in the library links it.
+proc-macro2 = { version = "1", features = ["span-locations"] }

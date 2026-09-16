@@ -1,0 +1,11 @@
+# Rust
+/target/
+
+# macOS Finder metadata.
+.DS_Store
+
+# The downstream probe's lock file (copied from the workspace lock by
+# tests/signing.rs) and its in-place build directory (the clippy configuration
+# that lints it passes no --target-dir).
+crates/mochimo-crypto/ui/downstream/Cargo.lock
+/crates/mochimo-crypto/ui/downstream/target/
