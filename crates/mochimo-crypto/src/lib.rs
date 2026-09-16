@@ -184,10 +184,7 @@ pub mod consts {
     ///
     /// `tests/kat.rs::reference_verdicts_native` and `tests/txwire.rs` hold
     /// each of these to the offsets `group_d_tx.json`'s layout table records,
-    /// through the native serializer, on every replay. The bindgen struct they
-    /// were once also compared against is not in this repository, which is
-    /// exactly why these are written as the reference's expression rather
-    /// than as numbers somebody checked once.
+    /// through the native serializer, on every replay.
     pub mod wire {
         use super::{ADDR_LEN, ADDR_REF_LEN, ADDR_TAG_LEN, HASHLEN, SIG_LEN};
         pub const SIZEOF_TXHDR: usize = 4 + (ADDR_LEN * 2) + (8 * 4);

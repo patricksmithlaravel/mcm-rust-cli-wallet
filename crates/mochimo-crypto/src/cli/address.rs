@@ -5,9 +5,8 @@
 //! **This is the command the deadlock was about.** Every command that goes
 //! through `Wallet::open` reconciles every account and refuses when the node
 //! does not resolve a tag — and a tag that has never been paid is one the node
-//! cannot resolve (the refusal quoted here said *"absence means this tag has
-//! NEVER been funded"* for a time; it names three readings now, and a never-
-//! paid tag is still one of them). Asking where to send the first payment is
+//! cannot resolve, and the refusal names three readings of that, a never-paid
+//! tag among them. Asking where to send the first payment is
 //! exactly the moment that is true, so an `address` behind the gate can only
 //! answer once its answer is no longer needed.
 //!

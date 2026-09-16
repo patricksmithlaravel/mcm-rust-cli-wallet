@@ -119,8 +119,7 @@
 //! reopen defeats closed with format v2, when every record grew a stored stream
 //! identity: the marker is green as
 //! `duplicate_key_streams_are_refused_within_one_keystore_not_across_stores`,
-//! and the bound is one store. This said "the red" and named the
-//! pre-clearing spelling for some time after.
+//! and the bound is one store.
 //!
 //! [`Account::derive`] computes the tag — `ripemd160(sha3_512(first_pk))`,
 //! the tag half of the first key's implicit address — from the master seed

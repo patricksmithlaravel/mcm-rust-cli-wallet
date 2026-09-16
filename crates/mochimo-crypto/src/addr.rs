@@ -38,10 +38,10 @@ pub fn hash_of(addr: &Address) -> &[u8] {
 ///
 /// # Four names, not one `outlen`
 ///
-/// This was once `sha3(input, &mut [u8])`, mirroring the C's runtime
-/// `outlen`. That signature made every length a caller could name part of the
-/// public API, including `outlen >= 100`, where the reference's `rsiz` underflows
-/// and `sha3_final` writes out of bounds. Splitting the
+/// A runtime `outlen`, mirroring the C's, would make every length a caller
+/// can name part of the public API, including `outlen >= 100`, where the
+/// reference's `rsiz` underflows and `sha3_final` writes out of bounds.
+/// Splitting the
 /// width into the type makes an unsupported one a name that does not exist,
 /// which is a compile error at the call site rather than a value reaching
 /// `sha3_init`.
@@ -115,9 +115,9 @@ fn ripemd160_on_defined_domain(input: &[u8]) -> [u8; 20] {
 // The destination identifier
 // ---------------------------------------------------------------------------
 //
-// The first live run found that this crate's CLI could not be funded from its
-// own output: it printed a bare 40-hex tag and the shipped Chrome wallet
-// refuses that outright. What every Mochimo v3 client actually takes is
+// A bare 40-hex tag is not a destination another client will take: the
+// shipped Chrome wallet refuses one outright, so a wallet that printed it
+// could not be funded from its own output. What every Mochimo v3 client takes is
 // **Base58 over the tag followed by its CRC16**, and the reference composes it
 // in three statements:
 //

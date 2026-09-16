@@ -50,9 +50,7 @@ pub mod wire;
 //
 // Seven wrappers over `types.h` function-like macros, each delegating to
 // [`crate::backend::selected`] so that one definition serves every build and
-// there is no second body to drift. Each was once a foreign-function body
-// paired with an `unimplemented!()` twin, which is why they are written as
-// delegations rather than as bodies of their own.
+// there is no second body to drift.
 
 use crate::backend::selected;
 

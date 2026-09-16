@@ -27,7 +27,7 @@
 //!   32-byte seed alone, so a derived seed also stored as an imported root
 //!   would be two indices over one stream; the derived path refuses it, and
 //!   since format v2 `Keystore::add` refuses a duplicate stream identity
-//!   across kinds, which is the half a drop-and-reopen used to defeat.
+//!   across kinds, which is the half a drop-and-reopen would otherwise defeat.
 //!   This path also re-derives the record's identity from the
 //!   master and refuses a disagreement -- the only place a *derived*
 //!   record's identity can be checked, since checking it needs the master.
@@ -58,14 +58,12 @@
 //! Position 0 of an imported account signs from the **stored** public seed and
 //! hash address, which is the only thing it could ever have done: those
 //! components came from the master seed's generator and are not derivable
-//! from the root -- three readings of the shipped code agree. Until format
-//! v2 they were not in
-//! the record, so this arm returned `FirstKeyUnavailable` rather than
-//! approximating them, because a plausible substitute produces a valid
-//! signature under an address nobody funded -- and the funds an imported
-//! account was imported holding sit at exactly that address. The record
-//! carries them since format v2 and `Account::import` refuses a pair the root does
-//! not reproduce, so the arm derives rather than refuses.
+//! from the root -- three readings of the shipped code agree. Approximating
+//! them is refused rather than attempted, because a plausible substitute
+//! produces a valid signature under an address nobody funded -- and the funds
+//! an imported account was imported holding sit at exactly that address. The
+//! record carries the components since format v2 and `Account::import`
+//! refuses a pair the root does not reproduce, so the arm derives.
 
 use core::fmt;
 
@@ -329,10 +327,9 @@ impl<M: Medium> Keystore<M> {
                     // (g) the first key, rebuilt from the components the
                     // record carries -- the same thing the shipped wallet
                     // does at `wotsIndex === -1`, which memcpys `faddress`
-                    // back rather than deriving. Before v2
-                    // this arm returned `FirstKeyUnavailable`, because the
-                    // components were not in the record and a substitute
-                    // would have signed under an address nobody funded.
+                    // back rather than deriving. A substitute for the
+                    // components would sign under an address nobody funded,
+                    // which is why the record carries them.
                     None => derive::first_key_from_components(
                         root.secret().clone(),
                         first.pub_seed(),

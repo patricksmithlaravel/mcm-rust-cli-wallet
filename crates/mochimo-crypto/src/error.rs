@@ -200,8 +200,6 @@ pub enum Error {
     /// stream and their independent indices would let one key sign twice.
     /// Refused; see `duplicate_key_streams_are_refused_within_one_keystore_not_across_stores`,
     /// which is green -- this arm is one of the halves that cleared it.
-    /// The name above was the pre-clearing spelling and outlived it by eight
-    /// sessions.
     KeyStreamSharedWithImportedAccount,
     /// `Account::import`: `wots::pkgen(root, pub_seed, adrs)` over the first
     /// address's own tail does not reproduce that address's public key, so

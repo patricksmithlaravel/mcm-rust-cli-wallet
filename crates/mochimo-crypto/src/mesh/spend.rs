@@ -44,12 +44,10 @@
 //! The destination reference grammar is enforced here by
 //! [`reference_is_valid`]: a transcription, state for state, of the node's
 //! `mdst_val__reference` (read at the corpus's pinned commit,
-//! refused as `EMCM_XTXREF`). It was deliberately not
-//! restated for a time -- a restated state machine agrees with itself, and
-//! the corpus records the reference's verdict on two values only
-//! (`D16-badref`) -- and restating became admissible when the reference
-//! could be read at its pinned commit in the public repository and the
-//! transcription pinned there: at the function's own stated examples, at the
+//! refused as `EMCM_XTXREF`). A restated state machine agrees with itself,
+//! and the corpus records the reference's verdict on two values only
+//! (`D16-badref`), so the transcription is pinned wider than the corpus
+//! reaches: at the function's own stated examples, at the
 //! corpus's two points, and at the shapes the examples leave open
 //! (`tests/spend.rs::the_reference_rule_is_the_references_own`), with no
 //! node consulted. The serializer's stance is unchanged: it emits the bytes

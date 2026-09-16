@@ -27,10 +27,7 @@
 //! NFKD-normalised — for an English phrase normalisation is the identity, and
 //! a normaliser is a dependency nothing here can check.
 //!
-//! **What group F pins.** At first both BIP39 vectors were 24-word,
-//! empty-passphrase captures, so the partial-byte checksum path that 12–21-word
-//! phrases take was exercised only by this module agreeing with itself, and the
-//! passphrase reached the salt on the word of a unit test. The corpus then captured both
+//! **What group F pins.** The corpus captures the BIP39 vectors
 //! from the library the extension uses: `F-bip39-passphrase`
 //! (`mnemonicToSeed` with a non-empty passphrase), `F-bip39-entropy-16/20/24/28`
 //! (the entropy widths below 32 bytes, round-tripped) and `F-bip39-bad-checksum`
