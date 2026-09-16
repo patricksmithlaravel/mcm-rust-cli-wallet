@@ -395,18 +395,19 @@ pub fn wots_checksum(msg_base_w: &[i32; WOTSLEN1]) -> [i32; WOTSLEN2] {
 ///
 /// Note that the reference computes the checksum from `lengths` **in place** —
 /// `wots_checksum(lengths + WOTSLEN1, lengths)` reads the first 64 entries of
-/// the same array it is about to append to. The split here is equivalent because
-/// the read range and the write range do not overlap, which is worth having
-/// checked rather than assumed: `WOTSLEN1 + WOTSLEN2 == WOTSLEN` exactly.
+/// the same array it is about to append to. The two halves are separate arrays
+/// here, so the read range and the write range cannot overlap by construction
+/// rather than by an argument about indices, and `wots_checksum` receives a
+/// `[i32; WOTSLEN1]` the compiler supplied. `WOTSLEN1 + WOTSLEN2 == WOTSLEN`
+/// exactly, which is what makes the two spellings the same computation.
 #[must_use]
 pub fn chain_lengths(msg: &[u8; SEED_LEN]) -> [i32; WOTSLEN_TOTAL] {
-    let mut lengths = [0i32; WOTSLEN_TOTAL];
-    base_w(&mut lengths[..WOTSLEN1], msg);
+    let mut msg_digits = [0i32; WOTSLEN1];
+    base_w(&mut msg_digits, msg);
+    let csum = wots_checksum(&msg_digits);
 
-    let msg_digits: &[i32; WOTSLEN1] = lengths[..WOTSLEN1]
-        .try_into()
-        .unwrap_or(&[0i32; WOTSLEN1]);
-    let csum = wots_checksum(msg_digits);
+    let mut lengths = [0i32; WOTSLEN_TOTAL];
+    lengths[..WOTSLEN1].copy_from_slice(&msg_digits);
     lengths[WOTSLEN1..].copy_from_slice(&csum);
     lengths
 }
@@ -488,14 +489,15 @@ pub fn wots_pkgen(
     let mut buf = Zeroizing::new(vec![0u8; PK_LEN]);
     expand_seed_into(&mut buf, secret);
 
-    for i in 0..WOTSLEN_TOTAL {
+    // `PK_LEN` is `WOTSLEN * PARAMSN`, so this splits into exactly `WOTSLEN`
+    // chains with nothing over: the remainder is empty as arithmetic on the
+    // constants and the chunk count is the loop bound. Each chain is run where
+    // it lies, inside the buffer that zeroizes, so no copy of a private chain
+    // element is made to run it.
+    let (chains, _nothing_over) = buf.as_chunks_mut::<PARAMSN>();
+    for (i, chain) in chains.iter_mut().enumerate() {
         set_chain_addr(adrs, i as u32);
-        let chunk = Zeroizing::new(
-            <[u8; PARAMSN]>::try_from(&buf[i * PARAMSN..(i + 1) * PARAMSN])
-                .unwrap_or([0u8; PARAMSN]),
-        );
-        let out = gen_chain(&chunk, 0, WOTSW as u32 - 1, pub_seed, adrs);
-        buf[i * PARAMSN..(i + 1) * PARAMSN].copy_from_slice(&out);
+        *chain = gen_chain(chain, 0, WOTSW as u32 - 1, pub_seed, adrs);
     }
 
     let mut pk = Box::new([0u8; PK_LEN]);
@@ -572,12 +574,12 @@ pub fn wots_sign_counted(
     expand_seed_into(&mut buf, secret);
 
     let mut counts = [0u32; WOTSLEN_TOTAL];
-    for i in 0..WOTSLEN_TOTAL {
+    // `SIG_LEN` is `WOTSLEN * PARAMSN`, so the split is exact and the chunk
+    // count is `WOTSLEN`. Signing runs each chain where it lies, inside the
+    // buffer that zeroizes.
+    let (chains, _nothing_over) = buf.as_chunks_mut::<PARAMSN>();
+    for (i, chain) in chains.iter_mut().enumerate() {
         set_chain_addr(adrs, i as u32);
-        let chunk = Zeroizing::new(
-            <[u8; PARAMSN]>::try_from(&buf[i * PARAMSN..(i + 1) * PARAMSN])
-                .unwrap_or([0u8; PARAMSN]),
-        );
         // `lengths[i]` is in 0..=15 -- base_w masks with WOTSW - 1 -- so this
         // cast cannot wrap. `tests/kat.rs::chain_lengths` reads every recorded
         // digit vector back through this function; the bound itself is held by
@@ -585,8 +587,8 @@ pub fn wots_sign_counted(
         // `tests/wots_internals.rs::chain_lengths_never_yields_a_digit_outside_the_base`
         // holds the mask's effect over every single-byte fill, every one-bit
         // message and two hundred thousand drawn ones.
-        let (out, n) = gen_chain_counted(&chunk, 0, lengths[i] as u32, pub_seed, adrs);
-        buf[i * PARAMSN..(i + 1) * PARAMSN].copy_from_slice(&out);
+        let (out, n) = gen_chain_counted(chain, 0, lengths[i] as u32, pub_seed, adrs);
+        *chain = out;
         counts[i] = n;
     }
 
@@ -641,14 +643,17 @@ pub fn wots_pk_from_sig_counted(
     let mut pk = Box::new([0u8; PK_LEN]);
     let mut bounds = [(0u32, 0u32); WOTSLEN_TOTAL];
 
-    for i in 0..WOTSLEN_TOTAL {
+    // Both widths are `WOTSLEN * PARAMSN`, so both splits are exact and the two
+    // chunk sequences are the same length: signature chain `i` resumes into
+    // public-key chain `i` with no index arithmetic to get wrong.
+    let (sig_chains, _nothing_over) = sig.as_chunks::<PARAMSN>();
+    let (pk_chains, _nothing_over) = pk.as_chunks_mut::<PARAMSN>();
+    for (i, (sig_chain, pk_chain)) in sig_chains.iter().zip(pk_chains).enumerate() {
         set_chain_addr(adrs, i as u32);
-        let chunk = <[u8; PARAMSN]>::try_from(&sig[i * PARAMSN..(i + 1) * PARAMSN])
-            .unwrap_or([0u8; PARAMSN]);
         let start = lengths[i] as u32;
         let steps = WOTSW as u32 - 1 - start;
-        let (out, n) = gen_chain_counted(&chunk, start, steps, pub_seed, adrs);
-        pk[i * PARAMSN..(i + 1) * PARAMSN].copy_from_slice(&out);
+        let (out, n) = gen_chain_counted(sig_chain, start, steps, pub_seed, adrs);
+        *pk_chain = out;
         bounds[i] = (start, n);
     }
 
