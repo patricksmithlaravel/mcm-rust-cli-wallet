@@ -6139,22 +6139,6 @@ const DECLARED_UNRESOLVED_SRC_NAMES: &[(&str, &str)] = &[
         "a `ureq` config builder method. Dependency surface.",
     ),
     (
-        "import_with_unverified_tag",
-        "CORRECT HISTORY. `account.rs` says a forged imported tag is unconstructible, \"which is \
-         what retired the earlier `import_with_unverified_tag`\" -- past tense, with the reason the \
-         constructor expired (the components are in the record since format v2). The constructor is \
-         deleted; naming it is how the reader learns the surface shrank.",
-    ),
-    (
-        "imported_first_key_components_are_stored_with_the_root",
-        "CORRECT HISTORY, an audit's own. `account.rs` said the variant \"holds the root alone\" and \
-         filed this marker as red until it carried the components; it had carried them since \
-         format v2. The correction names the retired marker in the sentence that retires it, which \
-         is this project's standing handling -- corrected by attribution, not by quiet edit \
-          -- and it is why a correction ADDS a row here rather than removing one. \
-         Green as `imported_first_key_is_verified_against_the_root_not_against_an_mcm_capture`.",
-    ),
-    (
         "imported_root_is_encrypted_before_it_reaches_the_snapshot",
         "CORRECT HISTORY, and the one the audit that produced this table nearly corrected. \
          `keystore/sign.rs` records that its own preceding sentence \"named the pre-v3 marker \
@@ -11417,7 +11401,6 @@ const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Session labels. Every one of these passed the ban until the `S` arm
     // existed to read them.
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/account.rs", 11, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 2, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/args.rs", 3, SWEEP_SRC),
@@ -11438,7 +11421,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
     // Open-item citations, found by the matcher this change added.
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/account.rs", 3, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/bin/mcm-wallet.rs", 3, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/args.rs", 4, SWEEP_SRC),
@@ -11462,8 +11444,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // number of `src/` files carrying such a sentence, so the count falls
     // to zero as the sentences go and the permit can then be deleted with
     // them.
-    (MarkerClass::DeclaredName, "import_with_unverified_tag", 1, SWEEP_NAMES),
-    (MarkerClass::DeclaredName, "imported_first_key_components_are_stored_with_the_root", 1, SWEEP_NAMES),
     (MarkerClass::DeclaredName, "imported_root_is_encrypted_before_it_reaches_the_snapshot", 1, SWEEP_NAMES),
     (MarkerClass::DeclaredName, "mesh_submission_is_unconfirmed_without_a_funded_account", 1, SWEEP_NAMES),
 ];

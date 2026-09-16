@@ -11,9 +11,7 @@
 //! # Why an enum and not a flag
 //!
 //! The shipped wallet models the derived/imported distinction as
-//! `index?: number` beside an always-present `seed` string
-//! (`reference/mochimo-wallet/src/types/account.ts`, measured).
-//! That shape has four representable states — index present or absent, seed
+//! `index?: number` beside an always-present `seed` string. That shape has four representable states — index present or absent, seed
 //! meaningful as a derivation product or as an imported root — and two of
 //! them are lies. Its restore routine walks derived indices and silently
 //! drops imported accounts, which is exactly I8's loss mode: nothing errors,
@@ -77,14 +75,12 @@
 //! imported account that cannot sign at position 0 — unrepresentable rather
 //! than refused at signing time.
 //!
-//! **This paragraph said the variant "holds the root alone" long after it
-//! did not**, and filed the gap as
-//! `imported_first_key_components_are_stored_with_the_root`, red until the
-//! variant carried them. It carried them from format v2: the marker
-//! is green as
-//! `invariants.rs::imported_first_key_is_verified_against_the_root_not_against_an_mcm_capture`,
-//! whose bound is that the pair is group F's seen from the imported side —
-//! nothing here reads an `.mcm` file.
+//! The imported variant carries the first key's components beside the root,
+//! which is what makes that loss mode unrepresentable rather than merely
+//! refused.
+//! `invariants.rs::imported_first_key_is_verified_against_the_root_not_against_an_mcm_capture`
+//! holds it, and its bound is that the pair is group F's seen from the
+//! imported side — nothing here reads an `.mcm` file.
 //!
 //! # The signing seam, as a signature
 //!
@@ -216,11 +212,9 @@ pub(crate) enum KeyMaterial {
 /// determine. And the twelve bytes the shipped format overlays on the address
 /// image (the generator's 12-byte tag) do not matter: the
 /// reference writes address words 5, 6 and 7 before every use —
-/// `set_chain_addr` per chain (`reference/mochimo-core/src/wots.c:37-40`,
-/// called), `set_hash_addr` per step (`:42-45`, called at
-/// `:155`), `set_key_and_mask` twice per `thash_f` (`:32-35`, called at `:105`
-/// and `:110`) — so their incoming values never reach a hash. Measured before
-/// this design was written: `pkgen` from the overlaid words reproduces
+/// `set_chain_addr` per chain, `set_hash_addr` per step, and
+/// `set_key_and_mask` twice per `thash_f` — so their incoming values never
+/// reach a hash. Measured: `pkgen` from the overlaid words reproduces
 /// `F-widths_account_address.bin`'s public key byte for byte.
 pub struct FirstKey {
     pub_seed: [u8; SEED_LEN],
@@ -385,13 +379,10 @@ impl Account {
     /// its own tail, or the pair is refused
     /// ([`Error::FirstAddressNotReproduced`]); the tag is then the tag half
     /// of that key's implicit address. So a forged tag on an imported
-    /// account is **unconstructible**, which is what retired the earlier
-    /// `import_with_unverified_tag` (its reason — that the components are
-    /// not in the root — expired when the record grew to carry them).
+    /// account is **unconstructible**.
     ///
-    /// What this does **not** establish, said here because it is the bound
-    /// in the clearing marker's name: nothing reads an `.mcm` file. The pair
-    /// is data in hand; how it is parsed off disk is the import session's.
+    /// What this does **not** establish: nothing reads an `.mcm` file. The
+    /// pair is data in hand; how it is parsed off disk is not this module's.
     #[cfg(feature = "native")]
     pub fn import(
         root: Secret<SEED_LEN>,
@@ -547,8 +538,8 @@ impl Account {
     /// derived record's tag and stream cannot be recomputed here — both need
     /// the master — so both are trusted between `open` and the next
     /// signature, where `Keystore::sign_spend` re-derives and compares them
-    /// (`DerivedTagNotReproduced`, `StreamIdNotReproduced`), and, since S6,
-    /// at `Keystore::add` when the store holds its master. The keystore's
+    /// (`DerivedTagNotReproduced`, `StreamIdNotReproduced`), and at
+    /// `Keystore::add` when the store holds its master. The keystore's
     /// trailer is an AEAD tag under the store key, which is authenticity
     /// for whoever holds the password and nothing for whoever does not: a
     /// party that could forge these fields holds the password and could
@@ -662,8 +653,7 @@ impl WotsIndex {
     ///
     /// The range the refusal names is the domain of positions: `u32::MAX`
     /// is a valid position, the last one, and it is the one that cannot be
-    /// advanced from. (It said `u32::MAX - 1` for a time -- AGENT.md,
-    /// Known-open 15, closed at S6.)
+    /// advanced from.
     pub fn advanced(self) -> Result<WotsIndex> {
         match self.0.checked_add(1) {
             Some(next) => Ok(WotsIndex(next)),
@@ -856,7 +846,7 @@ impl fmt::Debug for TagHex<'_> {
 mod tests {
     /// The last position cannot be advanced from, and the refusal names
     /// the domain it is at the end of: `u32::MAX` itself, not one short of
-    /// it (Known-open 15).
+    /// it.
     #[test]
     fn advanced_at_the_ceiling_names_u32_max_as_the_last_position() {
         let last = super::WotsIndex::from_raw(u32::MAX);
@@ -885,7 +875,7 @@ mod tests {
     /// a real pair, since `Account::import` refuses one that is not. The
     /// address is embedded rather than transcribed (`tests/txwire.rs`'s
     /// idiom), so no literal here can drift from the fixture.
-    // Not under Miri: its only readers are the four tests S11 gated for
+    // Not under Miri: its only readers are the four tests gated out for
     // their key-generation cost, so under that cfg it has none.
     #[cfg(not(miri))]
     #[cfg(feature = "native")]
@@ -894,14 +884,14 @@ mod tests {
         0x14, 0xab, 0xc6, 0xd6, 0xb4, 0x32, 0xb1, 0xe5, 0xe4, 0xde, 0x26, 0x7c, 0x7e, 0x2a,
         0xe5, 0x3f, 0x58, 0x0b,
     ];
-    // Not under Miri: read only by `widths_import` and the S11-gated tests.
+    // Not under Miri: read only by `widths_import` and the gated tests.
     #[cfg(not(miri))]
     #[cfg(feature = "native")]
     const WIDTHS_ADDRESS: &[u8; crate::consts::WOTS_ADDR_LEN] =
         include_bytes!("../../../fixtures/F-widths_account_address.bin");
     /// The tag that pair produces -- `F-address-widths.account_tag`, emitted
     /// by the TypeScript, not read back from `import`.
-    // Not under Miri: compared only by the S11-gated
+    // Not under Miri: compared only by the gated
     // `debug_never_reveals_key_material` and its two neighbours.
     #[cfg(not(miri))]
     #[cfg(feature = "native")]
@@ -912,7 +902,7 @@ mod tests {
 
     // Not under Miri: called only by `debug_never_reveals_key_material`,
     // `restore_refuses_a_record_that_disagrees_with_its_own_root` and
-    // `records_round_trip_both_kinds_in_crate`, all gated at S11.
+    // `records_round_trip_both_kinds_in_crate`, all gated out under Miri.
     #[cfg(not(miri))]
     #[cfg(feature = "native")]
     fn widths_import() -> Account {
@@ -920,8 +910,8 @@ mod tests {
     }
 
     /// Not under Miri: all but a moment of its time is the two WOTS+ key
-    /// generations inside `Account::import` (372 s of the interpreter's, measured
-    /// at S11, against under a second for a unit test that generates no key).
+    /// generations inside `Account::import` (372 s of the interpreter's,
+    /// against under a second for a unit test that generates no key).
     /// `tests/miri.rs::native_backend_is_clean_under_miri` walks every primitive
     /// one generation drives, and `Account::import` itself stays interpreted
     /// through `keystore::format`'s `two_accounts`, which the ungated parser
@@ -972,7 +962,7 @@ mod tests {
     /// reproduces, so the tag cannot be forged and position 0 is always
     /// available. The unverified constructor is gone.
     /// Not under Miri: its time is three `Account::import` calls, six WOTS+ key
-    /// generations (1,123 s measured at S11). What it pins is the comparison
+    /// generations (1,123 s measured). What it pins is the comparison
     /// made after the generation, and the generation is walked by
     /// `tests/miri.rs` and reached by the ungated parser tests' `two_accounts`.
     #[cfg(feature = "native")]
@@ -1025,7 +1015,7 @@ mod tests {
     /// what keeps the account model's "restores to exactly the account the same
     /// public constructors would build" true now that the record is bigger.
     /// Not under Miri: its time is the key generations inside `Account::import`
-    /// and `Account::restore_from_record` (1,323 s measured at S11, the most
+    /// and `Account::restore_from_record` (1,323 s measured, the most
     /// expensive unit test in the crate). `restore_from_record` is interpreted
     /// regardless -- `parse_with_key` calls it for every record it reads, and
     /// the ungated parser tests read the canonical image.
@@ -1120,7 +1110,7 @@ mod tests {
     }
 
     /// Not under Miri: its time is the two WOTS+ generations inside
-    /// `Account::derive` (386 s measured at S11), and the `WotsIndex` arithmetic
+    /// `Account::derive` (386 s measured), and the `WotsIndex` arithmetic
     /// it then asserts is walked under the interpreter in under a second by
     /// `advanced_at_the_ceiling_names_u32_max_as_the_last_position`, ungated.
     #[cfg(feature = "native")]
@@ -1142,8 +1132,7 @@ mod tests {
             Some(Error::Range {
                 what: "wots index",
                 min: 0,
-                // `u32::MAX` itself: the last position (it pinned
-                // `u32::MAX - 1` while the refusal said so; Known-open 15).
+                // `u32::MAX` itself: the last position.
                 max: u64::from(u32::MAX),
                 got: u64::from(u32::MAX),
             })
@@ -1160,7 +1149,7 @@ mod tests {
 
     /// Not under Miri: its time is the key generations inside `Account::import`,
     /// `Account::derive` and two `Account::restore_from_record` calls (1,127 s
-    /// measured at S11). The round trip itself is a struct-to-enum copy over
+    /// measured). The round trip itself is a struct-to-enum copy over
     /// fixed-size arrays, and every constructor under it stays interpreted
     /// through the ungated parser tests.
     #[cfg(feature = "native")]
