@@ -1,17 +1,9 @@
-//! The `native` backend: WOTS+ in Rust, with no C in the trust path.
+//! The `native` backend: WOTS+ in Rust, with no C anywhere in it.
 //!
-//! Every function here was written to mirror the signature of its counterpart
-//! in the C binding exactly, so that a differential test was one
-//! `assert_eq!(native::f(x), ffi::f(x))` with nothing in between to be wrong;
-//! the binding is gone and the signatures stay. Where the reference is a
-//! `static` inside `wots.c`, the function here carries the same name and its
-//! `file:line`.
-//!
-//! **No `unsafe`.** The foreign-function backend needed it to call C; this
-//! one has nothing to call. That asymmetry is the whole point — it is what
-//! made the port worth doing, and it is why memory safety here could never be
-//! established by comparing the two backends. Running this module under Miri
-//! is the answer;
+//! **No `unsafe`.** Nothing here has anything to call that would need it, and
+//! that is what memory safety in this crate rests on: it cannot be
+//! established by comparing one implementation against another, so it is
+//! established by running this module under Miri.
 //! `invariants.rs::memory_safety_is_established_only_for_the_native_paths_miri_walks`
 //! is the marker, and its name is the size of the claim.
 //!
@@ -22,19 +14,16 @@
 //! greens; and `tests/wots_internals.rs`, four oracle-free property tests
 //! over the shapes the corpus cannot see -- the two chain loops held to each
 //! other, the checksum's totality and its formula, the signing counts
-//! against the digits, and the digit bound (AGENT.md, Known-open 22,
-//! closed at S8). The differential proptest against the C binding, the
-//! third leg the port was written under, went with the binding and is not
-//! here.
+//! against the digits, and the digit bound.
 //!
 //! # Hash primitive
 //!
-//! `sha2::Sha256`, not a hand-rolled one. `wots.c:28` defines
+//! `sha2::Sha256`, not a hand-rolled one. The reference defines
 //! `core_hash(out, in, inlen)` as `sha256(in, inlen, out)`, and the
-//! parameterization is `wots.c`'s own. A hand-rolled hash would have put a
-//! second unproven thing inside the diff every time the port disagreed with
-//! the C, so the first question on any mismatch would have been the one
-//! question the oracle cannot answer.
+//! parameterization is its own. A hand-rolled hash would put a second
+//! unproven thing inside every disagreement with the corpus, so the first
+//! question on any mismatch would be the one question the fixtures cannot
+//! answer.
 //!
 //! # Zeroization, and what it does not cover
 //!
@@ -89,8 +78,8 @@ pub fn sha256(input: &[u8]) -> [u8; 32] {
 const XMSS_HASH_PADDING_F: u64 = 0;
 const XMSS_HASH_PADDING_PRF: u64 = 3;
 
-/// `wots.c:51`. Writes `out.len()` bytes of `value` in **big-endian** order,
-/// truncating from the top when `out` is narrower than the value.
+/// Writes `out.len()` bytes of `value` in **big-endian** order, truncating
+/// from the top when `out` is narrower than the value.
 ///
 /// The truncation is not incidental. `wots_checksum` calls this
 /// with a 2-byte buffer and a `csum` that has already been shifted left by 4, so
@@ -98,10 +87,10 @@ const XMSS_HASH_PADDING_PRF: u64 = 3;
 /// used `to_be_bytes()` and copied a fixed width would be a different function
 /// at that call site.
 ///
-/// Empty `out` is rejected rather than defined, as the C binding's
-/// `ull_to_bytes` did — the reference's `outlen - 1` is unsigned
-/// arithmetic converted to `int`, which is implementation-defined at zero and
-/// unreachable from every call site in `wots.c`.
+/// **An empty `out` panics rather than being defined as a no-op.** No call
+/// site in this module passes one, and the reference's behaviour at zero
+/// length is implementation-defined, so there is nothing to agree with: the
+/// assertion refuses the case instead of inventing an answer for it.
 pub fn ull_to_bytes(out: &mut [u8], value: u64) {
     assert!(
         !out.is_empty(),
@@ -109,14 +98,14 @@ pub fn ull_to_bytes(out: &mut [u8], value: u64) {
          zero is refused rather than defined."
     );
     let mut v = value;
-    // Decreasing, for big-endianness, exactly as wots.c:56 does it.
+    // Decreasing, for big-endianness.
     for byte in out.iter_mut().rev() {
         *byte = (v & 0xff) as u8;
         v >>= 8;
     }
 }
 
-/// `wots.c:66`. Each of the 8 address words, big-endian, in order.
+/// Each of the 8 address words, big-endian, in order.
 ///
 /// This is the function that makes the `adrs` byte order a *serialization*
 /// rather than a memory layout: the caller holds words, and the bytes that reach
@@ -151,13 +140,12 @@ fn set_key_and_mask(adrs: &mut [u32; 8], key_and_mask: u32) {
     adrs[7] = key_and_mask;
 }
 
-/// `wots.c:78`. `PRF(key, in)` = `sha256(pad(3) ‖ key ‖ in)` over 96 bytes.
+/// `PRF(key, in)` = `sha256(pad(3) ‖ key ‖ in)` over 96 bytes.
 ///
-/// Returns [`Result`] only because the C binding's `prf` did, its `Err` arm
-/// carrying the reference's `int` return. The C's `return 0` is
-/// unconditional, so this arm was unreachable on both sides; the signature was
-/// held identical anyway, because a differential test whose two sides have
-/// different types has something between them to be wrong, and it is kept.
+/// **The [`Result`] is always `Ok`.** Nothing in the body can fail: the
+/// buffer is fixed-width, the writes are infallible, and `sha256` is total.
+/// The `Err` arm exists in the type and is unreachable, so every caller
+/// carries a `?` that can never fire.
 pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> Result<[u8; 32]> {
     // Secret: `key` is the private seed at expand_seed's call site.
     let mut buf = Zeroizing::new([0u8; 2 * PARAMSN + 32]);
@@ -167,7 +155,7 @@ pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> Result<[u8; 32]> {
     Ok(sha256(&buf[..]))
 }
 
-/// `wots.c:93`. The keyed, masked compression step.
+/// The keyed, masked compression step.
 ///
 /// `sha256(pad(0) ‖ PRF(pub_seed, adrs@key=0) ‖ (in ⊕ PRF(pub_seed, adrs@key=1)))`.
 ///
@@ -192,7 +180,7 @@ pub fn thash_f(input: &[u8; 32], pub_seed: &[u8; SEED_LEN], adrs: &mut [u32; 8])
     set_key_and_mask(adrs, 0);
     let key_addr = addr_to_bytes(adrs);
     // `prf` cannot fail (see its doc comment); the reference ignores this
-    // return value at wots.c:104 and so does this.
+    // return value and so does this.
     let key = prf(&key_addr, pub_seed).unwrap_or([0u8; 32]);
     buf[PARAMSN..2 * PARAMSN].copy_from_slice(&key);
 
@@ -206,7 +194,7 @@ pub fn thash_f(input: &[u8; 32], pub_seed: &[u8; SEED_LEN], adrs: &mut [u32; 8])
     sha256(&buf[..])
 }
 
-/// `wots.c:144`. `steps` applications of [`thash_f`] from chain position
+/// `steps` applications of [`thash_f`] from chain position
 /// `start`.
 ///
 /// The loop is `for (i = start; i < (start+steps) && i < WOTSW; i++)`, and all
@@ -270,7 +258,7 @@ pub fn gen_chain(
 /// pins the two loops to each other -- the bytes, the `adrs` left behind and
 /// the count -- over every `(start, steps)` in `0..18` squared, at the edges
 /// where the sum wraps, and on pairs drawn from the whole `u32` range, with
-/// no oracle behind it (AGENT.md, Known-open 22, closed at S8).
+/// no oracle behind it.
 #[must_use]
 pub fn gen_chain_counted(
     input: &[u8; SEED_LEN],
@@ -297,7 +285,7 @@ pub fn gen_chain_counted(
 // Step 2 --- the Winternitz ladder and checksum
 // -------------------------------------------------------------------------
 
-/// `wots.c:166`. Reinterprets `input`'s nibbles as base-`WOTSW` digits, high
+/// Reinterprets `input`'s nibbles as base-`WOTSW` digits, high
 /// nibble first, writing `output.len()` of them.
 ///
 /// The loop is transcribed rather than simplified. For `WOTSW = 16` this is just
@@ -340,7 +328,7 @@ pub fn base_w(output: &mut [i32], input: &[u8]) {
     }
 }
 
-/// `wots.c:190`. The WOTS+ checksum over a base-w message, itself in base w.
+/// The WOTS+ checksum over a base-w message, itself in base w.
 ///
 /// `csum = Σ (WOTSW - 1 - msg[i])` over `WOTSLEN1` digits, then shifted left by
 /// `8 - ((WOTSLEN2 * WOTSLOGW) % 8)` = `8 - (12 % 8)` = **4**, then serialized
@@ -354,17 +342,15 @@ pub fn base_w(output: &mut [i32], input: &[u8]) {
 /// first three nibbles. Drop the shift and the digits come out of the wrong
 /// nibbles entirely.
 ///
-/// `csum` is `i32` because the reference's is `int`, and the sum is passed to
-/// `ull_to_bytes`'s `unsigned long`. Over the reachable domain the value is
-/// `0..=960` before the shift and `0..=15360` after, so the sign never enters.
-/// The type is held identical for fidelity and for nothing else: the three
-/// digits read the low twelve bits of the sum and no more -- the shift moves
-/// them into the top three nibbles of the two bytes, and the two bytes are
-/// the low sixteen bits of the accumulator -- so any accumulator wider than
-/// twelve bits, signed or unsigned, wrapping or not, produces the same three
-/// digits. An earlier sentence here said a `u32` would silently diverge off
-/// the reachable domain; it would not, and the test named below computes the
-/// formula with a `u32` accumulator as well and holds it equal.
+/// `csum` is `i32`, and **the width is not load-bearing.** Over the reachable
+/// domain the value is `0..=960` before the shift and `0..=15360` after, so
+/// the sign never enters; and the three digits read the low twelve bits of
+/// the sum and no more -- the shift moves them into the top three nibbles of
+/// the two bytes, and the two bytes are the low sixteen bits of the
+/// accumulator -- so any accumulator wider than twelve bits, signed or
+/// unsigned, wrapping or not, produces the same three digits. The test named
+/// below computes the formula with a `u32` accumulator as well and holds it
+/// equal.
 ///
 /// The arithmetic is **explicitly wrapping**. This function is
 /// `pub`, so its domain is any `[i32; 64]` a caller can name, not only the
@@ -384,8 +370,7 @@ pub fn base_w(output: &mut [i32], input: &[u8]) {
 /// reachable domain no operation wraps and nothing changes.
 /// `tests/wots_internals.rs::wots_checksum_is_total_and_reads_the_low_twelve_bits_of_the_sum`
 /// holds the formula on inputs drawn from the whole `i32` range, computed
-/// there with explicit wrapping arithmetic and again over the integers
-/// (AGENT.md, Known-open 22, closed at S8).
+/// there with explicit wrapping arithmetic and again over the integers.
 #[must_use]
 pub fn wots_checksum(msg_base_w: &[i32; WOTSLEN1]) -> [i32; WOTSLEN2] {
     let mut csum: i32 = 0;
@@ -395,7 +380,7 @@ pub fn wots_checksum(msg_base_w: &[i32; WOTSLEN1]) -> [i32; WOTSLEN2] {
 
     csum <<= 8 - ((WOTSLEN2 * WOTSLOGW) % 8);
 
-    // `wots.c:196` spells this `(WOTSLEN2 * WOTSLOGW + 7) / 8`; `div_ceil` is
+    // spells this `(WOTSLEN2 * WOTSLOGW + 7) / 8`; `div_ceil` is
     // the same value and is what clippy::manual_div_ceil requires. Both are 2.
     let mut csum_bytes = [0u8; (WOTSLEN2 * WOTSLOGW).div_ceil(8)];
     ull_to_bytes(&mut csum_bytes, csum as u32 as u64);
@@ -405,7 +390,7 @@ pub fn wots_checksum(msg_base_w: &[i32; WOTSLEN1]) -> [i32; WOTSLEN2] {
     out
 }
 
-/// `wots.c:212`. The `WOTSLEN1` message digits followed by the `WOTSLEN2`
+/// The `WOTSLEN1` message digits followed by the `WOTSLEN2`
 /// checksum digits.
 ///
 /// Note that the reference computes the checksum from `lengths` **in place** —
@@ -430,17 +415,14 @@ pub fn chain_lengths(msg: &[u8; SEED_LEN]) -> [i32; WOTSLEN_TOTAL] {
 // Step 3 --- key generation
 // -------------------------------------------------------------------------
 
-/// `wots.c:125`. Expands an `n`-byte seed into the `WOTSLEN * PARAMSN` byte
-/// private key.
+/// Expands an `n`-byte seed into the `WOTSLEN * PARAMSN` byte private key.
 ///
-/// **The return value is the WOTS+ private key.** It is not wrapped in
-/// [`Zeroizing`] because the signature is held identical to
-/// the C binding's `expand_seed` — a differential test whose two sides have
-/// different types has something between them to be wrong — and because the
-/// buffer's ownership passes to the caller, who is the only one who knows when
-/// it stops being secret. [`wots_pkgen`] below, the only caller in this module,
-/// does zeroize it. A caller outside this module that keeps the raw expansion
-/// around is holding key material, and nothing in this tree detects that.
+/// **The return value is the WOTS+ private key, and it is not
+/// [`Zeroizing`].** Ownership passes to the caller, who is the only one who
+/// knows when it stops being secret. [`wots_pkgen`] below, the only caller in
+/// this module, does zeroize it. A caller outside this module that keeps the
+/// raw expansion around is holding key material, and nothing in this tree
+/// detects that.
 ///
 /// The counter is the whole content of the function: `ull_to_bytes(ctr, 32, i)`
 /// is 31 zero bytes and `i`, big-endian, and `prf` keys on the *seed*. Omit the
@@ -476,7 +458,7 @@ fn expand_seed_into(out: &mut [u8], inseed: &[u8; SEED_LEN]) {
     }
 }
 
-/// `wots.c:229`. Seed → private key → public key.
+/// Seed → private key → public key.
 ///
 /// `expand_seed` fills the buffer with the private key and then each of the 67
 /// chains is run `WOTSW - 1` times **in place**, so the same 2144 bytes are
@@ -485,7 +467,7 @@ fn expand_seed_into(out: &mut [u8], inseed: &[u8; SEED_LEN]) {
 /// alternative is returning the very allocation that held the private key and
 /// trusting that every byte of it was overwritten.
 ///
-/// **Nothing here is data-dependent.** `wots.c:240` passes the literals `0` and
+/// **Nothing here is data-dependent.** passes the literals `0` and
 /// `WOTSW - 1`, and `expand_seed` loops `WOTSLEN` times unconditionally. The
 /// secret selects no branch and no count, which is why key generation carries
 /// no timing note while signing and verification do.
@@ -526,7 +508,7 @@ pub fn wots_pkgen(
 // Step 5 --- verification
 // -------------------------------------------------------------------------
 
-/// `wots.c:254`. Signs a 32-byte message digest.
+/// Signs a 32-byte message digest.
 ///
 /// Each of the 67 chains is advanced `lengths[i]` times from position 0, where
 /// `lengths = chain_lengths(msg)`. **The per-chain iteration count is derived
@@ -572,7 +554,7 @@ pub fn wots_sign(
 /// returns the 67 counts alongside the signature;
 /// `tests/wots_internals.rs::wots_sign_counted_runs_each_chain_exactly_its_digit`
 /// compares them against `chain_lengths(msg)` chain by chain over hundreds of
-/// messages, with no oracle behind it (AGENT.md, Known-open 22, closed at S8).
+/// messages, with no oracle behind it.
 ///
 /// Unlike [`gen_chain_counted`], this is not a second copy of the loop —
 /// [`wots_sign`] is a thin wrapper around it. Duplicating a 67-iteration loop
@@ -602,8 +584,7 @@ pub fn wots_sign_counted(
         // the mask alone, and
         // `tests/wots_internals.rs::chain_lengths_never_yields_a_digit_outside_the_base`
         // holds the mask's effect over every single-byte fill, every one-bit
-        // message and two hundred thousand drawn ones (AGENT.md, Known-open
-        // 22, closed at S8).
+        // message and two hundred thousand drawn ones.
         let (out, n) = gen_chain_counted(&chunk, 0, lengths[i] as u32, pub_seed, adrs);
         buf[i * PARAMSN..(i + 1) * PARAMSN].copy_from_slice(&out);
         counts[i] = n;
@@ -614,7 +595,7 @@ pub fn wots_sign_counted(
     (sig, counts)
 }
 
-/// `wots.c:284`. Recovers the public key from a signature and its message.
+/// Recovers the public key from a signature and its message.
 ///
 /// Chain `i` resumes at position `lengths[i]` — where signing stopped — and runs
 /// the remaining `WOTSW - 1 - lengths[i]` steps. That identity,
@@ -677,24 +658,24 @@ pub fn wots_pk_from_sig_counted(
 // -------------------------------------------------------------------------
 // The address path
 //
-// `ledger.c:83-121`. Everything below is outside WOTS+: `wots.rs` deals in
+//. Everything below is outside WOTS+: `wots.rs` deals in
 // `Adrs([u32; 8])` and never in address bytes, so the two paths meet only at
 // `addr_from_wots`, which takes a finished public key.
 // -------------------------------------------------------------------------
 
-/// SHA3-512 (`sha3.c:97` with `outlen = SHA3LEN512`).
+/// SHA3-512 (`outlen = SHA3LEN512`).
 ///
 /// # Why this is `Sha3_512` and not `Keccak512`
 ///
 /// The two Keccak variants differ in one byte and both compile. The reference
-/// picks FIPS-202: `sha3.c:79` is `ctx->st.b[ctx->pt] ^= 0x06`, where the same
+/// picks FIPS-202: is `ctx->st.b[ctx->pt] ^= 0x06`, where the same
 /// file's `keccak_final` uses `0x07`. The rate agrees
-/// independently — `sha3.c:48` is `rsiz = 200 - (outlen << 1)`, giving 72 for
+/// independently — is `rsiz = 200 - (outlen << 1)`, giving 72 for
 /// `outlen = 64`, which is SHA3-512's rate. Two reads, one conclusion.
 ///
 /// # The host dependence this silently removes
 ///
-/// `sha3.c:84` is `memcpy(out, ctx->st.q, ctx->outlen)`, reading the state
+/// is `memcpy(out, ctx->st.q, ctx->outlen)`, reading the state
 /// through its `uint64_t[25]` view. The reference's SHA3 is therefore FIPS-202
 /// **only on a little-endian host**; its equivalence to FIPS-202 was
 /// established against Python's `hashlib` running on exactly such a host, and
@@ -706,7 +687,7 @@ pub fn sha3_512(input: &[u8]) -> [u8; SHA3LEN512] {
     Sha3_512::digest(input).into()
 }
 
-/// SHA3-256 (`outlen = SHA3LEN256`, rate 136), for `peach.c:212`.
+/// SHA3-256 (`outlen = SHA3LEN256`, rate 136), for.
 #[must_use]
 pub fn sha3_256(input: &[u8]) -> [u8; SHA3LEN256] {
     sha3::Sha3_256::digest(input).into()
@@ -714,46 +695,32 @@ pub fn sha3_256(input: &[u8]) -> [u8; SHA3LEN256] {
 
 /// SHA3-224 (`outlen = SHA3LEN224`, rate 144).
 ///
-/// # An earlier port excluded this width, and its stated reason was wrong
+/// # Why a width with no caller is here
 ///
-/// The first native SHA3 had two fixed-width functions and recorded 28 and
-/// 48 as *"deliberately excluded"* on the grounds that they had **"no oracle
-/// behind it and no caller in front of it"**. The second half was true. The
-/// first was not: the binding's `sha3_224` was callable, `rsiz` is `200 - 56 = 144` which
-/// is SHA3-224's rate, and `sha3.h:44` names all four widths as compatible. The
-/// oracle existed the whole time — only the caller was missing.
-///
-/// That distinction matters more than the two functions do. A narrowing
-/// justified by a false premise gets *preserved for the wrong reason* by the
-/// next reader, or reversed on the grounds that the premise was false without
-/// anyone checking whether the narrowing was independently right. Recorded
-/// here rather than silently corrected.
-///
-/// What actually changed later is the shape, not the width count: the seam
-/// stopped carrying a runtime `outlen` at all, so there is no longer a domain to
-/// narrow. Each width is a separate name with a separate return type, and a
-/// width nobody implements is a compile error at the call site rather than a
-/// value reaching `sha3_init`. "No caller today" is then a weak reason to omit
-/// something that costs one line.
+/// The seam carries no runtime `outlen`: each width is a separate name with a
+/// separate return type, so a width nobody implements is a compile error at
+/// the call site rather than a value reaching a dispatcher. That makes "no
+/// caller today" a weak reason to omit one that costs a line, and the corpus
+/// covers all four.
 #[must_use]
 pub fn sha3_224(input: &[u8]) -> [u8; SHA3LEN224] {
     sha3::Sha3_224::digest(input).into()
 }
 
 /// SHA3-384 (`outlen = SHA3LEN384`, rate 104). See [`sha3_224`] for why this
-/// exists despite having no caller in the reference.
+/// exists with no caller in front of it.
 #[must_use]
 pub fn sha3_384(input: &[u8]) -> [u8; SHA3LEN384] {
     sha3::Sha3_384::digest(input).into()
 }
 
-/// RIPEMD-160 (`ripemd160.c`, via `ledger.c:101`).
+/// RIPEMD-160, as the ledger uses it.
 #[must_use]
 pub fn ripemd160(input: &[u8]) -> [u8; 20] {
     Ripemd160::digest(input).into()
 }
 
-/// `ledger.c:95`. `ripemd160(sha3_512(in))`.
+/// `ripemd160(sha3_512(in))`.
 ///
 /// The intermediate is 64 bytes and is not secret — it is a hash of a public
 /// key — so it is not `Zeroizing`, unlike everything in the WOTS+ half of this
@@ -764,7 +731,7 @@ pub fn addr_hash_generate(input: &[u8]) -> [u8; ADDR_HASH_LEN] {
     ripemd160(&sha3_512(input))
 }
 
-/// `ledger.c:83`. Writes the 20-byte tag into **both** halves of the 40-byte
+/// Writes the 20-byte tag into **both** halves of the 40-byte
 /// address.
 ///
 /// Not a typo in the reference and not a typo here: `ADDR_TAG_PTR(addr)` and
@@ -779,12 +746,12 @@ pub fn addr_from_implicit(tag: &[u8; ADDR_TAG_LEN]) -> [u8; ADDR_LEN] {
     addr
 }
 
-/// `ledger.c:109`. The legacy WOTS+ public key to a v3 hash-based address.
+/// The legacy WOTS+ public key to a v3 hash-based address.
 ///
 /// Hashes exactly `WOTS_PK_LEN` = 2144 bytes. **Not 2208.** The pre-v3 wire
 /// form of a WOTS+ address carried the public key followed by the 32-byte
 /// public seed and the 32-byte address scheme, and 2208 is the number a reader
-/// who knows the old format will reach for. `ledger.c:118` passes
+/// who knows the old format will reach for. passes
 /// `WOTS_PK_LEN`, and the type here makes the other length unrepresentable.
 #[must_use]
 pub fn addr_from_wots(wots: &[u8; PK_LEN]) -> [u8; ADDR_LEN] {
@@ -846,12 +813,12 @@ pub fn crc16(input: &[u8]) -> u16 {
 // The 16-bit wire accessors, and the third host dependence
 // -------------------------------------------------------------------------
 
-/// `extlib.c:67`. **Little-endian, by decision, not by transcription.**
+/// **Little-endian, by decision, not by transcription.**
 ///
 /// The reference is `*((word16 *) buff) = value` — a bare store through a
 /// reinterpreted pointer, so its byte order is whatever the host's is and
 /// nothing in the C says so. That is the same class of host dependence as
-/// `tx.c:672`'s `memcpy` into `word32 adrs[8]` and as `sha3_final`'s `memcpy`
+/// the node's `memcpy` into `word32 adrs[8]` and as `sha3_final`'s `memcpy`
 /// out of a `uint64_t[25]`; this is the third one, and the three are settled
 /// the same way, for the reason given below.
 ///
@@ -869,14 +836,14 @@ pub fn put16(value: u16) -> [u8; 2] {
     value.to_le_bytes()
 }
 
-/// `extlib.c:57`. The inverse of [`put16`], and little-endian for the same
+/// The inverse of [`put16`], and little-endian for the same
 /// reason and by the same decision.
 #[must_use]
 pub fn get16(bytes: &[u8; 2]) -> u16 {
     u16::from_le_bytes(*bytes)
 }
 
-/// `extlib.c:86`. **Little-endian, by decision, and with no measurement behind
+/// **Little-endian, by decision, and with no measurement behind
 /// the decision — read this before trusting it.**
 ///
 /// The reference is `*((word32 *) buff) = value`, the same bare host-endian
@@ -895,11 +862,11 @@ pub fn get16(bytes: &[u8; 2]) -> u16 {
 /// `put16` has two second anchors and **`put32` now has one of them.**
 /// `group_c_addr.json`'s C8 records `crc16_bytes_put16: "52b3"` against
 /// `crc16: 45906`, and `CX-C9` catches a `to_be_bytes` injection against
-/// `reference/mochimo-wots`, an implementation sharing no code with the C.
+/// the TypeScript, an implementation sharing no code with the C.
 ///
 /// An earlier draft wrote here that neither existed at 32 bits, "because nothing in the
 /// corpus' generators calls `put32`". **That was false.**
-/// `reference/gen-fixtures/src/group_d_tx.c:117-119` calls it three times and
+/// calls it three times and
 /// `:894` once more, and `fixtures/group_d_tx.json` records the image as
 /// `identity.adrs_tail12= "420000000e00000001000000"`. What was true is that
 /// nothing *read* those bytes; `tests/kat.rs::reference_verdicts_native`
@@ -921,7 +888,7 @@ pub fn put32(value: u32) -> [u8; 4] {
     value.to_le_bytes()
 }
 
-/// `extlib.c:77`. The inverse of [`put32`], and carrying the same caveat: read
+/// The inverse of [`put32`], and carrying the same caveat: read
 /// that function's note on why a differential against the C was blind to the
 /// byte order.
 #[must_use]
@@ -929,7 +896,7 @@ pub fn get32(bytes: &[u8; 4]) -> u32 {
     u32::from_le_bytes(*bytes)
 }
 
-/// `tx.c:269-270`. The 22-byte tag payload: the tag, then its CRC16 through
+/// The 22-byte tag payload: the tag, then its CRC16 through
 /// [`put16`].
 ///
 /// Named rather than left as two lines at the call site because the *order* of
@@ -949,13 +916,13 @@ pub fn tag_with_crc16(tag: &[u8; ADDR_TAG_LEN]) -> [u8; ADDR_TAG_LEN + 2] {
 // Base58
 // -------------------------------------------------------------------------
 
-/// `base58.c:20-21`, verbatim, because it is the wire alphabet and not a
+///, verbatim, because it is the wire alphabet and not a
 /// parameter anyone gets to choose.
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /// The inverse of [`BASE58_ALPHABET`], **derived** rather than transcribed.
 ///
-/// `base58.c:23-32` ships the map as 128 literals. Computing it from the
+/// ships the map as 128 literals. Computing it from the
 /// alphabet instead means the two can never disagree with each other, and the
 /// only remaining question — whether this alphabet is the reference's — is one
 /// the corpus settles: the group C Base58 vectors decode through it
@@ -974,13 +941,13 @@ const BASE58_MAP: [u8; 256] = {
     map
 };
 
-/// `base58.c:44`, **corrected**. Encodes `input`; never returns a short length.
+///, **corrected**. Encodes `input`; never returns a short length.
 ///
 /// # This deliberately differs from the reference, on a named finite class
 ///
 /// The C's length probe (`out == NULL`) is one short whenever the input is
 /// **entirely zero bytes**, and that is the whole class — not an approximation
-/// of one. The mechanism, from `base58.c:59-77`: `low` is initialised to
+/// of one. The mechanism: `low` is initialised to
 /// `size`, the conversion loop runs `inlen - zeros` times, and for an
 /// all-zero input that is zero times, so `low` is never assigned. `low++` at
 /// `:72` then leaves it at `size + 1`, and the probe returns
@@ -1038,7 +1005,7 @@ pub fn base58_encode(input: &[u8]) -> Result<String> {
     Ok(out)
 }
 
-/// `base58.c:101`, **corrected**. Decodes `s`; never faults, never short.
+///, **corrected**. Decodes `s`; never faults, never short.
 ///
 /// # The reference faults here, and this is where it does it
 ///
@@ -1134,17 +1101,17 @@ pub fn base58_decoded_len(s: &[u8]) -> Result<usize> {
 // `adrs` call site that still does not exist. Nothing below touches `adrs`. A
 // future edit that needs one here has pulled in work belonging elsewhere.
 
-/// `TXDAT_TYPE(options)` at `types.h:166`: the first options byte.
+/// `TXDAT_TYPE(options)`: the first options byte.
 pub fn dat_type(options: &[u8; 4]) -> u8 {
     options[0]
 }
 
-/// `TXDSA_TYPE(options)` at `types.h:171`: the second options byte.
+/// `TXDSA_TYPE(options)`: the second options byte.
 pub fn dsa_type(options: &[u8; 4]) -> u8 {
     options[1]
 }
 
-/// `MDST_COUNT(options)` at `types.h:176`: the third options byte, plus one.
+/// `MDST_COUNT(options)`: the third options byte, plus one.
 ///
 /// **The widening is the whole function.** `((word8 *) options)[2] + 1` is C
 /// integer promotion: the byte is promoted to `int` and the sum is an `int`, so
@@ -1156,7 +1123,7 @@ pub fn mdst_count(options: &[u8; 4]) -> u16 {
     u16::from(options[2]) + 1
 }
 
-/// `ADDR_TAG_PTR(ptr)` at `types.h:126`: the tag half of an address.
+/// `ADDR_TAG_PTR(ptr)`: the tag half of an address.
 ///
 /// # Why this reads `ADDR_TAG_OFF` rather than starting at zero
 ///
@@ -1168,14 +1135,14 @@ pub fn tag_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
     &addr[ADDR_TAG_OFF..ADDR_TAG_OFF + ADDR_TAG_LEN]
 }
 
-/// `ADDR_HASH_PTR(ptr)` at `types.h:128`: the hash half of an address.
+/// `ADDR_HASH_PTR(ptr)`: the hash half of an address.
 ///
 /// # This is where the bound offset earns its place
 ///
 /// `ADDR_HASH_OFF` is 20 and `ADDR_TAG_LEN` is 20, so `&addr[ADDR_TAG_LEN..]`
 /// returns the same bytes and was the obvious way to write it. It is an
 /// **inference** -- that the hash half begins where the tag half ends, with no
-/// gap -- rather than a reading of the offset `types.h:124` states. That is the
+/// gap -- rather than a reading of the offset states. That is the
 /// shape corrected at [`put32`], where `put16` being verified little-endian was
 /// standing in for a measurement of `put32`. `crate::addr::hash_of` still makes
 /// the inference; with `ADDR_HASH_OFF` bound, the two agreeing is now a checked
@@ -1184,7 +1151,7 @@ pub fn hash_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
     &addr[ADDR_HASH_OFF..ADDR_HASH_OFF + ADDR_HASH_LEN]
 }
 
-/// `TXLEN_MIN` at `types.h:148`: `sizeof(TXHDR) + sizeof(MDST) + sizeof(WOTSVAL)`.
+/// `TXLEN_MIN`: `sizeof(TXHDR) + sizeof(MDST) + sizeof(WOTSVAL)`.
 ///
 /// The three sizes come from `crate::consts::wire`, which carries the
 /// reference's own `STATIC_ASSERT` expressions rather than three numbers. See
@@ -1194,7 +1161,7 @@ pub fn len_min() -> usize {
     wire::SIZEOF_TXHDR + wire::SIZEOF_MDST + wire::SIZEOF_WOTSVAL
 }
 
-/// `TXLEN_DSK_MIN` at `types.h:151`: [`len_min`] plus a trailer.
+/// `TXLEN_DSK_MIN`: [`len_min`] plus a trailer.
 pub fn len_dsk_min() -> usize {
     len_min() + wire::SIZEOF_TXTLR
 }

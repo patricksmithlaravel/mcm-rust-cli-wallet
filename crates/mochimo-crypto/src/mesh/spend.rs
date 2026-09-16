@@ -183,7 +183,7 @@ impl SpendPlan {
     ///    [`Error::ChainAddressMismatch`]. The chain does not hold this tag at
     ///    the key this store signs with next; I4's divergence, stopped at.
     /// 2. a destination count outside `1..=256` — `Error::Range`, from
-    ///    [`Transaction::new`].
+    ///    [`Transaction::new`](crate::tx::wire::Transaction::new).
     /// 3. a zero amount — [`Error::ZeroAmount`].
     /// 4. a destination carrying the source's tag —
     ///    [`Error::DestinationIsSource`].

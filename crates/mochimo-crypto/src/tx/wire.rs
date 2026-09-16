@@ -41,8 +41,8 @@
 //!
 //! # What is enforced, and by what
 //!
-//! - The destination count is fenced at construction ([`Transaction::new`],
-//!   [`Transaction::set_dsts`]), so [`Transaction::to_wire`] is infallible:
+//! - The destination count is fenced at construction ([`Transaction::new`](crate::tx::wire::Transaction::new),
+//!   [`Transaction::set_dsts`](crate::tx::wire::Transaction::set_dsts)), so [`Transaction::to_wire`](crate::tx::wire::Transaction::to_wire) is infallible:
 //!   the one invalid state these types could otherwise represent — a count of
 //!   0 or above 256, which no fixture can carry because the reference cannot
 //!   emit it — is answered with a type rather than with a branch no fixture
@@ -77,14 +77,14 @@
 //!
 //! `tx_hash` is one `sha256` over one of two prefixes of the
 //! wire image: `TX_HASH_MESSAGE` stops at the validation data — the first
-//! [`Transaction::dsa_off`] bytes, the message a signature is over — and
+//! [`Transaction::dsa_off`](crate::tx::wire::Transaction::dsa_off) bytes, the message a signature is over — and
 //! `TX_HASH_ID` stops at the trailer's `id`, so it covers the nonce as well.
-//! [`Transaction::message_digest`] and [`Transaction::id_digest`] are those
+//! [`Transaction::message_digest`](crate::tx::wire::Transaction::message_digest) and [`Transaction::id_digest`](crate::tx::wire::Transaction::id_digest) are those
 //! two, and they hash bytes this module writes rather than bytes it slices out
 //! of `to_wire`, so no index is involved. `process_tx` zeroes
 //! the nonce and writes `TX_HASH_ID` into the trailer *after* validation,
 //! which is why whatever trailer a wallet sends is ignored
-//! by the node and why [`Transaction::seal`] writes exactly that pair.
+//! by the node and why [`Transaction::seal`](crate::tx::wire::Transaction::seal) writes exactly that pair.
 //!
 //! The hash is `backend::selected`'s `sha256`: the bytes are public, so the
 //! zeroization argument that puts the keystore trailer and `wots::sign` on
@@ -120,7 +120,7 @@ pub struct Destination {
 
 impl Destination {
     /// The 44-byte `MDST` image: `tag ‖ ref ‖ amount`,
-    /// the amount little-endian. What [`Transaction::to_wire`] emits for a
+    /// the amount little-endian. What [`Transaction::to_wire`](crate::tx::wire::Transaction::to_wire) emits for a
     /// destination, and the key `mdst_val`'s sort compares — `memcmp` over
     /// the whole struct, so a builder that orders destinations
     /// by this image orders them the way the validator requires.

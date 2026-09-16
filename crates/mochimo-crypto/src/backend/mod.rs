@@ -1,13 +1,11 @@
 //! Backend selection.
 //!
-//! One backend: [`native`], the hand-written Rust port. This module was the
-//! seam between it and a foreign-function binding of the vendored C
-//! reference, which the differential tests compared side by side; the
-//! binding and the tests are not in this repository, and [`selected`] is a
-//! plain alias of [`native`] kept under the name every caller already uses.
-//! [`native`] contains no `unsafe` at all -- that is load-bearing for what
-//! Miri establishes and is asserted by
-//! `invariants.rs::unsafe_is_confined_to_declared_files`.
+//! One backend: [`native`], pure safe Rust. [`selected`] is a plain alias of
+//! it, under the name every caller uses.
+//!
+//! **[`native`] contains no `unsafe` at all.** That is load-bearing rather
+//! than incidental: it is what Miri's guarantee over this crate rests on, and
+//! `invariants.rs::unsafe_is_confined_to_declared_files` asserts it.
 //!
 //! # Why this module is public -- and only under `raw-backend`
 //!
@@ -27,9 +25,8 @@
 #[cfg(feature = "native")]
 pub mod native;
 
-/// The backend every caller resolves to. A plain alias of [`native`] since the
-/// foreign-function backend left; the name stays because it is the name the
-/// callers, the tests and the specification use, and because it marks the
-/// one place a second backend would be selected if one ever returned.
+/// The backend every caller resolves to. A plain alias of [`native`]: the
+/// name is what the callers, the tests and the specification use, and it
+/// marks the one place a second backend would be selected if there were one.
 #[cfg(feature = "native")]
 pub use native as selected;

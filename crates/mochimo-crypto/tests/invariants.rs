@@ -6102,6 +6102,14 @@ const DECLARED_UNRESOLVED_SRC_NAMES: &[(&str, &str)] = &[
         "a trybuild compile-fail case, as above.",
     ),
     (
+        "broken_intra_doc_links",
+        "a rustdoc lint name, in `mochimo-crypto`'s crate-level `deny`. Dependency surface, as \
+         with `unsafe_op_in_unsafe_fn` below -- and load-bearing for the same kind of reason: it \
+         is what makes a doc link to a deleted item an error instead of plain text that renders \
+         and says nothing. It fires under `cargo doc` alone, which neither the board nor clippy \
+         runs.",
+    ),
+    (
         "base58_to_addr_tag",
         "a fixture field: group C's `base58_to_addr_tag`, quoted in `addr.rs` as the datum the \
          function under discussion refuses. Fixture keys are asserted by the group's own \
@@ -11323,7 +11331,6 @@ impl MarkerClass {
 /// a sweep by a slightly different phrase, and named after the work rather
 /// than numbered one through four, because the division of the prose cleanup
 /// into four passes is a schedule and the root a file sits under is not.
-const SWEEP_SRC: &str = "the src/ prose sweep (one of Phases 1-4)";
 const SWEEP_TESTS: &str = "the tests/ prose sweep (one of Phases 1-4)";
 const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 
@@ -11383,7 +11390,6 @@ const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Session labels. Every one of these passed the ban until the `S` arm
     // existed to read them.
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/cli.rs", 18, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/invariants.rs", 46, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_TESTS),
@@ -11393,7 +11399,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
     // Open-item citations, found by the matcher this change added.
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/cli.rs", 19, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/kat.rs", 2, SWEEP_TESTS),

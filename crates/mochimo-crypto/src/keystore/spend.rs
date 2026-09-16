@@ -51,7 +51,7 @@ use super::{Keystore, Medium};
 /// [`Keystore::address_at`] just derived (the resign path). A plan built
 /// over addresses somebody typed would pay change to a key nobody holds,
 /// and `#[non_exhaustive]` keeps that from being a one-line mistake outside
-/// the crate. The test tree's [`SpendAddresses::unverified`] exists under
+/// the crate. The test tree's `SpendAddresses::unverified` exists under
 /// the `raw-backend` feature alone, which no dependent has; the downstream
 /// probe in `tests/signing.rs` compiles a default-features dependent and
 /// finds it unnameable.

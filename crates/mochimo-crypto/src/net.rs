@@ -1,48 +1,25 @@
-//! The network predicate the reference keeps out of reach of any binding.
+//! Whether an opcode is usable after a successful handshake.
 //!
-//! # Why this module contains logic when no other one does
+//! # The crate's one restated predicate
 //!
-//! Every other value in this crate is a literal read from the reference and
-//! held to a fixture the reference printed. `valid_op` cannot be pinned that
-//! way. It is a function-like macro defined at
-//! `reference/mochimo-core/src/network.c:34` — inside a `.c` file, not a
-//! header — so no binding generator ever saw it, and `network.c` could not be
-//! compiled into a crate to shim it: it leaves ~65 symbols unresolved,
-//! spanning the peer subsystem, block and tfile I/O, and `process_tx`.
+//! Everything else this crate knows about the protocol is a value held to a
+//! fixture. [`valid_op`] is not a value: it is a predicate, and the only
+//! facts under it are `FIRST_OP` and `LAST_OP`, two constants in
+//! `consts::net` that `kat.rs::group_e_constants_match_the_reference` holds
+//! to what group E records. Nothing here is a transcribed number -- the
+//! bounds are those constants, so widening the opcode range moves this
+//! predicate and its test together.
 //!
-//! The two alternatives were both worse.
-//!
-//! *Extracting the macro's text into a shim* is not what the port's other
-//! shims did. Those worked because the preprocessor expanded the original
-//! definition in place, so `types.h` stayed authoritative and an upstream
-//! edit propagated on the next build. Copying `valid_op`'s text into a file of ours creates a
-//! second definition that agrees with itself — upstream could change
-//! `network.c` and nothing here would go red. Automating the extraction is
-//! worse still: pulling a `#define` out of a `.c` file is regex-parsing C, and
-//! that breaks silently on multi-line, conditional, or redefined macros.
-//!
-//! *Restating it in Rust* is what this file does, and it is admissible only
-//! because of what `valid_op` is: a **predicate over constants**, not a
-//! protocol value. The facts it depends on are `FIRST_OP` and `LAST_OP`, two
-//! literals in `consts::net` that `kat.rs::group_e_constants_match_the_reference`
-//! holds to the values the reference printed into group E. Nothing below is a
-//! transcribed *value*; the bounds are those constants, so a change to either
-//! one moves this predicate and its test together.
-//!
-//! This is a deliberate, single exception, granted on that reasoning. **It is
-//! not precedent.** Any other symbol wanting this treatment comes back for a
-//! decision.
-//!
-//! The durable fix is upstream and is one line: move the `#define` into a
-//! header, and it becomes bindable for every implementation rather than only
-//! this one. `docs/specification.md` records the transcription under *Open
-//! items* (one validation predicate).
+//! That is the whole argument for restating it, and it is a single
+//! exception rather than a precedent: a predicate over checked constants can
+//! be written out, a protocol value cannot. `docs/specification.md` records
+//! the restatement under *Open items*.
 
 use crate::consts::net::{FIRST_OP, LAST_OP};
 
 /// Whether `op` is an operation code usable after a successful 3-way handshake.
 ///
-/// Mirrors `valid_op(op)` at `reference/mochimo-core/src/network.c:34`:
+/// Mirrors the reference's own macro:
 ///
 /// ```c
 /// #define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)
