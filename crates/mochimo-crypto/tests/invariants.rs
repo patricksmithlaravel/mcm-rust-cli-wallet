@@ -1657,7 +1657,7 @@ fn execution_census_population_is_libtests_run_list() {
     }
     assert!(
         total >= 200,
-        "libtest lists {total} tests across {} binaries; it was 285 when this \
+        "libtest lists {total} tests across {} binaries; it was 375 when this \
          message was last re-derived. Two-sided in spirit: \
          too few and the census is reading a truncated population, and the \
          likeliest cause is that it stopped asking libtest. Re-derive by \
@@ -4778,14 +4778,14 @@ fn no_test_in_the_suite_is_ignored() {
     );
     // Floor calibrated against the MEASURED population, and against the same
     // population the ban walks -- item-level `#[test]` plus any inside a
-    // macro invocation's body. Measured at 300, with no macro-emitted tests
+    // macro invocation's body. Measured at 333, with no macro-emitted tests
     // in the tree; the macro arm stays because it is what would see the
     // next one. A substring count drifts as documentation mentioning the
     // attribute is written, which is why this walks tokens.
     assert!(
         tests >= 200,
         "found only {tests} #[test] functions across {files} files; the \
-         collector is broken and any result from it is vacuous. Measured at 300."
+         collector is broken and any result from it is vacuous. Measured at 333."
     );
 
     assert!(
@@ -4980,7 +4980,7 @@ fn group_e_constants_stay_anchored() {
     assert!(
         (500..8_000).contains(&checker.len()),
         "the {CHECKER} body extracted to {} chars, outside 500..8000; it \
-         measured 3673 when this bound was written. Too short and every name \
+         measured 3569 when this bound was written. Too short and every name \
          reads as missing; too long and the slice has run into neighbouring \
          functions, where a name found is not a name this checker asserts.",
         checker.len()
@@ -5691,7 +5691,7 @@ fn documented_counts_match_the_artifacts() {
         lexed += 1;
     }
     // Positive controls: the walk lexed the tree and saw `cfg` attributes at
-    // all. Measured at 82 files and 99 attributes (every
+    // all. Measured at 84 files and 132 attributes (every
     // `#[cfg(feature = "native")]`, `#[cfg(not(miri))]` and `#[cfg(test)]`);
     // the floor is set well under that, and a floor guessed
     // "hundreds" and floored at 100 was red on its first run, which is what a
@@ -8274,7 +8274,7 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
     assert!(
         surface >= 30,
         "parsed only {surface} public functions out of the native backend \
-         module (34 when this floor was written). The walk that derives this \
+         module (41 when this floor was written). The walk that derives this \
          domain is broken, and every name it failed to see would have read as \
          declared."
     );
@@ -9700,7 +9700,7 @@ fn no_restricted_visibility_fn_in_the_backend() {
     assert!(
         items >= 30,
         "parsed only {items} item-level functions out of the native backend \
-         module (34 when this floor was written); the walk is broken and any \
+         module (45 when this floor was written); the walk is broken and any \
          result from it is vacuous"
     );
 
