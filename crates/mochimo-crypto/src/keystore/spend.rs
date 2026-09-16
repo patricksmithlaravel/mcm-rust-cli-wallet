@@ -27,8 +27,8 @@
 //! is the key at `position` under the account tag, and the change address is
 //! the key at `position + 1` under the same tag: the v3 arrangement in which
 //! the tag half is constant across a spend and the hash half rotates
-//! (`tx_val` requires the tags equal and the hashes different,
-//! `tx.c:738-744`). Both keys come from [`Keystore::key_at`], which is the
+//! (`tx_val` requires the tags equal and the hashes different).
+//! Both keys come from [`Keystore::key_at`], which is the
 //! derivation `sign_spend` uses, so what a plan is built for and what key
 //! signs it cannot drift apart.
 //!
@@ -54,7 +54,7 @@ use super::{Keystore, Medium};
 /// the crate. The test tree's [`SpendAddresses::unverified`] exists under
 /// the `raw-backend` feature alone, which no dependent has; the downstream
 /// probe in `tests/signing.rs` compiles a default-features dependent and
-/// finds it unnameable (AGENT.md, Known-open 17, closed at S6).
+/// finds it unnameable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SpendAddresses {

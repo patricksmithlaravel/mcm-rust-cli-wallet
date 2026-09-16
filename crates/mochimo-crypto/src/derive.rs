@@ -1,7 +1,11 @@
-//! The shipped extension's seed derivation, ported from the TypeScript in
-//! `reference/mochimo-wallet` — `redux/utils/derivation.ts`,
-//! `crypto/digestRandomGenerator.ts` and `core/MasterSeed.ts` — and the
-//! first-key construction it hands to `WOTS.generateRandomAddress`.
+//! Seed derivation: a master seed and an account index to an account's
+//! secret, its permanent tag and its first WOTS+ key.
+//!
+//! This is the scheme the shipped browser extension performs, reproduced
+//! byte for byte. Which scheme a wallet implements decides whose funds a
+//! phrase reaches, and the specification's *Limit: which scheme guards
+//! existing funds* says what that costs; this module is the one this wallet
+//! answers for.
 //!
 //! # What this is checked against, and what that establishes
 //!
@@ -590,7 +594,7 @@ mod tests {
     use super::*;
 
     /// Not under Miri: its time is the key generation inside `derive_account`
-    /// (408 s measured at S11), and `tests/derive.rs` replays that whole
+    /// (408 s measured), and `tests/derive.rs` replays that whole
     /// composition under the interpreter over group F's embedded subset --
     /// `F-address-widths` among them -- while what this test asserts is the
     /// text a `Debug` impl writes.

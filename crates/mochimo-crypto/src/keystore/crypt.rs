@@ -157,9 +157,8 @@ impl Kdf {
     /// format's own), and `argon2::Params::new` below holds the floor
     /// (`Params::MIN_M_COST`, 8 KiB, Argon2's own) and every other bound.
     /// Argon2's refusal is mapped to the parameter it names -- memory,
-    /// passes or lanes -- with that parameter's value as `got`; it was
-    /// always reported as an `m_cost` problem for a time, so a `t_cost` of
-    /// 0 read as a memory error (AGENT.md, Known-open 12, closed at S6).
+    /// passes or lanes -- with that parameter's value as `got`, so a
+    /// `t_cost` of 0 is reported against passes and not as a memory error.
     pub fn checked(self) -> Result<Kdf> {
         use argon2::Params;
         if self.m_cost_kib > MAX_M_COST_KIB {

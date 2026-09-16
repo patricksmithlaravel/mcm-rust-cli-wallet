@@ -88,12 +88,11 @@ impl Medium for Disk {
     fn write_temp(&mut self, dir: &Path, image: &[u8]) -> Result<Written> {
         let path = dir.join(TEMP_NAME);
         // A leftover temp is UNLINKED first, then the temp is created new.
-        // This was create+truncate for a time, so that a temp left by an
-        // earlier crash would not block every future commit -- which still
-        // holds, one statement earlier -- but a mode passed to `open` applies
-        // only when the file is created, so a leftover with looser
-        // permissions kept them through the truncate and the rename, and the
-        // snapshot inherited them (AGENT.md, Known-open 13, closed at S6).
+        // The unlink is what keeps a temp left by an earlier crash from
+        // blocking every future commit; creating new rather than truncating
+        // is what keeps that leftover's mode out of the snapshot, since a
+        // mode passed to `open` applies only when the file is created and a
+        // truncated leftover carries its own permissions through the rename.
         // `open` already unlinks a stale temp after taking the lock; doing it
         // here too is what keeps `create`'s first commit, and every other,
         // from depending on the caller remembering. Mode 0600: since format
