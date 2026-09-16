@@ -97,7 +97,7 @@ fn the_scan_and_the_store_derive_the_same_addresses() {
 ///
 /// The property is that the scan stops **on the match** and not after a run
 /// of misses, and that the bound is on the failing search alone. Neither
-/// half needs the default ceiling, and since S15 neither can have it: this
+/// half needs the default ceiling, and neither can have it: this
 /// loop runs one whole restore per position `i`, each scanning `0..=i`, so
 /// it costs `n(n+1)/2` derivations. At the old default of 20 that was 210
 /// derivations and about 0.3 s; at 10,000 it would be 50,005,000 and — at
@@ -170,11 +170,8 @@ fn restore_fails_rather_than_assuming_zero_on_every_unavailable_path() {
 }
 
 /// A position **past** a bound is not found, and the failure says so
-/// without guessing. The assertion is right and the explanation this comment
-/// carried for a time was not: it said the failure meant *"this seed
-/// does not own this tag, or something is wrong"* -- under a citation of an
-/// errata step that did not exist -- while
-/// the target it builds comes from the SAME master
+/// without guessing. A failure here does NOT mean *"this seed does not own
+/// this tag"*: the target it builds comes from the SAME master
 /// it hands the scan, so the seed provably owns the tag and the account is
 /// merely one position further along than the walk reaches. That is the one
 /// cause a ceiling produces by construction; the other two (a foreign seed, a
@@ -214,7 +211,7 @@ fn a_position_past_the_bound_fails_rather_than_being_guessed_at() {
 /// # Why nothing here walks 10,000 positions
 ///
 /// `derived_address_at` costs 44.4 ms in the debug profile `cargo test`
-/// builds (measured at S15 on this machine, 60 samples; 1.58 ms in a release
+/// builds (measured on this machine, 60 samples; 1.58 ms in a release
 /// build, 28x apart). An exhausted walk at the default is therefore about
 /// 7 m 24 s on the board and about 15.8 s for an operator, and the board's
 /// whole budget for this change was a minute. So the walk's mechanism is
@@ -267,8 +264,8 @@ fn the_recovery_ceiling_is_the_extensions_own_number() {
 /// [`ScanScope::DIAGNOSTIC`]'s ceiling FOLLOWS [`RECOVERY_CEILING`].
 ///
 /// A chain address one position past the window's high edge -- 71 above a
-/// local of 50 -- was `Unlocated` before S15 and is `Ahead 21` now, because
-/// the ceiling reaches it. Pin the diagnostic's ceiling back at 20 and this
+/// local of 50 -- is `Ahead 21`, because the ceiling reaches it. Pin the
+/// diagnostic's ceiling at 20 and this
 /// goes red on the first assertion; that is the whole point of the test.
 ///
 /// The cost is stated because it is the cost of the decision: the window is
@@ -354,8 +351,8 @@ fn the_wallet_refuses_to_open_on_every_unreconcilable_account() {
     refusals += 1;
 
     // The chain holds an address no index reproduces. **Driven through the
-    // reconciler at a named ceiling rather than through `Wallet::open`
-    // since S15**, and the reason is a number: `open` takes no scope -- it
+    // reconciler at a named ceiling rather than through `Wallet::open`**,
+    // and the reason is a number: `open` takes no scope -- it
     // is `ScanScope::DIAGNOSTIC` by construction -- and that ceiling is now
     // 10,000, so an address the walk cannot locate costs ten thousand
     // derivations, about 7 m 24 s in the profile `cargo test` builds. What
@@ -487,9 +484,9 @@ fn the_divergence_report_names_what_diverged_by_how_much_and_what_to_do() {
     // the action
     assert!(text.contains("ACTION:"), "no action is named");
     assert!(text.contains("Do NOT edit local state by hand"), "the action does not warn off hand edits");
-    // Both causes an `Ahead` fits, neither preferred: this
-    // wallet's own older state, or a second wallet on the seed. Once the
-    // arm asserted the first alone and hedged only in its ACTION line.
+    // Both causes an `Ahead` fits, neither preferred: this wallet's own
+    // older state, or a second wallet on the seed. Asserting the first alone
+    // and hedging only in the ACTION line is what this pins against.
     assert!(text.contains("SECOND WALLET"), "the ahead arm no longer names the second-wallet cause:\n{text}");
     assert!(text.contains("older copy"), "the ahead arm no longer names the older-local-state cause:\n{text}");
     // and the refusal explains itself rather than only refusing
@@ -1132,11 +1129,11 @@ fn a_node_that_does_not_resolve_a_tag_is_not_reported_as_never_funded() {
 /// The `Ahead` arm excludes the crash cause at every gap, in a sentence that
 /// is true at every gap (the live recovery's finding 3).
 ///
-/// Before that the arm said *"a gap of more than one cannot be a crash between
-/// signing and saving"* -- printed unconditionally, so at gap 1, the gap the
-/// first live recovery met, it excluded the cause for gaps the report was
-/// not about and said nothing about the gap in front of the operator. The
-/// property that actually holds is stronger and gap-independent: I2 writes
+/// A sentence like *"a gap of more than one cannot be a crash between signing
+/// and saving"*, printed unconditionally, excludes the cause for gaps the
+/// report is not about and says nothing about the gap in front of the
+/// operator -- at gap 1 above all. The property that holds is stronger and
+/// gap-independent: I2 writes
 /// the index and its reservation durably before a signature exists, so a
 /// spend interrupted after signing is reported through the reservation arms
 /// (`SpendOutstanding`, `SpendLanded`, `ReservationUnexplained`), never as an
@@ -1244,13 +1241,12 @@ fn diagnose(name: &str, local: u32, chain: u32, scope: &ScanScope) -> Divergence
 /// and the unlocated text is read as rendered: it names what was walked and
 /// all three causes, and asserts neither of the two the old text preferred.
 ///
-/// # Two scopes since S15, because the window stopped being observable
-/// alone
+/// # Two scopes, because the window is not observable from the default alone
 ///
-/// Until S15 the ceiling was 20 and one past the window's edge -- 71 above a
-/// local of 50 -- fell outside the recovery range too, so `unlocated` pinned
-/// the edge. The ceiling is 10,000 now: 71 is inside it, the union finds it,
-/// and the edge is invisible from the default scope. So the edges are pinned
+/// At a ceiling of 20, one past the window's edge -- 71 above a local of 50
+/// -- falls outside the recovery range too, so a single scope pins the edge.
+/// The ceiling is 10,000: 71 is inside it, the union finds it, and the edge
+/// is invisible from the default scope. So the edges are pinned
 /// under `w`, the window with its ceiling set to **zero**, where what is
 /// found is found by the window and nothing else; and the union is driven
 /// under `d`, the window over a ceiling of [`WALKED`], which is the shape
@@ -1295,9 +1291,9 @@ fn the_divergence_diagnostic_is_a_window_around_local_not_a_walk_from_zero() {
     // The unlocated text, as rendered: what was walked, the three
     // causes, the remedy -- and NOT the closed disjunction it replaced.
     let text = format!("{}", diagnose("recon-window-text", 50, 71, d));
-    // `d`'s ceiling is 20 here, so this renders what the default rendered
-    // before S15; the default's own render of the same arm would need an
-    // exhausted 10,000-position walk, about 7 m 24 s in this profile.
+    // `d`'s ceiling is 20 here; the default's own render of the same arm
+    // would need an exhausted 10,000-position walk, about 7 m 24 s in this
+    // profile.
     assert!(text.contains("indices 30 through 70, 20 either side of index 50"), "the window is not named:\n{text}");
     assert!(text.contains("indices 0 through 19"), "the recovery range is not named:\n{text}");
     assert!(text.contains("Three things produce that"), "the three causes are not named:\n{text}");
@@ -1338,11 +1334,10 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     let chain_at_100 = || MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(100), 1))]));
 
     // A scope that does not reach index 100: unlocated, and nothing to
-    // acknowledge. This read `reconcile_account` -- the default scope --
-    // until S15, when the default ceiling became 10,000 and started
-    // reaching 100 on its own. What the arm is about is a walk that does
-    // not find the chain's index, so the scope that does not find it is
-    // named rather than assumed; that the DEFAULT now does reach it is
+    // acknowledge. The default scope reaches 100 at a ceiling of 10,000, so
+    // it cannot serve here. What the arm is about is a walk that does not
+    // find the chain's index, so the scope that does not find it is named
+    // rather than assumed; that the DEFAULT does reach it is
     // `the_diagnostics_ceiling_follows_the_recovery_ceiling`'s subject.
     let (dir, mut ks) = store_at("recon-named-default", 0);
     let client = chain_at_100();
@@ -1377,11 +1372,10 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     // The acknowledgement is checked against the LIVE divergence under the
     // scope it is APPLIED with: under a scope too narrow to reach index 100
     // the store is `Unlocated`, there is no live target, and the same
-    // acknowledgement is refused. This named `ScanScope::DIAGNOSTIC` until
-    // S15, when the default ceiling became 10,000 and started reaching 100
-    // itself -- under which the same acknowledgement is now accepted,
-    // because the default scope re-confirms the index it names, which is
-    // the mechanism working rather than failing. What the arm is about is
+    // acknowledgement is refused. `ScanScope::DIAGNOSTIC` cannot stand in:
+    // at a ceiling of 10,000 it reaches 100 itself, under which the same
+    // acknowledgement is accepted, because that scope re-confirms the index
+    // it names -- the mechanism working rather than failing. What the arm is
     // the re-confirmation, so the narrow scope is named.
     assert!(matches!(
         recon::advance_after_operator_review(&mut ks, &client, &TAG, &access(&m), ack, &short),
@@ -1425,8 +1419,7 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
 /// counts the positions as they were walked -- `0 through 19` at a ceiling
 /// of 20, never *within 20* -- and names all three causes.
 ///
-/// The scope is explicit here too. Before S15 the first call took the
-/// default and the text read off it; the default is now 10,000 and taking
+/// The scope is explicit here too: the default is 10,000, and taking
 /// it would make this one call cost about 7 m 24 s in a debug build, so a
 /// ceiling of [`WALKED`] stands in and the text is asserted against that.
 /// The **default's** own rendering is pinned, at its real value and without
@@ -1485,9 +1478,7 @@ fn advancing_requires_an_acknowledgement_of_the_live_divergence() {
     let m = master();
     // The wallet will not open while diverged, so the report comes from
     // `reconcile_account` directly -- which is what the CLI's `status` and
-    // `reconcile` commands do. (This comment said so for a time when it was
-    // false: both commands were dispatched behind `Wallet::open` and never
-    // ran on a diverged store.)
+    // `reconcile` commands do, both of which run before that gate.
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(2), 1))]));
     let d = recon::reconcile_account(&ks, &client, &TAG, &access(&m)).expect_err("diverged");
     let ack = OperatorAcknowledgement::of(&d).unwrap_or_else(|| panic!("ahead has a target"));

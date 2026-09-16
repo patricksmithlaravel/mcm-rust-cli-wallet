@@ -1,6 +1,6 @@
 #![cfg(all(feature = "native", not(miri)))]
 //! Four shapes of the native WOTS+ internals, pinned with no oracle behind
-//! them (AGENT.md, Known-open 22, closed at S8).
+//! them.
 //!
 //! The corpus pins the VALUES these functions produce on every recorded
 //! input -- groups A, AK, B and BK replay key generation, signing and

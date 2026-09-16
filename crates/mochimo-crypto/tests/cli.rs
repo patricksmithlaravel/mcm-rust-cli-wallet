@@ -40,9 +40,8 @@ const TO: [u8; ADDR_TAG_LEN] = [0x6b; ADDR_TAG_LEN];
 fn store(name: &str) -> (ScratchDir, Keystore) {
     let dir = ScratchDir::new(name);
     let mut ks = Keystore::create(dir.path(), &keystore_harness::init()).unwrap_or_else(|e| panic!("{e}"));
-    // **The store holds its own master seed**. Every command used to
-    // receive one the binary reconstructed from twenty-four typed words;
-    // `cli::run` now reads it from the store the password opened, so a store
+    // **The store holds its own master seed**. `cli::run` reads it from the
+    // store the password opened, so a store
     // built without one is a store whose derived account nothing can sign for
     // -- `Wallet::open` refuses it with `NoMasterForDerivedAccount`, which is
     // correct and is exactly what every command test saw when this helper
@@ -86,9 +85,8 @@ fn run_on(name: &str, chain: Chain, cmd: &Command) -> cli::Report {
 }
 
 /// [`run_on`], keeping the directory so the store can be reopened and READ
-/// afterwards. No CLI test read store state after `cli::run` for a time, which
-/// is one reason a `reconcile` that never reached the store went unobserved
-/// until a refutation pass.
+/// afterwards. A CLI test that never reads store state after `cli::run`
+/// cannot see a `reconcile` that never reached the store.
 fn run_on_keeping(name: &str, chain: Chain, cmd: &Command) -> (ScratchDir, cli::Report) {
     let (dir, ks) = store(name);
     let r = cli::run(ks, MeshClient::new(chain), cmd);
@@ -166,8 +164,8 @@ fn prefixed(tag: &[u8]) -> String {
 /// the nonce seed come from the harness, so a store built here and a store
 /// built by `keystore_harness::create` are byte-identical for identical
 /// contents -- which is what keeps the flow test's observables comparable.
-/// The two password reads `create` now makes, in front of whatever the test
-/// was scripting.
+/// The two password reads `create` makes, in front of whatever the test is
+/// scripting.
 ///
 /// `read_new_password` reads twice and requires the two to agree, so every
 /// `create` script gains two answers before the one it cared about. Written as
@@ -352,7 +350,7 @@ fn address_makes_no_request_at_all() {
 }
 
 /// **`address --account N` opens the loop the specification recorded as
-/// closed** (decided; AGENT.md, Known-open 7). End to end, in process:
+/// closed**. End to end, in process:
 /// on a fresh store holding account 0, `address --account 1` prints a
 /// destination and says the account is not stored, with the snapshot bytes
 /// identical before and after and no request made; the scripted chain is
@@ -893,7 +891,7 @@ fn send_that_never_left_with(name: &str, s: &Spend) -> (ScratchDir, String) {
 }
 
 /// **`submit` ships the artifact it is given, as it is, and touches nothing
-/// else** (AGENT.md, Known-open 9). The refusals first, with the chain's
+/// else**. The refusals first, with the chain's
 /// submit log read after each: not hex, hex that is no transaction, and the
 /// artifact one byte short -- a length `from_wire` accepts and zero-extends,
 /// which is exactly the case the byte-identity check exists for -- each exit
@@ -956,7 +954,7 @@ fn submit_ships_a_saved_artifact_as_it_is_and_refuses_what_is_not_one_before_the
 /// `send` writes a zero destination reference, byte for byte, at the offset
 /// the wire layout documents: bytes 20..36 of the one destination, which
 /// begins at image offset 116. Pinned because a `--ref` flag was asked for
-/// and deferred (AGENT.md, Known-open 19): the node's reference grammar is
+/// and deferred: the node's reference grammar is
 /// restated nowhere in this repository and the corpus records its verdict
 /// on one accepted and one rejected value only, so the flag cannot be
 /// validated offline against the reference. Until it can, the field is
@@ -979,8 +977,7 @@ fn send_writes_a_zero_destination_reference_at_the_documented_offset() {
 /// `send --ref AB-00-EF` lays the reference out at the offset the wire
 /// layout documents, bytes 20..36 of the one destination at image offset
 /// 116, NUL-padded: the twin of the zero-reference pin above, which still
-/// holds for a `send` without the flag (AGENT.md, Known-open 19, closed at
-/// S10).
+/// holds for a `send` without the flag.
 #[test]
 fn send_with_a_reference_lays_it_out_at_the_documented_offset() {
     let s = spend_with_reference("AB-00-EF");
@@ -1092,8 +1089,6 @@ fn stored_state(dir: &ScratchDir) -> (u32, bool) {
 /// **`resign` submits what it reproduces**, and says of
 /// the write exactly what `send` says.
 ///
-/// For a time `resign` printed the bytes and shipped nothing, and the first
-/// live recovery was finished on mainnet with a hand-built POST.
 /// What is asserted here is the socket, then the page, then the store, and
 /// the artifact compared against is the one `send` printed -- two
 /// productions of one signature, not one value looked for in itself. The
@@ -1210,11 +1205,9 @@ fn resign_through_a_refusing_socket_is_refused_and_keeps_the_reservation() {
 /// The number the operator types must be the number the report named --
 /// asserted as the rendered refusal and the untouched store.
 ///
-/// **For a time this test asserted `Code::StartupRefused`**, which
-/// is what a right number produced too: `reconcile` was dispatched behind
-/// `Wallet::open`, which refuses on the divergence the command was started to
-/// reconcile, so the mismatch check this comment describes never ran. The
-/// test documented the defect under the name of the behaviour.
+/// Asserting `Code::StartupRefused` here would assert what a RIGHT number
+/// produces too: behind `Wallet::open` the command refuses on the divergence
+/// it was started to reconcile, and the mismatch check never runs.
 #[test]
 fn reconcile_refuses_an_advance_to_that_does_not_match_the_report() {
     let (dir, r) = run_on_keeping(
@@ -1382,8 +1375,8 @@ fn status_reports_a_divergence_without_opening_a_wallet() {
 
     // Far along, out of reach of the walk: what was walked is said, and the
     // remedy is named. `--scan-to 19` sets the ceiling to 20, which is what
-    // the DEFAULT was until S15; since the default became 10,000 a chain at
-    // 30 is found by it (the case below), so the out-of-reach rendering
+    // a ceiling of 10,000 finds a chain at 30 by itself (the case below), so
+    // the out-of-reach rendering
     // needs a ceiling that is named. A target past the default instead
     // would cost an exhausted ten-thousand-position walk, about 7 m 24 s in
     // this profile.
@@ -1398,9 +1391,8 @@ fn status_reports_a_divergence_without_opening_a_wallet() {
     assert_says(&r2, &format!("status 0x{} --scan-to <M>", hexs(&TAG)), "status far");
     assert!(!r2.text.contains("does not own this tag, or"), "the closed disjunction:\n{}", r2.text);
 
-    // And the raise this change is FOR: with no `--scan-to` at all, the
-    // default ceiling of 10,000 reaches index 30 and names it. Before S15
-    // this same invocation printed the out-of-reach page above.
+    // And what the raised ceiling is FOR: with no `--scan-to` at all, the
+    // default of 10,000 reaches index 30 and names it.
     let r2d = run_on(
         "cli-status-far-default",
         Chain::new(&[(TAG, ChainState::At(addr_at(30), 9))]),
@@ -1459,9 +1451,9 @@ fn the_startup_refusal_names_the_next_step_only_where_one_exists() {
     let r = run_on("cli-next-ahead", Chain::new(&[(TAG, ChainState::At(addr_at(3), 9))]), &Command::Balance);
     assert_eq!(r.code, Code::StartupRefused);
     assert_says(&r, &format!("reconcile 0x{} --advance-to 3", hexs(&TAG)), "refusal, ahead");
-    // Far ahead, and since S15 the default diagnostic reaches it: the
-    // startup page names the advance for index 30 where before it named
-    // the wider search. `Wallet::open` takes no scope, so the UNLOCATED arm
+    // Far ahead, and the default diagnostic reaches it: the startup page
+    // names the advance for index 30 rather than a wider search.
+    // `Wallet::open` takes no scope, so the UNLOCATED arm
     // cannot be reached here at any affordable cost -- the default ceiling
     // is 10,000 and an address no index reproduces walks all of them, about
     // 7 m 24 s in this profile. What that arm needs proved is split in two
@@ -1489,8 +1481,7 @@ fn restore_takes_the_index_from_the_chain_and_says_so() {
     let mut ks = Keystore::create(dir.path(), &keystore_harness::init()).unwrap_or_else(|e| panic!("{e}"));
     // `restore` derives from the master, and the master comes out
     // of the store rather than off the terminal -- so a store that has not
-    // adopted one refuses, correctly, with the message this used to receive
-    // when the operator supplied no seed.
+    // adopted one refuses, correctly, with the no-master message.
     let _durable = ks.adopt_master(&master()).unwrap_or_else(|e| panic!("{e}"));
     let r = cli::run(
         ks,
@@ -1532,9 +1523,9 @@ fn restore_with_a_raised_ceiling_finds_a_far_along_account() {
         (dir, ks)
     };
     // A ceiling the account is past: refused, counting what it walked.
-    // `--scan-to 19` is a ceiling of 20, which is what the default was
-    // until S15; a target past the DEFAULT would need an exhausted
-    // ten-thousand-position walk, about 7 m 24 s in this profile.
+    // `--scan-to 19` is a ceiling of 20; a target past the DEFAULT would
+    // need an exhausted ten-thousand-position walk, about 7 m 24 s in this
+    // profile.
     let (_d1, ks1) = fresh("cli-restore-far-bounded");
     let r1 = cli::run(
         ks1,
@@ -1545,10 +1536,9 @@ fn restore_with_a_raised_ceiling_finds_a_far_along_account() {
     assert_says(&r1, "none of key indices 0 through 19", "restore far");
     assert_says(&r1, "restore --account 0 --scan-to <M>", "restore far");
 
-    // And the raise this change is FOR: with no `--scan-to`, the default
-    // ceiling of 10,000 finds index 30 and stores the account there. Before
-    // S15 this same invocation was the refusal above, and an operator whose
-    // account had spent thirty times had to know to pass a flag.
+    // And what the raised ceiling is FOR: with no `--scan-to`, the default
+    // of 10,000 finds index 30 and stores the account there, where a lower
+    // one makes an operator who has spent thirty times pass a flag.
     let (d1d, ks1d) = fresh("cli-restore-far-default");
     let r1d = cli::run(
         ks1d,
@@ -1660,10 +1650,10 @@ fn the_parser_refuses_what_it_cannot_read() {
             &["--dir", "/d", "--node", "n", "address", "0xzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"],
             "not hexadecimal",
         ),
-        // **Bare forty-hex is refused and told exactly what to do.** It was
-        // accepted until an adversarial pass found that the second half of the
-        // 80-character ledger address `address` prints is also forty hex
-        // characters -- a tag nobody holds, taken without complaint.
+        // **Bare forty-hex is refused and told exactly what to do.** The
+        // second half of the 80-character ledger address `address` prints is
+        // also forty hex characters -- a tag nobody holds, and accepting the
+        // bare form takes it without complaint.
         (
             &["--dir", "/d", "--node", "n", "address", "05ff0f69d4c1cd682ed3341c0b7773054b58800f"],
             "is a bare hex tag. Write it as `0x",
@@ -1743,9 +1733,8 @@ fn the_parser_refuses_an_unknown_flag_rather_than_ignoring_it() {
 /// needs `--dir` or `--node` — asking for help before you know the flags is
 /// the case that matters. It is recognised where a verb or a global flag is
 /// -- before the verb, or as the verb -- and nowhere else: after the verb a
-/// help spelling is a stray token like any other, refused by name (it won
-/// from anywhere for a time, so `send <tag> -h 5` printed the help and
-/// exited 0; Known-open 30).
+/// help spelling is a stray token like any other, refused by name. Winning
+/// from anywhere in argv makes `send <tag> -h 5` print the help and exit 0.
 #[test]
 fn help_is_reachable_without_making_a_mistake() {
     for spelling in [vec!["-h"], vec!["--help"], vec!["help"]] {
@@ -1807,12 +1796,12 @@ fn enum_variants(src: &str, header: &str) -> usize {
 ///
 /// # The finding this pins
 ///
-/// For a time `parse` ended with an unconditional `--node is
-/// required`, reached by every verb, while three operator-facing texts said
-/// `create` and `address` need no node -- true of the socket, false of argv.
-/// The first live run met it: both commands exited 1 without touching the store, and an
-/// operator following the help could run neither. The rule now lives in one
-/// place, `Command::needs_node`, whose `match` has no wildcard, so an eleventh
+/// An unconditional `--node is required` at the end of `parse`, reached by
+/// every verb, contradicts three operator-facing texts saying `create` and
+/// `address` need no node -- true of the socket, false of argv -- and both
+/// commands then exit 1 without touching the store, so an operator following
+/// the help can run neither. The rule lives in one place,
+/// `Command::needs_node`, whose `match` has no wildcard, so an eleventh
 /// verb is a compile error there rather than a silent default.
 ///
 /// # The domain
@@ -1844,14 +1833,14 @@ fn only_create_and_address_parse_without_a_node() {
         ("restore", vec!["restore", "--account", "0"], true),
         ("status", vec!["status", &tag], true),
         ("submit", vec!["submit", "00"], true),
-        // S13's four read-only verbs. They need a node like every other verb
+        // The four read-only verbs. They need a node like every other verb
         // that asks one anything; what is different about them is that they
         // open no store, which `opens_no_store` says and the pty test drives.
         ("transaction", vec!["transaction", hash], true),
         ("recent-transactions", vec!["recent-transactions", &tag], true),
         ("block", vec!["block", "1078535"], true),
         ("blocks", vec!["blocks"], true),
-        // S15. It opens a store -- the master is in it -- so it is not one
+        // `discover` opens a store -- the master is in it -- so it is not one
         // of `opens_no_store`'s five; it asks a node once per index, so it
         // needs one.
         ("discover", vec!["discover"], true),
@@ -1870,7 +1859,7 @@ fn only_create_and_address_parse_without_a_node() {
         verbs.len()
     );
     // Distinct VERBS, not usage lines: `send` and `resign` each spell two
-    // forms since S12 (positional pairs, and `--destinations <path>`), and a
+    // forms (positional pairs, and `--destinations <path>`), and a
     // count of lines would call that a missing row.
     let help_verbs: std::collections::BTreeSet<&str> = args::HELP
         .lines()
@@ -1936,9 +1925,9 @@ fn only_create_and_address_parse_without_a_node() {
 
     // The texts the operator reads, held to the parser. The usage line must
     // mark the flag optional and the closing sentence must name the two
-    // commands and say the others require it -- the three texts the first live run found
-    // were true of the socket and false of argv, and a parser that changes
-    // under a help text that does not is the same defect from the other side.
+    // commands and say the others require it. A text true of the socket and
+    // false of argv misleads, and a parser that changes under a help text
+    // that does not is the same defect from the other side.
     let usage = args::HELP.lines().next().unwrap_or_default();
     assert!(
         usage.contains("[--node <URL>]"),
@@ -2302,9 +2291,8 @@ fn create_refuses_an_existing_store() {
     // **The refusal must come from `Keystore::create`'s snapshot check**, not
     // from `add` refusing a duplicate tag further in. Both are `Error::Exists`
     // and differ only in `what`, so a needle on "exists" passes either way --
-    // which is how the first version of this test passed under an injection
-    // that replaced `Keystore::create` with `create().or_else(open)`. Found by
-    // the injection matrix's verdict guard, not by reading it.
+    // so a needle on "exists" alone stays green under an injection replacing
+    // `Keystore::create` with `create().or_else(open)`.
     match create_here(dir.path(), &phrase) {
         Ok(_) => panic!("a second create over the same directory succeeded"),
         Err(mochimo_crypto::Error::Exists { what: "snapshot" }) => {}
@@ -2381,10 +2369,9 @@ fn the_whole_flow_from_an_empty_directory_to_a_settled_spend() {
     let printed = r.text.lines().next().unwrap_or("").to_string();
 
     // 3. the chain funds THAT STRING, through a door that takes only the
-    //    reference form. Until this session step 3 funded `tag` -- a
-    //    Rust value the test already held -- so the flow walked six steps
-    //    without ever looking at what `address` rendered, and passed for four
-    //    sessions over a 40-hex string no other wallet accepts.
+    //    reference form. Funding `tag` here instead -- a Rust value the test
+    //    already holds -- lets the flow walk six steps without ever looking
+    //    at what `address` rendered, over a string no other wallet accepts.
     let funded = || {
         let c = Chain::new(&[]);
         let credited = c
@@ -2654,16 +2641,15 @@ fn create_without_a_terminal_writes_nothing_and_shows_no_phrase() {
     );
     // The promise every refusal from `create` keeps is appended at the seam,
     // so an acquisition that fails in its own words still ends with it and
-    // no caller has to remember to add it (AGENT.md, Known-open 31, closed
-    // at S8).
+    // no caller has to remember to add it.
     assert_says(&r, "Nothing was created", "the no-terminal refusal");
     // **The bound on half two.** `shown` sees only what went through the
     // `Terminal` seam; a bare `println!` in the create path would reach stdout
     // and be invisible to it. That gap is closed in
     // `invariants.rs::the_cli_cannot_reach_around_the_wallet`, which reads
     // `cli/create.rs` through the project's comment stripper and forbids the
-    // print constructs there -- the first draft of the check lived here, had
-    // no stripper, and fired on the word `println!` inside a doc comment.
+    // print constructs there. The stripper is why: without it the check
+    // fires on the word `println!` inside a doc comment.
     println!(
         "create without a terminal: store absent, {} thing(s) shown, entropy drawn: {}",
         shown.borrow().len(),
@@ -2724,12 +2710,10 @@ fn create_with_a_terminal_writes_the_store_and_shows_the_phrase_once() {
 
 /// A wrong confirmation refuses **and leaves nothing on disk**.
 ///
-/// This was `a_wrong_confirmation_refuses_and_says_the_store_was_still_written`
-/// for a time, and it asserted the opposite: `accounts.mks` present
-/// after the refusal, and the text saying so. That order turned the display
-/// defect into a fund-loss defect -- exit 3, a real store, a phrase
-/// nobody had seen -- and its argument (an operator who wrote the phrase down
-/// should not lose the store to three mistyped words) is answered by
+/// Leaving `accounts.mks` present after the refusal turns a display defect
+/// into a fund-loss one -- exit 3, a real store, a phrase nobody has seen --
+/// and the argument for it (an operator who wrote the phrase down should not
+/// lose the store to three mistyped words) is answered by
 /// `create --from-phrase` rebuilding the identical store, which
 /// `the_same_phrase_makes_the_same_account_0_in_any_store` and the pty
 /// harness both measure.
@@ -2770,9 +2754,9 @@ fn a_wrong_confirmation_refuses_and_leaves_nothing_on_disk() {
 
 /// A display that fails refuses before anything is written.
 ///
-/// The binary's `show` wrote to a descriptor opened read-only for six
-/// sessions and the trait let it discard the error. With `show` returning a
-/// `Result`, a terminal whose display fails is refused at the seam, and --
+/// A trait whose `show` returns nothing lets a write to a read-only
+/// descriptor be discarded. With `show` returning a `Result`, a terminal
+/// whose display fails is refused at the seam, and --
 /// because the write now follows the confirmation -- refused with nothing on
 /// disk and no phrase on any screen.
 #[test]
@@ -2891,11 +2875,11 @@ fn a_refused_phrase_leaves_nothing_on_disk() {
 // The destination identifier
 // ---------------------------------------------------------------------------
 //
-// The first live run found the program unusable by its intended operator: it
-// printed a bare 40-hex tag, the shipped Chrome wallet refuses that outright
-// (*"Tag must be between 22 and 31 characters"*), and the operator could not
-// fund their own wallet from its own output. It failed in the other direction
-// too -- `send <to>` took 40-hex and every other wallet hands you Base58.
+// A program that prints a bare 40-hex tag is unusable by its intended
+// operator: the shipped Chrome wallet refuses that outright (*"Tag must be
+// between 22 and 31 characters"*), so the wallet cannot be funded from its
+// own output. It fails in the other direction too -- a `send <to>` taking
+// 40-hex when every other wallet hands you Base58.
 //
 // # Why these live in the CLI's file
 //
@@ -2935,10 +2919,9 @@ const GROUP_C: &str = include_str!("../../../fixtures/group_c_addr.json");
 /// literal -- is the whole of the independence
 /// claim: group C's own `crosscheck_typescript_expected` is a **transcribed
 /// literal**, so asserting against it establishes what the person doing the
-/// transcribing believed. The first draft of this KAT did exactly that, beside
-/// an assertion against the C's string in the same vector -- two byte-identical
-/// copies of one value, and no input could have made the second red while the
-/// first was green.
+/// transcribing believed -- which beside an assertion against the C's string
+/// in the same vector is two byte-identical copies of one value, where no
+/// input can make the second red while the first is green.
 const GROUP_CX: &str = include_str!("../../../fixtures/group_c_crosscheck.json");
 
 fn group_c() -> serde_json::Value {
@@ -3363,7 +3346,7 @@ fn send_accepts_a_destination_and_a_hex_tag_and_agrees_with_itself() {
     // project's own values unpasteable into its own wallet.
     assert_eq!(parse(&prefixed(&TAG), &prefixed(&TO)), want, "a 0x-hex send stopped parsing");
     // And mixed, because an operator will do this: their own tag from an
-    // errata entry, the payee's from a wallet.
+    // own records, the payee's from a wallet.
     assert_eq!(parse(&prefixed(&TAG), &dest), want);
     assert_eq!(parse(&src, &prefixed(&TO)), want);
     // Whitespace is trimmed, as both shipped clients trim: a pasted
@@ -3504,7 +3487,7 @@ fn the_parser_refuses_a_destination_it_cannot_take() {
 /// `Chain::credit_destination` exists so the flow test cannot be funded by a
 /// string no other client would take. A door that accepted everything would be
 /// worth exactly what the old flow test was, so what it refuses is asserted
-/// here — including the two forms the CLI actually printed before this session.
+/// here — including the two forms a CLI is most likely to print.
 #[test]
 fn the_fake_refuses_every_form_but_the_reference_one() {
     let good = mochimo_crypto::addr::tag_to_base58(&TAG).unwrap_or_else(|e| panic!("{e}"));
@@ -3531,9 +3514,9 @@ fn the_fake_refuses_every_form_but_the_reference_one() {
     // would otherwise land on one arm. Three arms are reached below and each
     // one is distinguishable in the message.
     let refused: [(String, &str, &str); 6] = [
-        // What `create` and `address` printed until this session.
+        // The bare tag.
         (hexs(&TAG), "the 40-hex tag", "character(s); a destination is"),
-        // What `address` printed as its first line until this session.
+        // The ledger address.
         (hexs(&addr_at(0)), "the 80-hex ledger address", "character(s); a destination is"),
         (altered, "a destination with one character altered", "checksum does not match"),
         (short_payload, "Base58 over a 21-byte payload", "byte(s); a destination is 22"),
@@ -3701,9 +3684,9 @@ fn expected_confirmation() -> String {
 ///
 /// The first-contact finding was that the exit-3 refusal carried no route to the
 /// account it had just made: the tag was printed only on the exit-0 path, and
-/// on the first live run the operator's tag was recovered by reading
-/// `accounts.mks` at offset 22. It was answered by printing the destination
-/// in the refusal. Then the write moved behind the confirmation, so a refused
+/// recovering the tag then means reading `accounts.mks` at offset 22. That
+/// is answered by printing the destination in the refusal. With the write
+/// behind the confirmation, a refused
 /// confirmation leaves no account to find and no destination to print; what
 /// the refusal must still carry is the route -- the phrase on the screen
 /// rebuilds the identical store through `--from-phrase`, measured by
@@ -3921,10 +3904,10 @@ fn the_listing_needs_no_node_and_no_seed() {
 // ---------------------------------------------------------------------------
 //
 // Every test above drives `cli::Report` through a double. None executed the
-// binary, and the binary is where `create` showed the operator nothing for six
-// sessions: `acquire_terminal` opened `/dev/tty` read-only, every write to it
-// failed with `EBADF`, every result was discarded, and the source scan that
-// stood in for a test asked only whether the impl *named* the descriptor.
+// binary, and the binary is where `create` can show the operator nothing:
+// `/dev/tty` opened read-only, every write failing with `EBADF`, every
+// result discarded, and a source scan standing in for a test asking only
+// whether the impl *names* the descriptor.
 // Naming a descriptor is a text property; writing to it is a runtime one. This
 // module is the runtime one.
 //
@@ -3949,8 +3932,8 @@ fn the_listing_needs_no_node_and_no_seed() {
 //
 // # Why it is on the board, and why only in the default configuration
 //
-// A check that lives behind a command nobody runs has the failure mode this
-// defect had: six sessions, nobody ran `create`. So this is a `#[test]` in
+// A check that lives behind a command nobody runs is a check nobody runs.
+// So this is a `#[test]` in
 // the board's own `cli` binary and it BUILDS its subject rather than skipping
 // when the subject is absent -- a skipping test is green while asserting
 // nothing. It is gated on `not(miri)` because it spawns `cargo` and
@@ -3990,7 +3973,7 @@ mod pty {
     const PASSWORD: &str = "harness-password-not-for-real-use";
 
     /// A node the binary never dials: `create` needs the flag and not the
-    /// socket (the first live run's finding).
+    /// socket.
     const NODE: &str = "http://127.0.0.1:1";
 
     fn repo_root() -> PathBuf {
@@ -4323,7 +4306,7 @@ mod pty {
         /// The pty's line discipline is canonical -- the binary turns echo
         /// off and nothing else -- so a VEOF at the start of a line makes
         /// the binary's `read_line` return zero bytes, which is the case
-        /// Known-open 30's third defect was about.
+        /// the third parse defect was about.
         pub fn send_eof(&mut self) {
             let stdin = self.stdin.as_mut().expect("stdin is held until finish");
             stdin
@@ -4595,12 +4578,11 @@ mod pty {
     /// # Two defects, one run, because the second is only reachable past
     /// # the first
     ///
-    /// `create` and `address` both exited 1 with `usage: --node is required`
-    /// while the help said they need no node (the first live run's finding). And the free
-    /// `read_secret_line` every non-`create` command prompts through wrote
-    /// its prompt with `eprint!`, so `address 2>file` asked for a password on
-    /// no screen -- the same finding `create` had, one impl over, never
-    /// applied. The harness redirects the
+    /// `create` and `address` exiting 1 with `usage: --node is required`
+    /// contradicts a help that says they need no node. And a free
+    /// `read_secret_line` writing its prompt with `eprint!` makes
+    /// `address 2>file` ask for a password on no screen -- the same defect
+    /// `create` has, one impl over. The harness redirects the
     /// binary's stderr to a file INSIDE the pty, so the assertion that the
     /// prompt is on the screen and not in that file is exactly the property
     /// `eprint!` cannot have.
@@ -4624,8 +4606,8 @@ mod pty {
         let expected = destination_of(&words.join(" "));
         assert!(o.stdout.contains(&format!("destination  {expected}")), "create's stdout lacks the destination:\n{}", o.stdout);
         assert!(!o.stderr.contains("--node"), "create without --node complained about the node:\n{}", o.stderr);
-        // The third of the three texts the first live run found -- `created_text` -- is read
-        // back here; the parser test holds the two in `HELP`.
+        // The third of the three texts -- `created_text` -- is read back
+        // here; the parser test holds the two in `HELP`.
         assert!(
             o.stdout.contains("both need no `--node`"),
             "create's report no longer says the two commands need no --node:\n{}",
@@ -4671,8 +4653,8 @@ mod pty {
     /// `balance` is the representative: the parser test walks all seven. Here
     /// the point is the ordering an operator meets -- exit 1 with the usage
     /// on stderr, nothing on the screen, no password asked, no directory
-    /// made -- which is what the earlier-than-the-prompt refusal the first
-    /// live run recorded looks like from outside the process.
+    /// made -- which is what an earlier-than-the-prompt refusal looks like
+    /// from outside the process.
     #[test]
     fn balance_without_a_node_is_a_usage_error_before_any_prompt() {
         let io = ScratchDir::new("pty-nonode-balance-io");
@@ -4706,8 +4688,7 @@ mod pty {
     /// A help spelling after the verb is a usage error through the binary:
     /// `send <tag> -h 5` exits 1 with the usage naming `-h`, nothing on the
     /// screen, no prompt, no directory made -- the same shape as every other
-    /// stray token, where it printed the help and exited 0 for a time
-    /// (Known-open 30).
+    /// stray token, refused before the store is read.
     #[test]
     fn a_help_spelling_in_an_argument_position_is_a_usage_error_not_help() {
         let io = ScratchDir::new("pty-help-position-io");
@@ -4729,9 +4710,7 @@ mod pty {
     }
 
     /// A repeated flag is a usage error through the binary: `send ... --fee
-    /// 500 --fee 600` exits 1 naming `--fee`, before any prompt (Known-open
-    /// 30; the tail flags took the first occurrence and the global flags the
-    /// last, for a time).
+    /// 500 --fee 600` exits 1 naming `--fee`, before any prompt.
     #[test]
     fn a_repeated_flag_is_a_usage_error_before_any_prompt() {
         let io = ScratchDir::new("pty-repeated-flag-io");
@@ -4749,9 +4728,9 @@ mod pty {
     }
 
     /// **Ctrl-D at the password prompt is end of input, refused in its own
-    /// words before the store is read** (Known-open 30). For a time
-    /// `read_line`'s zero bytes were trimmed to an empty password and handed
-    /// to the store, which reported a wrong password. Delivered as one
+    /// words before the store is read**. Trimming `read_line`'s zero bytes
+    /// to an empty password and handing it to the store reports a wrong
+    /// password instead. Delivered as one
     /// `0x04` byte with no newline into the pty; that the binary saw it as
     /// end-of-file rather than an empty line is what the refusal text
     /// shows -- the wrong-password text is absent, the end-of-input text is
@@ -4796,10 +4775,9 @@ mod pty {
         let o2 = s2.finish();
         assert_eq!(o2.code, Some(3), "end of input at create's first prompt did not exit 3.\n--- screen ---\n{}\n--- stderr ---\n{}", o2.screen, o2.stderr);
         assert!(o2.stderr.contains("end of input at the prompt"), "create's refusal is not the end-of-input text:\n{}", o2.stderr);
-        // Both halves: the sentence and the directory. For a time create's
-        // password-read refusals did not carry the sentence its phrase-read
-        // refusals did, and this arm asserted the absent directory alone
-        // (AGENT.md, Known-open 31, found by this arm, closed at S8).
+        // Both halves: the sentence and the directory. A `create` whose
+        // password-read refusals lack the sentence its phrase-read refusals
+        // carry passes an arm that asserts the absent directory alone.
         assert!(o2.stderr.contains("Nothing was created"), "create's end-of-input refusal does not say nothing was created:\n{}", o2.stderr);
         assert!(!fresh.path().exists(), "end of input at create's prompt made the directory {}", fresh.path().display());
         println!("tty end of input: one 0x04 byte at the password prompt -> exit 2 in the prompt's own words, store untouched; at create's prompt -> exit 3 saying nothing was created, and nothing was");
@@ -4808,7 +4786,7 @@ mod pty {
     /// `address --account 1` through the shipped binary: no `--node`, the
     /// password answered, exit 0 with a destination on line one and NOT
     /// STORED on the page, nothing on stderr, and the snapshot bytes
-    /// identical before and after (Known-open 7, decided).
+    /// identical before and after.
     #[test]
     fn address_account_on_a_real_pty_needs_no_node_and_writes_nothing() {
         use mochimo_crypto::account::Account;
@@ -4838,12 +4816,12 @@ mod pty {
     /// is inert: `create` refuses on the snapshot while it is there, and
     /// proceeds through the lock once it is not.
     ///
-    /// # The first live run's scenario, replayed through the binary
+    /// # The scenario, replayed through the binary
     ///
-    /// That run probed a copied store (its lock deleted from the copy, its version
-    /// word set to 2) and found the failed open had recreated the lock, and
-    /// that `create` then refused the directory. That refusal once named
-    /// the lock file and advised running any other command against the
+    /// A copied store (its lock deleted from the copy, its version word set
+    /// to 2) has its lock recreated by the failed open, and `create` then
+    /// refuses the directory. A refusal naming the lock file, and advising
+    /// running any other command against the
     /// store, every one of which refuses `Missing`: a loop with no exit that
     /// either message named. The side effect itself is kept and
     /// measured here through the binary, at the second step.
@@ -4858,8 +4836,8 @@ mod pty {
         let dir = store.path().to_string_lossy().into_owned();
         let has = |name: &str| store.listing().iter().any(|n| n == name);
 
-        // A real store, then the copy the first live run held: version word 2,
-        // no lock. The fresh word is 4 (3 before format version 4); 2 stays the
+        // A real store, then a copy of it: version word 2, no lock. The
+        // fresh word is 4 (3 before format version 4); 2 stays the
         // refused version this test needs, since the version-3 word is READ
         // and would open.
         let ks = Keystore::create(store.path(), &super::keystore_harness::init())
@@ -4903,14 +4881,14 @@ mod pty {
         assert!(o2.stderr.contains("a keystore already exists") && o2.stderr.contains("snapshot is present"), "the refusal does not name the snapshot:\n{}", o2.stderr);
         assert!(
             o2.stderr.contains("use a different --dir") && o2.stderr.contains("restore --account N"),
-            "the refusal names no next step (Known-open 19):\n{}",
+            "the refusal names no next step:\n{}",
             o2.stderr
         );
         assert!(!o2.stderr.contains("lock file"), "the refusal named the lock file rather than the snapshot:\n{}", o2.stderr);
         assert!(o2.screen.trim().is_empty(), "create over an existing store showed the operator something:\n{}", o2.screen);
         assert_eq!(store.snapshot_bytes(), image, "THE UNREADABLE SNAPSHOT WAS REWRITTEN by a refused create");
 
-        // 3. The operator removes the snapshot, as the first live run did; the lock stays; and
+        // 3. The operator removes the snapshot; the lock stays; and
         //    `create` walks through it.
         std::fs::remove_file(store.path().join("accounts.mks")).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(store.listing(), vec!["keystore.lock".to_string()], "premise: only the lock remains");
@@ -4946,12 +4924,12 @@ mod pty {
     /// A `--node` this program cannot use is refused before any prompt, for
     /// every command alike -- including the two that never dial.
     ///
-    /// The validation used to sit after the password read and the store's
-    /// open: `address --node localhost:8080` prompted, ran Argon2id, took the
-    /// keystore lock and THEN said `cannot use node`, exit 2, for a command
-    /// the help says needs no node; `create --node localhost:8080` was
-    /// accepted silently, being dispatched before any transport existed. Now
-    /// the transport is built first for all ten verbs, and it opens no
+    /// Validation after the password read and the store's open would make
+    /// `address --node localhost:8080` prompt, run Argon2id, take the keystore
+    /// lock and THEN say `cannot use node`, exit 2, for a command the help
+    /// says needs no node -- while `create --node localhost:8080` is accepted
+    /// silently, dispatched before any transport exists. The transport is
+    /// built first for all ten verbs, and it opens no
     /// socket, so a bad URL costs nothing and asks nothing.
     #[test]
     fn a_malformed_node_is_refused_before_any_prompt_whatever_the_command() {
@@ -4984,7 +4962,7 @@ mod pty {
     /// same BALANCE and the same hash half whatever tag is asked for, and
     /// splices the asked-for tag into the answer's tag half -- `"tag"` is
     /// the one 40-hex field a `/call` body carries. That splice arrived at
-    /// S15 with `discover`, the first verb that asks about more than one
+    /// `discover` is the first verb that asks about more than one
     /// tag: the codec checks that a resolved address begins with the tag it
     /// asked about, so a fixed answer made every index after the first a
     /// parse failure. It changes nothing for the tests that came before,
@@ -5108,7 +5086,7 @@ mod pty {
                             "200 OK",
                             format!(r#"{{"transaction_identifier":{{"hash":"{}"}}}}"#, hexs(&id)),
                         ),
-                        // S13: one row for the explorer verbs, in the shape
+                        // One row for the explorer verbs, in the shape
                         // `/search/transactions` records (source debited
                         // GROSS, the change back as its own destination,
                         // metadata as JSON numbers). The captured bodies
@@ -5302,7 +5280,7 @@ mod pty {
     /// loopback: exit 0, the page carrying `ref  AB-00-EF` beside the other
     /// figures, and the one submit body on the socket carrying the artifact
     /// the page printed, with the reference at bytes 20..36 of its
-    /// destination, NUL-padded (AGENT.md, Known-open 19, closed at S10).
+    /// destination, NUL-padded.
     #[test]
     fn send_with_a_reference_on_a_real_pty_ships_it() {
         use mochimo_crypto::account::Account;
@@ -5465,7 +5443,7 @@ mod pty {
     }
 
     /// **`submit` ships a saved artifact through the shipped binary and opens
-    /// no store** (AGENT.md, Known-open 9).
+    /// no store**.
     ///
     /// The artifact comes from an in-process `send` whose socket write was
     /// refused -- the page the operator holds. The store it came from is
@@ -5696,7 +5674,7 @@ mod pty {
 
         // 5. FAR ALONG: the chain moves to index 30, past the window.
         //    `status --scan-to 19` -- a ceiling of 20, which is what the
-        //    DEFAULT was until S15 -- reports it out of reach: exit 0, the
+        //    DEFAULT is not -- reports it out of reach: exit 0, the
         //    report on stdout, a report being an answer and not a refusal,
         //    and what to do said without deciding among the three causes.
         //    The flag is passed rather than relying on the default because
@@ -5715,7 +5693,7 @@ mod pty {
 
         // 5b. And with no flag at all, through the shipped binary: the
         //     default ceiling reaches index 30 and names it. This is the
-        //     raise S15 is for, driven end to end on a pty.
+        //     raised ceiling is for, driven end to end on a pty.
         let io5b = ScratchDir::new("pty-reconcile-io5b");
         let o5b = run_reconciling(io5b.path(), &dir, &ledger.url, &["status", &tag_arg]);
         prompts += o5b.prompts;
@@ -5975,11 +5953,10 @@ fn p10_signed_transaction_of(body_hex: &str) -> Option<String> {
 
 /// **The shipped binary submits a reproduced artifact** -- green
 /// under this name; red as `the_binary_cannot_submit_a_reproduced_artifact`
-/// for a session, the red observed before the fix (two routes were named
-/// and the first taken: `resign` ships what it reproduces). The body below is
-/// the red marker's byte for
-/// byte -- it still probes both routes and is green on the first, and the
-/// two route (ii) probes still spawn a child each on every green run -- so
+/// if it stopped shipping. Two routes are named and the first taken:
+/// `resign` ships what it reproduces. The body probes both routes and is
+/// green on the first, and the two route (ii) probes spawn a child each on
+/// every green run -- so
 /// the name is the condition, route-neutral, rather than the route
 /// taken: a later tree that shipped a `submit` verb instead would pass under
 /// it without the name becoming false. What follows is the
@@ -6163,27 +6140,21 @@ const P10_LIVE_LINE: &str = "SPEND OUTSTANDING at index 0 -- not yet seen on the
 /// finding's own condition ("can no longer be accepted") and recorded as the marker's
 /// mechanical wording rather than left as a guess.
 const P10_DEAD_PHRASE: &str = "can no longer be accepted";
-/// The decided dead-reservation sentence (Known-open 8): the specification's
+/// The dead-reservation sentence: the specification's
 /// own words, then that no command offers a second signature on purpose.
 const P10_NO_ROUTE_OUT: &str = "A dead reservation has no route out: the whole balance at the reserved key is reachable only by a signature from that key, and the only signature this wallet will ever produce from that key is the one already produced. No command offers a second one, on purpose";
 
 /// **A dead reservation is reported as dead, from the store and the chain
 /// alone** -- green under this name; red as
-/// `a_dead_reservation_is_reported_as_a_live_one` until format version 4, the
-/// red observed before the fix (the wording was decided, the figures meet the
-/// condition, and the landing recorded it). The body is the red marker's: what
-/// changed is prose the landing falsified
-/// -- the panic message's clause about what `Pending` holds, and the claim
-/// that the signed bytes in the record were the root fix, which was
-/// rejected on width. No assertion moved. What follows is
+/// `a_dead_reservation_is_reported_as_a_live_one` before format version 4
+/// recorded the figures. What follows is
 /// the comment as it stood red.
 ///
 /// A deposit that lands while a reservation is open and unlanded credits the
-/// tag in place (`bval.c:350-358`, `ledger.c:640-646`), and `tx_val`
-/// demands `send + change + fee == balance` exactly (`tx.c:776-793`), so the
-/// signed bytes can never be accepted again; a non-zero block-to-live the
-/// tip has reached does the same by another first step (`types.h:471-475`,
-/// `tx.c:1034`). The wallet then reports `SPEND OUTSTANDING … not yet seen
+/// tag in place, and `tx_val` demands `send + change + fee == balance`
+/// exactly, so the signed bytes can never be accepted again; a non-zero
+/// block-to-live the tip has reached does the same by another first step.
+/// The wallet then reports `SPEND OUTSTANDING … not yet seen
 /// on the chain`, `settle` says *not settled … `resign` rebuilds it*, and
 /// nothing says the artifact is dead: literally true, and useless.
 ///
@@ -6208,8 +6179,8 @@ const P10_NO_ROUTE_OUT: &str = "A dead reservation has no route out: the whole b
 /// | D | btl 4,242 | unchanged, tip 4,241 | live (control) |
 ///
 /// B sits exactly on the boundary: block N is the last block that can carry
-/// btl N (`cmp64(txe->tx_btl, bnum) < 0` refuses under `bval.c:309`'s own
-/// number), and `txclean` drops it against `Cblocknum + 1` (`tx.c:1031-1034`),
+/// btl N (`cmp64(txe->tx_btl, bnum) < 0` refuses against the block's own
+/// number), and `txclean` drops it against `Cblocknum + 1`,
 /// so a reservation is dead once the tip REACHES its value, not once it
 /// passes it. A fix comparing `tip > btl` is red here. D is the control that
 /// keeps a fix from calling every non-zero block-to-live dead. Neither
@@ -6234,7 +6205,7 @@ const P10_NO_ROUTE_OUT: &str = "A dead reservation has no route out: the whole b
 ///
 /// `reconcile` is not driven: it is the acknowledgement gate for divergences,
 /// and a dead reservation is not a divergence -- whether the gate should
-/// mention one is undecided. The route OUT is the open question (AGENT.md, Known-open 8) and
+/// mention one is undecided. The route OUT is the open question, and
 /// is not asserted in either direction. What this does not establish: any
 /// wording beyond the phrase, and the rendering of the expiry against the
 /// tip (the block-to-live finding's route (a) names it; no marker asserts it). Since `resign` ships,
@@ -6303,7 +6274,7 @@ fn a_dead_reservation_is_reported_as_dead_from_the_store_and_the_chain_alone() {
                 failures.push(format!("{} `{what}`: does not say {P10_DEAD_PHRASE:?}", sc.name));
             }
             // The decided route out: none, on purpose, stated beside the
-            // price (Known-open 8). The sentence is the specification's.
+            // price. The sentence is the specification's.
             if !page.contains(P10_NO_ROUTE_OUT) {
                 failures.push(format!("{} `{what}`: does not say {P10_NO_ROUTE_OUT:?}", sc.name));
             }
@@ -6341,7 +6312,7 @@ fn a_dead_reservation_is_reported_as_dead_from_the_store_and_the_chain_alone() {
          {P10_DEAD_PHRASE:?} with the reserved figure (the wording was recorded as this \
          marker's interface); and a `settle` that stops naming `resign`. Format version 4's figures \
          are what discharged this; item 5c's signed bytes were rejected on \
-         width. The route out of the dead state is decided (AGENT.md, Known-open 8, closed at S7): \
+         width. The route out of the dead state is decided: \
          there is none, on purpose, and the page says so beside the price.",
         failures.len(),
         failures.join("\n  - ")
@@ -6350,13 +6321,10 @@ fn a_dead_reservation_is_reported_as_dead_from_the_store_and_the_chain_alone() {
 
 /// **The block-to-live is recovered from the store, without knowing the
 /// value** -- green under this name; red as
-/// `the_block_to_live_cannot_be_recovered_from_the_store` until format
-/// version 4, the red observed before the fix (route (a) was decided:
-/// `status` and `balance` render the value from the
-/// record on its own line; the landing recorded it). The body is the red marker's -- it
-/// performs the recovery rather than a proxy for it -- and only the panic
-/// message's claim that the signed bytes in the record were the root fix moved, since that
-/// was rejected on width. No assertion moved.
+/// `the_block_to_live_cannot_be_recovered_from_the_store` before format
+/// version 4 recorded the value: `status` and `balance` render it from the
+/// record on its own line. The body performs the recovery rather than a
+/// proxy for it.
 /// What follows is the comment as it stood red.
 ///
 /// `blk_to_live` is the last field of `TXHDR` and inside the digest; `send`
@@ -6420,11 +6388,9 @@ fn the_block_to_live_is_recovered_from_the_store_without_knowing_the_value() {
         // `TXHDR` is options[4] | src_addr[40] | chg_addr[40] | send_total[8]
         // | change_total[8] | fee_total[8] | blk_to_live[8] (types.h), so the
         // block-to-live is byte [108..116) of the artifact: hex [216..232),
-        // the figure the finding states. This marker's first draft doubled it
-        // to [432..464) by reading the entry's hex offset as a byte offset,
-        // and the assertion refused the correct artifact -- a wrong
-        // expectation caught by its own control, recorded here so the next
-        // reader does not "correct" the entry.
+        // Reading that hex offset as a byte offset doubles it to [432..464)
+        // and refuses the correct artifact, so the entry is not to be
+        // "corrected" into one.
         let le: String = b.to_le_bytes().iter().map(|x| format!("{x:02x}")).collect();
         assert_eq!(
             &sent.artifact_hex[216..232],
@@ -6599,7 +6565,7 @@ fn a_migrated_store_says_its_figures_were_not_recorded_and_is_resealed_by_its_fi
 }
 
 // ---------------------------------------------------------------------------
-// S13: the four read-only verbs
+// The four read-only verbs
 // ---------------------------------------------------------------------------
 
 /// A transport scripted for the explorer endpoints alone.

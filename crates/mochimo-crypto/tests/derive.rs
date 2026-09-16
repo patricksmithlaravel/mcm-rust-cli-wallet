@@ -323,7 +323,7 @@ fn generator_chunking_is_a_prefix_property_over_every_length() {
 /// Landmine 2, enumerated across twenty-five periods: the seed cycles on the
 /// call whose incremented counter is a multiple of ten -- calls 9, 19, ...,
 /// 249 -- never on the tenth. The fixture pins 9 and 19; this pins the rule
-/// the reference's source states (`digestRandomGenerator.ts:70-76`) for the
+/// the reference's source states for the
 /// length a wallet could plausibly reach.
 #[test]
 fn seed_cycles_on_every_tenth_state_starting_at_the_ninth() {
@@ -372,9 +372,9 @@ fn index_boundaries_derive_distinct_secrets() {
 /// checked: the installed package's version must equal the fixture's
 /// `pin.scure_bip39_version`.
 ///
-/// This is the one board test that reads through `reference/node_modules`,
+/// This is the one board test that reads through a vendored package tree,
 /// the gitignored symlink the fixture generators need
-/// (`reference/gen-fixtures/ts/README.md`). On a checkout without it the
+/// which a checkout of this repository does not carry. Without it the
 /// failure names the install step rather than reading as a wordlist defect.
 #[cfg(not(miri))]
 #[test]
@@ -554,9 +554,8 @@ fn hex_of(b: &[u8]) -> String {
 /// the same as a check that they do.
 ///
 /// The extension's side, read on disk: `generateSeed()` defaults to **32
-/// bytes** (`reference/mochimo-wallet/src/crypto/random.ts:15`),
-/// `MasterSeed.create` calls it with no argument (`MasterSeed.ts:35`), and
-/// `toPhrase` hands those bytes to `bip39.entropyToMnemonic` (`MasterSeed.ts:80,86`).
+/// bytes**, `MasterSeed.create` calls it with no argument, and `toPhrase`
+/// hands those bytes to `bip39.entropyToMnemonic`.
 /// Thirty-two bytes of entropy is BIP39's 256-bit case, which is twenty-four
 /// words.
 #[test]

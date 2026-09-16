@@ -2,7 +2,7 @@
 //!
 //! `mochimo_crypto::net::valid_op` is the one definition in this crate that is
 //! restated in Rust rather than bound. `valid_op` is a function-like macro
-//! defined inside `reference/mochimo-core/src/network.c` rather than a header,
+//! defined inside a `.c` file rather than a header,
 //! so bindgen never sees it, and `network.c` cannot be compiled into the crate
 //! to shim it — it leaves ~65 symbols unresolved across the peer subsystem,
 //! block and tfile I/O, and `process_tx`.

@@ -84,12 +84,12 @@ fn hashed_image(name: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// The two digests the node takes (`tx_hash`, `tx.c:447-463`), reproduced
+/// The two digests the node takes (`tx_hash`), reproduced
 /// natively against the values the reference itself recorded: every `Ds1-N*`
 /// vector carries the image `tx_hash` was called on (`hashed_wire_file`) and
 /// both outputs (`message_hash`, `id_hash`). Then `seal`: the same prefix and
 /// validation data, a zero nonce, and an id that is the id digest of the
-/// sealed image — the trailer `process_tx` writes (`tx.c:1286-1287`).
+/// sealed image — the trailer `process_tx` writes.
 ///
 /// In the default build `backend::selected::sha256` is the C's own, so this
 /// is the reference hashing its own image; in the C-free build it is the

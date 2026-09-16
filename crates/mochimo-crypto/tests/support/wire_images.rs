@@ -353,7 +353,7 @@ fn assert_recorded_fields(v: &serde_json::Value, img: &WireImage, tx: &Transacti
             // D17's booleans, recomputed from the parsed halves the way the
             // reference's comparators read them: tag at ADDR_TAG_OFF for
             // ADDR_TAG_LEN bytes, hash at ADDR_HASH_OFF for ADDR_HASH_LEN
-            // (types.h:114-128).
+            // the reference's own layout.
             n += assert_bool_field(
                 v,
                 id,
@@ -411,13 +411,13 @@ fn assert_recorded_fields(v: &serde_json::Value, img: &WireImage, tx: &Transacti
 }
 
 /// The tag half of an address: `ADDR_TAG_OFF = 0` for `ADDR_TAG_LEN = 20`
-/// bytes (`types.h:118-126`).
+/// bytes.
 fn tag_half(addr: &[u8; 40]) -> &[u8] {
     &addr[..20]
 }
 
 /// The hash half: `ADDR_HASH_OFF = 20` for `ADDR_HASH_LEN = 20` bytes
-/// (`types.h:120-128`).
+/// the reference's own offsets.
 fn hash_half(addr: &[u8; 40]) -> &[u8] {
     &addr[20..]
 }

@@ -165,7 +165,7 @@ fn every_ui_case_compiles_or_fails_for_its_pinned_reason() {
     // The terminal absence, and it is the whole of the confirmation's safety
     // argument. `create`'s three-word confirmation now ECHOES -- the phrase it
     // asks about is three lines above in the same scrollback, so hiding the
-    // answer bought no secrecy and cost a real `exit 3` on the first live run.
+    // answer buys no secrecy and costs a real `exit 3`.
     // What keeps the acquisition's property across that change is a signature:
     // `Terminal::read_visible_line` takes `self`, so there is no terminal left
     // to read a secret from afterwards. A convention about statement order

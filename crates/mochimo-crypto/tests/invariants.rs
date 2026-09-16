@@ -11394,21 +11394,9 @@ const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Session labels. Every one of these passed the ban until the `S` arm
     // existed to read them.
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/cli.rs", 18, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/invariants.rs", 46, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/mesh.rs", 1, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/recon.rs", 10, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/signing.rs", 2, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
     // Open-item citations, found by the matcher this change added.
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/cli.rs", 19, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/kat.rs", 2, SWEEP_TESTS),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/keystore.rs", 4, SWEEP_TESTS),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/spend.rs", 2, SWEEP_TESTS),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/wots_internals.rs", 1, SWEEP_TESTS),
     // Errata citations. One site, and it is emphasised: the separator set
     // could not see a number wrapped in markup until this change, so the
     // ban stood green over the one citation left in the tree.
@@ -11416,18 +11404,7 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Self-narrative passages, per file. The count is HITS and not
     // sentences -- see NARRATIVE_PHRASES -- and it comes down by deleting
     // prose, never by rephrasing around a row.
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/cli.rs", 45, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/compile_fail.rs", 1, SWEEP_NARRATIVE),
     (MarkerClass::Narrative, "crates/mochimo-crypto/tests/invariants.rs", 61, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/keystore.rs", 9, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/mesh.rs", 1, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/recon.rs", 6, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/signing.rs", 2, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/chain.rs", 3, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/derivation_walk.rs", 1, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/mesh_walk.rs", 3, SWEEP_NARRATIVE),
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/support/mod.rs", 2, SWEEP_NARRATIVE),
     // Names that DECLARED_UNRESOLVED_SRC_NAMES permits because a sentence
     // under `src/` cites them and nothing in the tree defines them. Each
     // count is the number of `src/` files carrying such a sentence, so the

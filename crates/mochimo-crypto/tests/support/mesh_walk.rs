@@ -553,8 +553,7 @@ fn on_chain(id: &str, tx: &serde_json::Value) -> OnChain {
 /// `source_amount` is not an independent figure: `block_handler.go` renders it
 /// as `GetChangeTotal() + GetSendTotal() + fee`, so asserting that those three
 /// sum to it is asserting `x == x` and no defect anywhere could redden it.
-/// That assertion was in this session's first draft and three adversarial
-/// passes each found it. What replaces it is the arithmetic run through
+/// What stands instead is the arithmetic run through
 /// **this crate**: `SpendPlan::new` is handed the balance, the destination and
 /// the fee the chain recorded, and must produce the change the chain recorded.
 /// That has a red, and the red names `mochimo-crypto`.

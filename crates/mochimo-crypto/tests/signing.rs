@@ -247,10 +247,10 @@ fn each_wots_key_signs_once_through_the_receipt_gate() {
     let twin = Account::import(a.seed.clone(), &faddress).unwrap_or_else(|e| panic!("import: {e}"));
     assert_eq!(twin.tag(), a.tag, "the import of an account's own recorded pair is that account");
     ks2.add(twin).unwrap_or_else(|e| panic!("{e}"));
-    // Position 0 signs from the STORED components since format v2. Before it
-    // this arm was `Err(FirstKeyUnavailable)`, and the funds an imported
-    // account was imported holding -- which sit at exactly this address --
-    // were unspendable.
+    // Position 0 signs from the STORED components since format v2. Without
+    // them this arm can only refuse, and the funds an imported account was
+    // imported holding -- which sit at exactly this address -- are then
+    // unspendable.
     let r = ks2.persist_advance(&a.tag, &DIGEST, FIGURES).unwrap_or_else(|e| panic!("{e}"));
     let si0 = ks2
         .sign_spend(&DIGEST, r, KeyAccess::StoredRoot)
@@ -548,10 +548,9 @@ fn add_refuses_a_second_account_over_one_imported_root() {
 /// the components the record carries, and the key it signs with is the one
 /// the stored first address names.
 ///
-/// This test asserted the opposite until format v2 — `Err(FirstKeyUnavailable)`,
-/// naming the marker that has now cleared. The refusal was correct while the
-/// components were not stored (a substitute would sign under an address
-/// nobody funded); it is not a property to preserve.
+/// A refusal here is correct only while the components are not stored, since
+/// a substitute would sign under an address nobody funded. The record carries
+/// them, so refusing is not a property to preserve.
 #[test]
 fn an_imported_account_signs_position_zero_from_the_stored_components() {
     let dir = ScratchDir::new("import-position-zero");
@@ -714,14 +713,14 @@ fn key_access_debug_redacts_the_master_and_spend_signature_prints_the_address() 
 /// `ui/fail` case naming `backend::native::wots_sign` would compile there.
 /// This test `cargo check`s a real dependent, `ui/downstream`, with the
 /// crate's default features: `pass` (a legitimate `sign_spend`) must compile,
-/// and `fail` (both spellings of the raw signer, and since S6 the test
-/// tree's `SpendAddresses::unverified`, which is under `raw-backend` too)
+/// and `fail` (both spellings of the raw signer, and the test tree's
+/// `SpendAddresses::unverified`, which is under `raw-backend` too)
 /// must be refused with exactly three errors: two E0603 for the signer and
 /// one E0599 naming `unverified` -- exactly three, so a typo turning one of
 /// them into another error is red rather than an accepted failure. The
 /// constructor's case lives here and not under `ui/fail` for the reason
 /// the raw signer's does: trybuild inherits `raw-backend`, and a `ui/fail`
-/// case naming `unverified` compiles there (measured at S6).
+/// case naming `unverified` compiles there.
 ///
 /// Gated on `not(miri)` because it spawns cargo, which Miri cannot.
 ///

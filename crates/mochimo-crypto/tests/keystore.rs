@@ -198,8 +198,8 @@ fn adopt_master_refuses_to_replace_a_seed_and_leaves_the_store_untouched() {
 /// row, declared and observed green) -- an observation certifying itself. A red here means
 /// the derivation, the nonce or the layout moved and every store on disk is
 /// affected; re-capturing is right only after a deliberate format change,
-/// recorded in the errata, with the old file kept under its version -- which
-/// is what version 4 did, and why there are two files.
+/// with the old file kept under its version -- which is what version 4 did,
+/// and why there are two files.
 ///
 /// Not `fixtures/`: nothing here is oracle data -- no reference produced it,
 /// it is what OUR code wrote -- so it lives beside the v1 snapshot in
@@ -1071,7 +1071,7 @@ fn open_refuses_a_group_writable_directory() {
 
 #[test]
 fn poisoned_handle_refuses_to_launder_a_rollback() {
-    // The rollback the adversarial pass found: advance_to(k+5) fails at the
+    // The rollback this refuses: advance_to(k+5) fails at the
     // directory fsync (disk = k+5, memory = k); a later advance on the same
     // handle would compute k+1 and write it over disk's k+5. The handle is
     // poisoned instead, and its message says drop-and-reopen, never retry.
@@ -1131,8 +1131,8 @@ fn pending_gates_a_second_advance_until_settled() {
 /// `0xB7`, the root this harness held until format v2 replaced it with
 /// `F-address-widths`' account seed. **They stopped describing their subject
 /// and nothing noticed**, because a needle asserting an *absence* keeps
-/// passing when its subject moves: the test went on proving that a root
-/// nobody holds is absent.
+/// passing when its subject moves: it goes on proving that a root nobody
+/// holds is absent.
 ///
 /// And it was **flaky by construction**. The rendering embeds the scratch
 /// directory's path, which carries a nanosecond timestamp, so a short decimal
@@ -1208,12 +1208,12 @@ fn debug_never_reveals_keystore_roots() {
 /// absence in the bytes **and** an exact byte-for-byte restore through a
 /// reopen, and neither arm is meaningful without the other.
 ///
-/// # And the premise arm that used to live in the marker
+/// # The premise arm, flipped
 ///
-/// Before encryption at rest the marker measured its own premise live: it wrote a
-/// store with a patterned root and asserted the root's bytes **were** in the
-/// file, naming byte offset 43. That arm depended on the defect existing. It
-/// has moved here, flipped, exactly as it said it must -- and the offset it
+/// Measuring the premise live means writing a store with a patterned root and
+/// asserting where the root's bytes are. Before encryption at rest that arm
+/// asserted they **were** in the file at byte offset 43, which depended on
+/// the defect existing; here it is flipped -- and the offset it
 /// named is now the first place this test looks, because "not at 43" and "not
 /// anywhere" are different claims and the weaker one is the one an encryption
 /// bug would satisfy.
@@ -1319,7 +1319,7 @@ fn snapshot_bytes_never_contain_the_imported_root() {
 ///    afterwards, because `create` now succeeds through a lock file anyway
 ///    and so no longer distinguishes the two.
 /// 2. `open` on a snapshot it cannot read -- a version-2 file with its lock
-///    absent, which is the copied store the first live run probed -- refuses and DOES leave
+///    absent -- refuses and DOES leave
 ///    `keystore.lock` behind. `take_lock` runs before the read, and the read
 ///    has to be under the lock to be authoritative. This arm asserts the side
 ///    effect exists so that the module doc's sentence saying so is a measured
@@ -1487,8 +1487,7 @@ fn first_record_of_an_older_image(image: &[u8]) -> ([u8; 20], u8) {
 /// **The version refusal names the refused store's first account and how to
 /// compare it** -- green under this name; red under
 /// `the_version_refusal_does_not_say_how_to_tell_whether_the_refused_store_is_on_this_seed`
-/// for the length of one session, and the red was observed before the fix
-/// (the hazard filed, then discharged).
+/// if it stopped naming them.
 ///
 /// `~/mochimo-live/accounts.mks` is a format-2 store over the live wallet's
 /// seed, on the operator's disk since 4 September, and what stops it spending
@@ -1529,7 +1528,7 @@ fn first_record_of_an_older_image(image: &[u8]) -> ([u8; 20], u8) {
 /// of the layout fails here rather than certifying itself. The
 /// v1 file's tag (`0x1a` twenty times, v1's unverified-tag import) must be
 /// named for the v1 file and must not appear for the v2 one. A version-3
-/// store whose version word is forged to 2 (the first live run's probe; bytes 22..42
+/// store whose version word is forged to 2 (bytes 22..42
 /// there are the KDF's `p_cost` tail, the salt and the head of the nonce)
 /// and a version-3 store with an unknown KDF id must render NO procedure:
 /// the fix may only read a tag from an image whose length fits that
@@ -1666,13 +1665,13 @@ fn the_version_refusal_names_the_refused_stores_first_account_and_how_to_compare
 }
 
 // ---------------------------------------------------------------------------
-// The three reports item 12 named, on the values they carry (Known-open 12)
+// The three reports, on the values they carry
 // ---------------------------------------------------------------------------
 
 /// `open`'s stat gate and the parser's length gate name the same range for
 /// the same refusal: `keystore image length`, minimum the empty store's
-/// image (112), maximum the cap image (12,779,632). The stat gate said
-/// `min: 0` for a time. Driven with a snapshot one byte over the cap: the
+/// image (112), maximum the cap image (12,779,632). Driven with a snapshot
+/// one byte over the cap: the
 /// stat gate is the one that refuses it, before the file is read.
 #[test]
 fn the_image_length_range_names_one_minimum_at_both_gates() {
@@ -1699,8 +1698,8 @@ fn the_image_length_range_names_one_minimum_at_both_gates() {
 /// `Kdf::checked` names the parameter Argon2 refused, with that parameter's
 /// bounds and value: memory below Argon2's floor of 8 KiB or above the
 /// format's ceiling of 1 GiB, passes below 1, lanes outside 1..=16,777,215.
-/// A `t_cost` of 0 was reported as an `m_cost` problem for a time, and the
-/// ceiling refusal's minimum of 8 is Argon2's floor, enforced by the
+/// A `t_cost` of 0 is reported against passes and not as a memory problem,
+/// and the ceiling refusal's minimum of 8 is Argon2's floor, enforced by the
 /// second gate rather than the first.
 #[test]
 fn kdf_refusals_name_the_parameter_they_are_about() {
@@ -1731,7 +1730,7 @@ fn kdf_refusals_name_the_parameter_they_are_about() {
 }
 
 // ---------------------------------------------------------------------------
-// A stale temp keeps no mode (Known-open 13)
+// A stale temp keeps no mode
 // ---------------------------------------------------------------------------
 
 /// A leftover `accounts.mks.tmp` with looser permissions does not reach the
@@ -1768,7 +1767,7 @@ fn a_stale_temp_with_loose_permissions_does_not_reach_the_snapshot() {
 }
 
 // ---------------------------------------------------------------------------
-// A derived record's identity is checked at the door (Known-open 11)
+// A derived record's identity is checked at the door
 // ---------------------------------------------------------------------------
 
 /// A derived account whose stored key-stream identity is not the one its
@@ -1858,13 +1857,12 @@ fn a_forged_derived_record_that_got_in_without_a_master_is_still_refused_at_sign
 }
 
 // ---------------------------------------------------------------------------
-// Two refusals that say what to do (Known-open 19)
+// Two refusals that say what to do
 // ---------------------------------------------------------------------------
 
 /// `Exists { what: "snapshot" }` renders with the next step -- a different
-/// `--dir` for a new store, `restore --account N` into this one -- where it
-/// rendered as a bare "already exists" for a time. The other `what`s keep
-/// the short form.
+/// `--dir` for a new store, `restore --account N` into this one -- rather
+/// than as a bare "already exists". The other `what`s keep the short form.
 #[test]
 fn an_existing_snapshot_is_refused_with_the_next_step() {
     let text = format!("{}", Error::Exists { what: "snapshot" });

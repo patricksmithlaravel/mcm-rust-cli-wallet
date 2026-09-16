@@ -154,12 +154,12 @@ pub fn load_manifest() -> Vec<Group> {
             // `still_deferred` is honoured whenever it is written, not only
             // when the group is split.
             //
-            // It used to be read only if `activated` was non-empty, and derived
-            // as `vectors` otherwise. That made a stated `still_deferred = 15`
-            // on a wholly-deferred group *silently ignored* — the number would
-            // sit in the file agreeing with nothing, and a later edit that
-            // changed the vector count would leave it stale with no test
-            // noticing. Ignoring a field a human wrote down is the same failure
+            // Reading it only when `activated` is non-empty, and deriving it
+            // as `vectors` otherwise, makes a stated `still_deferred = 15` on
+            // a wholly-deferred group *silently ignored* — the number sits in
+            // the file agreeing with nothing, and a later edit to the vector
+            // count leaves it stale with no test noticing. Ignoring a field a
+            // human wrote down is the same failure
             // as a fixture field nothing reads; the fix is the
             // same, which is to consume it.
             let stated = g
@@ -729,12 +729,11 @@ impl<'a> Ctx<'a> {
     /// flat walk cannot see, and reading the parent once would mark the whole
     /// subtree covered while covering none of it.
     ///
-    /// **The recursion this used to defer was built with the vectors that need it.** Until then a nested
-    /// field failed *whether or not it was read*, self-clearing, on the
-    /// argument that per-entry coverage built against no vector would be
-    /// tested against nothing. Group D's `D10`, `D11` and `D15`
-    /// are that vector — twelve case objects across three shapes — and the
-    /// recursion arrived with them, not before them.
+    /// **The recursion was built with the vectors that need it.** Per-entry
+    /// coverage built against no vector is tested against nothing, so until
+    /// one existed a nested field failed *whether or not it was read*, which
+    /// is self-clearing. Group D's `D10`, `D11` and `D15` are that vector —
+    /// twelve case objects across three shapes.
     ///
     /// So the rule is now: a nested field is covered **iff the handler
     /// descended into it with [`Ctx::cases`]**, which is the only writer of

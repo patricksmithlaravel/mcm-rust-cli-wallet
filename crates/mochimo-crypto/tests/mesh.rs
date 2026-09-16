@@ -367,9 +367,9 @@ fn parsers_are_total_over_mutated_bodies() {
     // files it was built from.
     // The count is compared against the MANIFEST's declaration, not against
     // `vectors.len()`. `bodies` is incremented once per element of `vectors`,
-    // so comparing the two would be `x == x` -- the first draft of this repair
-    // did exactly that, which is the defect it was written to fix, one level
-    // up. `manifest.toml` is a separate artifact maintained by hand and
+    // so comparing the two would be `x == x`, which is the defect this repair
+    // exists to fix, one level up. `manifest.toml` is a separate artifact
+    // maintained by hand and
     // asserted against the files by `kat.rs::manifest_counts_match_the_files`,
     // so the two sides can disagree.
     let declared = manifest_vectors_for(N_FILE);
@@ -388,7 +388,7 @@ fn parsers_are_total_over_mutated_bodies() {
 }
 
 // ---------------------------------------------------------------------------
-// S13: the three explorer endpoints, replayed against the capture
+// The three explorer endpoints, replayed against the capture
 // ---------------------------------------------------------------------------
 
 /// **The request bodies the explorer calls build are the bodies the server

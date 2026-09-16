@@ -833,7 +833,7 @@ fn spend_flow_end_to_end_over_a_recording_transport() {
 }
 
 // ---------------------------------------------------------------------------
-// Key access chosen per account (item B; AGENT.md, Known-open 28)
+// Key access chosen per account
 // ---------------------------------------------------------------------------
 
 /// A store holding a master seed AND an imported account: the derived
@@ -912,14 +912,12 @@ fn state_of(dir: &ScratchDir, tag: &[u8; ADDR_TAG_LEN]) -> (u32, bool) {
 }
 
 /// **An imported account in a store that also holds a master seed is signed
-/// for by its stored root** (item B; AGENT.md, Known-open 28).
+/// for by its stored root**.
 ///
-/// Until S5 `address`, `send`, `settle` and `resign` chose key access from
-/// one question -- does the store hold a master seed -- and routed this
-/// account down the master path, where `key_at` refused it with a key-access
-/// mismatch: fail-closed, and recorded in the specification as a limit. The
-/// choice is per account now, the one `Wallet::open`, `status` and
-/// `reconcile` always made. `address` computes the account's address and
+/// Choosing key access per STORE -- does the store hold a master seed --
+/// routes this account down the master path, where `key_at` refuses it with a
+/// key-access mismatch. The choice is per account, the one `Wallet::open`,
+/// `status` and `reconcile` make. `address` computes the account's address and
 /// `send` lays out, reserves, signs and submits from it; neither page
 /// carries the mismatch, the chain sees one body, and the store afterwards
 /// is what a send leaves -- position 1 with the reservation open -- while
@@ -1001,8 +999,8 @@ fn reference(text: &str) -> [u8; 16] {
 }
 
 /// `reference_is_valid` against the node's own stated examples -- the four
-/// VALID and four INVALID strings of `tx.c:526-527` and `types.h:417-418`
-/// at the pinned commit, and the two byte arrays of `types.h:412-413` --
+/// VALID and four INVALID strings the reference states at the pinned commit,
+/// and its two byte arrays --
 /// and the shapes those leave open: the all-NUL field, sixteen non-NUL
 /// bytes ending in a group and in a dash, one group of each kind filling
 /// the field, alternation of length fifteen, a lowercase letter, a high-bit
@@ -1130,7 +1128,7 @@ fn the_corpus_reference_verdicts_are_the_transcriptions() {
 }
 
 // ---------------------------------------------------------------------------
-// S12: several destinations, and the whole balance
+// Several destinations, and the whole balance
 // ---------------------------------------------------------------------------
 
 /// The id the accepting chain must echo for an arbitrary spend from the

@@ -102,7 +102,7 @@ pub enum ChainState {
     /// The ledger holds the tag at this address with this balance.
     At(Address, u64),
     /// The ledger has no entry: middleware code 4, "account not found"
-    /// (`handlers.go:129-137`).
+    /// the middleware's own error shape.
     Absent,
     /// The node could not be reached.
     Unreachable,
@@ -193,16 +193,15 @@ impl Chain {
     /// [`Chain::new`] and [`Chain::set`] take a `Tag` — twenty bytes a test
     /// already holds — which is right for scripting *ledger states*, the
     /// question those two exist to answer. It is exactly wrong for the one
-    /// question the first live run found nothing was asking: **is the thing
-    /// this program prints something anybody else would take?**
+    /// question nothing here asks: **is the thing this program prints
+    /// something anybody else would take?**
     ///
-    /// The end-to-end flow test funded the wallet from `c.tag`, a Rust value,
-    /// so it never once looked at what `address` rendered. The CLI printed a
-    /// bare 40-hex tag for four sessions, the flow test walked create → address
-    /// → fund → balance → send → settle over it, and passed — because the
-    /// other end of that "end to end" was our own fake, and the fake accepted
-    /// anything. That is the `create` deadlock one layer out: *a test whose
-    /// far end is our own double cannot catch a mismatch with the world.*
+    /// A flow test that funds the wallet from `c.tag`, a Rust value, never
+    /// looks at what `address` rendered, so it walks create → address → fund
+    /// → balance → send → settle over a bare 40-hex tag and passes — because
+    /// the other end of that "end to end" is our own fake, and the fake
+    /// accepts anything. *A test whose far end is our own double cannot catch
+    /// a mismatch with the world.*
     ///
     /// So this door models the far end instead: it takes the destination **as
     /// the operator copies it**, and accepts only Base58 over a tag and its
@@ -255,10 +254,10 @@ impl Transport for Chain {
             return match *self.submit_id.borrow() {
                 // Bare hex, no `0x`: that is the shape the live endpoint
                 // actually returned, recorded in
-                // `fixtures/group_n_mesh_live.json`'s submit responses. The
-                // first draft of this fake prefixed it and `parse_submit`
-                // refused at byte 1 -- the capture is the authority here, not
-                // the tag encoding two arms up (which IS prefixed).
+                // `fixtures/group_n_mesh_live.json`'s submit responses.
+                // Prefixing it here makes `parse_submit` refuse at byte 1:
+                // the capture is the authority, not the tag encoding two arms
+                // up (which IS prefixed).
                 Some(id) => Ok(
                     format!(r#"{{"transaction_identifier":{{"hash":"{}"}}}}"#, hexs(&id))
                         .into_bytes(),

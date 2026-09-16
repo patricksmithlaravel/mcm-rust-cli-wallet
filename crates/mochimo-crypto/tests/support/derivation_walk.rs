@@ -235,10 +235,10 @@ pub fn counters(v: &mut dyn Vector) {
     }
     // `same_convention` is compared over the four bytes that carry the
     // value. The generator's own field is decided by width -- it compares an
-    // 8-hex-char string to a 16-hex-char one (`group_f_derivation.ts:258`),
-    // so it is `false` whatever the conventions are -- and a first draft here
-    // compared a 4-byte slice to an 8-byte one and was `false` for every
-    // implementation too (found in review). Over equal
+    // 8-hex-char string to a 16-hex-char one,
+    // so it is `false` whatever the conventions are. Comparing a 4-byte
+    // slice to an 8-byte one here is `false` for every implementation too.
+    // Over equal
     // widths a port that applied one convention to both turns this `true`
     // and the recorded `false` reddens; the generator's half is fixture debt
     // (`manifest.toml`, group F `pending`).

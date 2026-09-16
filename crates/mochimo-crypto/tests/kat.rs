@@ -1,6 +1,6 @@
 // Not under Miri: every test here reads the corpus from `fixtures/` through
-// `std::fs`, which Miri's isolation refuses at the first `open` (measured at
-// S9, the whole binary aborting), and a replay of 5,364 vectors -- a
+// `std::fs`, which Miri's isolation refuses at the first `open` -- the whole
+// binary aborts -- and a replay of 5,364 vectors -- a
 // thousand WOTS+ key generations among them, at about three minutes each
 // under the interpreter on this machine -- would take days if it could run.
 #![cfg(all(feature = "native", not(miri)))]
@@ -47,10 +47,9 @@ use std::sync::OnceLock;
 use mochimo_crypto::consts::{PK_LEN, SEED_LEN, SIG_LEN};
 // The raw WOTS+ surface -- `wots_sign`, `prf`, `thash_f`, `expand_seed`,
 // `chain_lengths` -- is reached through `backend::selected` under the
-// `raw-backend` feature the test tree turns on. It used to
-// come through `wots::sign` and `wots::internals`, which are crate-private
-// now: I1's enforcement is that no dependent can name a raw signer. The
-// routing is the same seam as before, spelled where it lives.
+// `raw-backend` feature the test tree turns on, and not through
+// `wots::sign` or `wots::internals`, which are crate-private: I1's
+// enforcement is that no dependent can name a raw signer.
 use mochimo_crypto::backend::selected as raw;
 use mochimo_crypto::wots::Adrs;
 use mochimo_crypto::{addr, base58, bytes, crc16, tx, wots, Secret};
@@ -674,7 +673,7 @@ fn addr_hash(ctx: &mut Ctx) {
 /// silently skipped.
 ///
 /// Only `outlen: 64` appears in the corpus today. The other three arms are not
-/// speculative: `sha3.h:44` names all four as compatible, and the reason 28 and
+/// speculative: the reference names all four as compatible, and the reason 28 and
 /// 48 exist natively at all is that the oracle covers them.
 fn sha3(ctx: &mut Ctx) {
     let input = ctx.hex("in");
@@ -834,7 +833,7 @@ fn tag_encode(ctx: &mut Ctx) {
     ctx.eq_str("base58_of_tag22", &encoded22);
 
     // An independent oracle: the TypeScript tag utilities in
-    // reference/mochimo-wots produce this same string from the same tag, so a
+    // produce this same string from the same tag, so a
     // match is a genuinely separate implementation agreeing rather than the
     // reference agreeing with itself. It sat in the fixture unread until
     // coverage reported it.
@@ -1114,7 +1113,7 @@ fn ts_addr_from_wots(ctx: &mut Ctx) {
 
     // The two implementations disagree about what a non-WOTS_PK_LEN input
     // MEANS, and that is a difference in kind rather than a failure.
-    // `addrFromWots` guards the length and returns null (wots-addr.ts:117);
+    // `addrFromWots` guards the length and returns null;
     // `addr_from_wots` hashes whatever it is handed, which is the whole reason
     // C6 exists as a negative control. Recorded as its own shape and
     // deliberately not routed through the value comparison below -- folding a
@@ -1165,7 +1164,7 @@ fn ts_addr_from_wots(ctx: &mut Ctx) {
 /// `adrs_byte_image` is the *memory* image of the eight words — the
 /// byte-versus-word conversion the crate normalizes to little-endian by
 /// decision, the form the TypeScript's `addr: ByteArray` parameter takes
-/// (`wots.ts:131-132` wraps it `LITTLE_ENDIAN`). It is **not**
+/// (the TypeScript wraps it `LITTLE_ENDIAN`). It is **not**
 /// `Adrs::to_bytes`, which is the big-endian serialization `addr_to_bytes`
 /// feeds to `prf`. Two different byte images of one value, and conflating them
 /// is precisely the confusion the deferral was afraid of.
@@ -1223,8 +1222,8 @@ fn ts_pkgen_to_addr(ctx: &mut Ctx) {
 /// `WotsAddress.addrFromImplicit` against `addr_from_implicit`.
 ///
 /// The behaviour worth crosschecking is the duplication: both halves of the
-/// 40-byte address receive the 20-byte tag (`ledger.c:85-86`,
-/// `wots-addr.ts:99-104`). An implementation that filled the tag half and left
+/// 40-byte address receive the 20-byte tag. An implementation that filled
+/// the tag half and left
 /// the hash half zero would produce an address of the right length with the
 /// right prefix, so this is agreement about the part most likely to be wrong
 /// quietly.
@@ -1576,8 +1575,8 @@ fn base58_decode(ctx: &mut Ctx) {
     }
 }
 
-/// C-base58-degenerate. `base58_decode` with a non-NULL `out` reaches
-/// `base58.c:144` with a `memcpy` length of `(size_t)(-1)` and faults, so it
+/// C-base58-degenerate. `base58_decode` with a non-NULL `out` reaches a
+/// `memcpy` length of `(size_t)(-1)` and faults, so it
 /// would crash the test process rather than fail it. The probe on the same
 /// input is safe, and the probe value is the defect the vector is about: it
 /// returns 21 for a 22-byte payload.
@@ -1657,8 +1656,8 @@ fn options_accessors(ctx: &mut Ctx) {
 /// The `source` strings the transaction-core replay serves.
 ///
 /// Three, not two: `D8`'s call site overwrites the source `tx_emit` wrote with
-/// `put64` (`group_d_tx.c:534`), and `D6`/`D7` are emitted by hand with
-/// `MDST_COUNT` (`group_d_tx.c:490,503`). They are all the same replay — a
+/// `put64`, and `D6`/`D7` are emitted by hand with `MDST_COUNT`. They are
+/// all the same replay — a
 /// transaction whose layout the reference computed — and the `source` records
 /// which property the vector was written to pin, not which handler it needs.
 ///
@@ -2564,9 +2563,8 @@ fn group_d_tx_hash_census() {
 /// see — coverage is fail-closed over what a case *has* — so it is asserted
 /// here as "no non-universal key, anywhere".
 ///
-/// The case counts are stated for the same reason `still_deferred` used to be:
-/// an array that shrank would descend over fewer cases, and every one of them
-/// would pass.
+/// The case counts are stated because an array that shrank would descend over
+/// fewer cases, and every one of them would pass.
 const CASES_CENSUS: &[(&str, usize, usize)] = &[
     // id, cases, keys per case
     //
@@ -2660,8 +2658,8 @@ fn group_d_cases_census() {
 
 /// The machine-readable half of `rule_not_evaluated`.
 ///
-/// Four vectors carry a sentence saying a *rule* lives in `tx_val`
-/// (`tx.c:707`), which needs an open ledger and so is not called — only the
+/// Four vectors carry a sentence saying a *rule* lives in `tx_val`, which
+/// needs an open ledger and so is not called — only the
 /// encoding is pinned. Three are the `D9`s, whose rule is the block-to-live
 /// range; the fourth is `D17`, whose rule is the src/chg address
 /// relationship. That sentence is a `jw_str` literal identical in all four, so
@@ -2745,15 +2743,9 @@ fn tx_val_is_absent_from_the_corpus() {
 ///
 /// # What this was, and why it is renamed rather than deleted
 ///
-/// This was `deferred_groups_are_unverified`, the debt marker that failed in
-/// every run naming each deferred group and its unreplayed count: group D at
-/// 18 of 44 for six sessions, then group F alone at 15 of 15 until the
-/// derivation landed and activated it. Discharged, it is renamed
-/// with its bound in the name — "by manifest status, not by
-/// replay" — because a passing test called "unverified" reads as a
-/// contradiction, and a green "no group is deferred" could otherwise be read
-/// as replay having been verified *here*. It was not; it is measured by the
-/// test named above.
+/// The bound is in the name — "by manifest status, not by replay" — because
+/// a green "no group is deferred" would otherwise read as replay having been
+/// verified *here*. It is not; it is measured by the test named above.
 ///
 /// # Why this is not `group_d_is_deferred`
 ///
@@ -2832,8 +2824,7 @@ fn no_group_is_deferred_by_manifest_status_not_by_replay() {
 ///
 /// This is the check that anchors them. Every value below is the crate's own
 /// literal on one side and the fixture's on the other; a transcription error
-/// in either fails here by name. It was gated on the dead foreign-function
-/// feature from the plant until S2 (AGENT.md, Known-open 20), and
+/// in either fails here by name, and
 /// `invariants.rs::group_e_constants_stay_anchored` demands that it runs.
 #[test]
 fn group_e_constants_match_the_reference() {
@@ -2876,9 +2867,9 @@ fn group_e_constants_match_the_reference() {
     // values. The two lengths are sums of sizeof expressions the crate
     // carries as `consts::wire`; `sizeof_TX`, the network packet container's
     // size, was read off the bound C struct and this crate has no literal for
-    // it, so it is compared to nothing -- by decision, since S6: the census
-    // in tests/invariants.rs excludes it by name with the reason (AGENT.md,
-    // Known-open 23, closed). CRC16LEN is also pinned by group A, and
+    // it, so it is compared to nothing, by decision: the census in
+    // tests/invariants.rs excludes it by name with the reason. CRC16LEN is
+    // also pinned by group A, and
     // asserting it in both places is what would catch the two fixtures
     // disagreeing with each other.
     check(
