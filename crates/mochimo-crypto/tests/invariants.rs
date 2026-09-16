@@ -11177,10 +11177,19 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
 }
 
 /// The floors the four walks share, derived from the measurement the evidence
-/// lines print: 82 files, 16,799 comment lines in 2,550 runs and 11,955
-/// string lines. The three volume floors sit at roughly two thirds of their
+/// lines print: **84 files, 18,978 comment lines in 2,938 runs and 14,464
+/// string lines**. The three volume floors sit at roughly two thirds of their
 /// measurement -- well above what a walk that dropped a directory, a kind, or
-/// the strip would report.
+/// the strip would report, and far enough below it that ordinary prose churn
+/// does not reach them.
+///
+/// **That measurement is provenance for the numbers below and has to be
+/// re-taken whenever they move.** A floor is only as good as the figure it
+/// was set from: left describing a tree that no longer exists, it says
+/// nothing about how much headroom is left, and the next reader cannot tell a
+/// floor with a third of the tree under it from one the tree has grown past.
+/// The runs floor is the fourth, and it sits at its own site because only one
+/// of the four walks forms runs; it follows the same rule.
 ///
 /// # The files floor is structural, and two thirds is the wrong rule for it
 ///
@@ -11217,12 +11226,14 @@ fn assert_text_walk_floors(what: &str, files: usize, units: &[TextUnit]) -> (usi
          see. Either a root is missing from the walk or the tree has shrunk by fourteen files."
     );
     assert!(
-        comment_lines >= 11_000,
-        "{what}: examined {comment_lines} comment line(s); the four roots carry far more, so the walk is not seeing comments"
+        comment_lines >= 12_600,
+        "{what}: examined {comment_lines} comment line(s). The four roots carry 18,978, and this \
+         floor is two thirds of that, so the walk is not seeing comments"
     );
     assert!(
-        string_lines >= 8_000,
-        "{what}: examined {string_lines} string line(s); the four roots carry far more, so the walk is not seeing string literals"
+        string_lines >= 9_600,
+        "{what}: examined {string_lines} string line(s). The four roots carry 14,464, and this \
+         floor is two thirds of that, so the walk is not seeing string literals"
     );
     (comment_lines, string_lines)
 }
@@ -12532,7 +12543,12 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
             ));
         }
     }
-    assert!(runs >= 1_700, "the walk formed {runs} comment run(s); the four roots hold more than 2,500");
+    assert!(
+        runs >= 1_950,
+        "the walk formed {runs} comment run(s). The four roots form 2,938, and this floor is two \
+         thirds of that -- a walk that lost a root, or one that stopped joining consecutive \
+         comment lines into a run, reports well under it"
+    );
     // The open-item citations, over each file's joined text so the two that
     // wrap across a comment line are one hit each rather than none. The
     // advance past a hit is the name's own length.
