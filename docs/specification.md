@@ -1385,7 +1385,7 @@ Every parser is total over the recorded response bodies and over their truncatio
 | connect timeout | 10 seconds, the shipped constructor's default |
 | whole-request timeout | 30 seconds, the shipped constructor's default |
 | redirects | **off** — maximum 0; a 3xx is never followed |
-| headers this client sets | `Content-Type: application/json`, `Accept: application/json`, `User-Agent: mochimo-rs/<crate version>` |
+| headers this client sets | `Content-Type: application/json`, `Accept: application/json`, `User-Agent: mochimo-crypto/<crate version>` — the crate name and version, both read from the package |
 | non-200 status | reported as an HTTP-status error **with the body unread** |
 
 The base URL must be `http://host[:port]` or `https://host[:port]` and nothing else: no path, query, fragment, userinfo or space. One trailing slash is stripped. `https://` requires the `mesh-https` transport feature and is refused at construction, not at the first request, when that feature is off. A body of 30,721 bytes is refused without opening a connection.

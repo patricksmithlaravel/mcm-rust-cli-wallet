@@ -71,7 +71,16 @@ impl UreqTransport {
             .max_redirects(0)
             .timeout_connect(Some(connect))
             .timeout_global(Some(global))
-            .user_agent(concat!("mochimo-rs/", env!("CARGO_PKG_VERSION")))
+            // `mochimo-crypto/<version>`, both halves read from the package
+            // rather than typed, so the header cannot drift from what is
+            // actually speaking. The name is the crate's and not the
+            // binary's: this transport is library surface, and a dependent
+            // driving it is not `mcm-wallet`. A node reading this header
+            // learns which implementation sent the request, which is the only
+            // thing a user agent is for here -- nothing in this tree, in the
+            // recorded captures or in the middleware behaves differently on
+            // the strength of it.
+            .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
             .build();
         Ok(UreqTransport {
             base: base.to_owned(),

@@ -135,7 +135,10 @@ fn loopback_post_carries_the_body_unchanged_and_returns_the_reply() {
     assert!(headers.contains("content-type: application/json"), "headers:\n{headers}");
     assert!(headers.contains("accept: application/json"), "headers:\n{headers}");
     assert!(headers.contains(&format!("content-length: {}", body.len())), "headers:\n{headers}");
-    assert!(headers.contains("user-agent: mochimo-rs/"), "headers:\n{headers}");
+    // Spelled out rather than built from `CARGO_PKG_NAME`: a test that
+    // derives its expectation the way the code does compares the header to
+    // itself. This is the wire value, and it is pinned as one.
+    assert!(headers.contains("user-agent: mochimo-crypto/"), "headers:\n{headers}");
     assert_eq!(seen, body, "the transport altered the request body");
     handle.join().unwrap_or_else(|_| panic!("server thread panicked"));
 
