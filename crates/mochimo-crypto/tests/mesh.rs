@@ -26,7 +26,7 @@ use std::path::PathBuf;
 mod mesh_walk;
 
 use mesh_walk::Plain;
-use mochimo_crypto::mesh::{codec, hex, MAX_REQUEST_BYTES};
+use mochimo_crypto::mesh::{codec, hex, max_response_bytes, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES, MAX_REQUEST_BYTES};
 use mochimo_crypto::Error;
 
 const N_FILE: &str = "group_n_mesh_live.json";
@@ -585,17 +585,83 @@ fn the_captured_block_parses_with_its_reward_and_its_transactions() {
 }
 
 /// **The response cap and the field-by-field refusal hold for the three new
+/// **The history cap fits what `--count` accepts, and the reconciliation cap
+/// does not have to.**
+///
+/// `--count` is validated to `1..=100` in the parser, so a hundred
+/// `/search/transactions` rows is a page the CLI can ask for. Measured against
+/// the group N capture, the widest recorded row is 1,221 bytes; a cap that
+/// cannot hold a hundred of them is a flag the parser accepts and the
+/// transport refuses, which is the defect this pins shut from the transport's
+/// side.
+///
+/// The reconciliation endpoints are the other half of the same assertion. Their
+/// widest recorded reply is `/network/status` at 664 bytes, and their cap stays
+/// small on purpose: it bounds an allocation a remote server chooses the size
+/// of, and there is nothing for it to buy by being loose.
+/// Measured from `fixtures/group_n_mesh_live.json`, the widest recorded body of
+/// each shape. Restated here rather than read from the fixture, so the two can
+/// disagree.
+const WIDEST_SEARCH_ROW: usize = 1_221;
+const WIDEST_BLOCK_TX: usize = 1_020;
+const WIDEST_RECON_REPLY: usize = 664;
+/// `--count`'s ceiling in `cli::args`. A history cap that cannot hold this many
+/// rows makes `--count 100` a value the parser accepts and the transport
+/// refuses, which is the defect the split cap exists to close.
+const MAX_COUNT: usize = 100;
+
+/// The caps against the endpoints they are for. Every operand is a constant, so
+/// a width that stops holding fails the build rather than one test.
+const _: () = assert!(
+    MAX_HISTORY_RESPONSE_BYTES >= WIDEST_SEARCH_ROW * MAX_COUNT,
+    "the history cap does not hold a full `--count 100` page of the widest recorded search row"
+);
+const _: () = assert!(
+    MAX_HISTORY_RESPONSE_BYTES >= WIDEST_BLOCK_TX * 64,
+    "the history cap does not hold a 64-transaction block at the widest recorded transaction"
+);
+const _: () = assert!(
+    MAX_RECON_RESPONSE_BYTES >= WIDEST_RECON_REPLY * 4,
+    "the reconciliation cap leaves no headroom over the widest recorded reply"
+);
+const _: () = assert!(
+    MAX_RECON_RESPONSE_BYTES < MAX_HISTORY_RESPONSE_BYTES,
+    "the reconciliation cap is not tighter than the history cap, so it bounds nothing"
+);
+
+/// **Every endpoint the client posts to resolves to the right one of the two.**
+///
+/// The sizes are held by the `const` assertions above; this is the other half,
+/// which is a table lookup and has to run. A cap correct in magnitude and
+/// applied to the wrong path is the same defect as a cap of the wrong size.
+#[cfg(not(miri))]
+#[test]
+fn every_endpoint_resolves_to_the_cap_its_replies_need() {
+    for path in ["/call", "/account/balance", "/network/status", "/construction/submit"] {
+        assert_eq!(max_response_bytes(path), MAX_RECON_RESPONSE_BYTES, "{path}");
+    }
+    for path in ["/block", "/search/transactions"] {
+        assert_eq!(max_response_bytes(path), MAX_HISTORY_RESPONSE_BYTES, "{path}");
+    }
+    // A path this table does not name is not a reason to widen an allocation.
+    assert_eq!(max_response_bytes("/something/new"), MAX_RECON_RESPONSE_BYTES);
+    println!(
+        "  response caps: recon {MAX_RECON_RESPONSE_BYTES} B, history {MAX_HISTORY_RESPONSE_BYTES} B \
+         (a --count {MAX_COUNT} page of {WIDEST_SEARCH_ROW}-byte rows is {} B)",
+        WIDEST_SEARCH_ROW * MAX_COUNT
+    );
+}
+
 /// parsers too**: an oversize body is refused by size before it is parsed,
 /// and a body missing a documented field is refused naming that field and
 /// nothing else. Neither ever dumps bytes.
 #[cfg(not(miri))]
 #[test]
 fn the_explorer_parsers_refuse_by_size_and_by_field() {
-    use mochimo_crypto::mesh::MAX_RESPONSE_BYTES;
 
     // One byte over the cap, valid JSON, refused before parsing.
     let mut oversize = br#"{"block":{"pad":""#.to_vec();
-    oversize.resize(MAX_RESPONSE_BYTES + 1, b'x');
+    oversize.resize(MAX_HISTORY_RESPONSE_BYTES + 1, b'x');
     /// One parser, erased to the shape these tables share.
     type Parse = fn(&[u8]) -> Result<(), Error>;
 
@@ -609,8 +675,8 @@ fn the_explorer_parsers_refuse_by_size_and_by_field() {
         match e {
             Err(Error::PayloadTooLarge { what: w, max, got }) => {
                 assert_eq!(w, "response body", "{what}");
-                assert_eq!(max, MAX_RESPONSE_BYTES, "{what}");
-                assert_eq!(got, MAX_RESPONSE_BYTES + 1, "{what}");
+                assert_eq!(max, MAX_HISTORY_RESPONSE_BYTES, "{what}");
+                assert_eq!(got, MAX_HISTORY_RESPONSE_BYTES + 1, "{what}");
             }
             other => panic!("{what} did not refuse an oversize body by size: {other:?}"),
         }

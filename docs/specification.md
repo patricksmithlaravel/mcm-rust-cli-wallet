@@ -1381,7 +1381,7 @@ Every parser is total over the recorded response bodies and over their truncatio
 | property | value |
 | --- | --- |
 | request body cap | 30,720 bytes (30 KiB), the middleware's own; refused before any socket opens |
-| response body cap | 65,536 bytes (64 KiB); a longer body is refused, not truncated |
+| response body cap | per endpoint: 262,144 bytes (256 KiB) for `/block` and `/search/transactions`, 8,192 bytes (8 KiB) for every other path; a longer body is refused, not truncated |
 | connect timeout | 10 seconds, the shipped constructor's default |
 | whole-request timeout | 30 seconds, the shipped constructor's default |
 | redirects | **off** — maximum 0; a 3xx is never followed |
@@ -1702,7 +1702,18 @@ There is no fourth. The submit handler does not validate the signed transaction 
 
 Code **4, Account not found (retriable)**, is what tag resolution answers, and it conflates the three states [The emptied-account window](#the-emptied-account-window) enumerates — three for the endpoint, five for an operator, since no ledger entry for the tag is what never funded, the wrong chain and the wrong seed all produce. An account spent down to zero therefore cannot be located or reconciled through this endpoint until it is paid again; the funds are not lost, and the tag resolves again after a credit.
 
-Two caps apply before the socket: the request body is refused above 30 KiB (the middleware's own limit, enforced locally first) and a response is refused above 64 KiB. A reply that parses but is off the documented shape is reported by field name, never by dumping bytes.
+Two caps apply before the socket. The request body is refused above 30 KiB, the middleware's own limit enforced locally first. The response cap is the endpoint's, because two of them scale with what they report and the rest do not.
+
+| endpoints | cap | what it holds |
+| --- | --- | --- |
+| `/block`, `/search/transactions` | 256 KiB | 214 search rows against `--count`'s ceiling of 100, or 256 block transactions, each measured at the widest the captured corpus records — 1,221 bytes for a row and 1,020 for a transaction |
+| everything else | 8 KiB | twelve times the widest reply the client asks for (`/network/status`, 664 bytes) and eight times the widest any parser here reads (`/network/options`, 964) |
+
+The split exists because a single number sized from the small endpoints is a bound the command line can walk into: `--count` accepts up to 100, and a hundred rows is about 122,100 bytes. A flag the parser accepts and the transport refuses is a defect on its own, so the two agree — the cap accommodates the range rather than the range shrinking to the cap.
+
+The tight cap stays tight deliberately. It bounds an allocation whose size a remote server chooses, and on the reconciliation endpoints there is nothing for extra room to buy. What the loose cap does not hold is a block whose transactions each pay hundreds of destinations: a transaction renders about 337 bytes per operation, so one with 256 destinations is around 87 KiB and three of them exceed the cap. That block is a named refusal rather than an unbounded allocation, which is the trade a cap is.
+
+A reply that parses but is off the documented shape is reported by field name, never by dumping bytes.
 
 ### The second account
 

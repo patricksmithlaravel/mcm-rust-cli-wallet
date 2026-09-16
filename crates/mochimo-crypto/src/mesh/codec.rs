@@ -32,7 +32,7 @@ use crate::error::{Error, Result};
 
 use super::hex;
 use super::spend::SignedTransaction;
-use super::{BalanceAt, ChainTip, LedgerEntry, TxId, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES};
+use super::{BalanceAt, ChainTip, LedgerEntry, TxId, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES, MAX_REQUEST_BYTES};
 
 /// `Constants.NetworkIdentifier.Blockchain`.
 pub const NETWORK_BLOCKCHAIN: &str = "mochimo";
@@ -194,11 +194,11 @@ pub fn request_search_by_account(tag: &Tag, limit: u64) -> Vec<u8> {
 
 /// A response body as an object, the error object already routed to
 /// [`Error::Mesh`].
-fn envelope(bytes: &[u8]) -> Result<Map<String, Value>> {
-    if bytes.len() > MAX_RESPONSE_BYTES {
+fn envelope(bytes: &[u8], cap: usize) -> Result<Map<String, Value>> {
+    if bytes.len() > cap {
         return Err(Error::PayloadTooLarge {
             what: "response body",
-            max: MAX_RESPONSE_BYTES,
+            max: cap,
             got: bytes.len(),
         });
     }
@@ -258,7 +258,7 @@ fn tip(map: &Map<String, Value>, key: &str, what_index: &'static str, what_hash:
 /// `network_identifiers`; `Ok(false)` when the list is well formed and it is
 /// not.
 pub fn parse_network_list(bytes: &[u8]) -> Result<bool> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     let list = field(&map, "network_identifiers", "network_identifiers")?
         .as_array()
         .ok_or(Error::MeshResponse {
@@ -290,7 +290,7 @@ pub struct NetworkOptions {
 /// `/network/options`. Version strings are capped at 64 bytes each and the
 /// error table at 64 entries before anything is copied.
 pub fn parse_network_options(bytes: &[u8]) -> Result<NetworkOptions> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     let version = object(field(&map, "version", "version")?, "version")?;
     let ver = |key: &str, what: &'static str| -> Result<String> {
         let s = string(field(version, key, what)?, what)?;
@@ -327,7 +327,7 @@ pub fn parse_network_options(bytes: &[u8]) -> Result<NetworkOptions> {
 /// `/network/status`: the current block. The rest of the reply (genesis,
 /// sync status, the middleware's certificate report) is not read.
 pub fn parse_network_status(bytes: &[u8]) -> Result<ChainTip> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     tip(
         &map,
         "current_block_identifier",
@@ -343,7 +343,7 @@ pub fn parse_network_status(bytes: &[u8]) -> Result<ChainTip> {
 /// ledger returned must begin with it, or the reply answers a different
 /// question than the one asked.
 pub fn parse_tag_resolve(bytes: &[u8], tag: &Tag) -> Result<LedgerEntry> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     let result = object(field(&map, "result", "result")?, "result")?;
     let address: Address =
         hex::decode_prefixed(string(field(result, "address", "result.address")?, "result.address")?, "result.address")?;
@@ -360,7 +360,7 @@ pub fn parse_tag_resolve(bytes: &[u8], tag: &Tag) -> Result<LedgerEntry> {
 /// with the currency checked to be the one the middleware declares, and the
 /// block the middleware had cached when it answered.
 pub fn parse_account_balance(bytes: &[u8]) -> Result<BalanceAt> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     let tip = tip(&map, "block_identifier", "block_identifier.index", "block_identifier.hash")?;
     let balances = field(&map, "balances", "balances")?
         .as_array()
@@ -393,7 +393,7 @@ pub fn parse_account_balance(bytes: &[u8]) -> Result<BalanceAt> {
 /// `/construction/submit`: `transaction_identifier.hash`, bare hex (the
 /// handler `hex.EncodeToString`s it with no prefix, unlike `/mempool`).
 pub fn parse_submit(bytes: &[u8]) -> Result<TxId> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     let ident = object(
         field(&map, "transaction_identifier", "transaction_identifier")?,
         "transaction_identifier",
@@ -589,7 +589,7 @@ fn parse_transaction(map: &Map<String, Value>, with_block: bool) -> Result<MeshT
 /// it. The block's own `metadata` (size, difficulty, haiku, nonce, root) is
 /// not read.
 pub fn parse_block(bytes: &[u8]) -> Result<MeshBlock> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
     let block = object(field(&map, "block", "block")?, "block")?;
     let identifier = tip(block, "block_identifier", "block_identifier.index", "block_identifier.hash")?;
     let parent = tip(
@@ -617,7 +617,7 @@ pub fn parse_block(bytes: &[u8]) -> Result<MeshBlock> {
 /// `/block/transaction`: the one transaction, without a block identifier of
 /// its own.
 pub fn parse_block_transaction(bytes: &[u8]) -> Result<MeshTransaction> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
     let t = object(field(&map, "transaction", "transaction")?, "transaction")?;
     parse_transaction(t, false)
 }
@@ -625,7 +625,7 @@ pub fn parse_block_transaction(bytes: &[u8]) -> Result<MeshTransaction> {
 /// `/search/transactions`: the page, each row carrying its own block and
 /// timestamp.
 pub fn parse_search(bytes: &[u8]) -> Result<SearchPage> {
-    let map = envelope(bytes)?;
+    let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
     let list = field(&map, "transactions", "transactions")?
         .as_array()
         .ok_or(Error::MeshResponse { what: "transactions: array" })?;

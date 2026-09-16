@@ -91,13 +91,59 @@ pub use spend::{SignedTransaction, SpendPlan};
 /// dropped connection. A 256-destination signed image is 13,628 bytes —
 /// 27,256 hex characters plus the envelope — and fits.
 pub const MAX_REQUEST_BYTES: usize = 30 * 1024;
-/// This crate's response-body cap: every documented reply is under a
-/// kilobyte, and the cap bounds the allocation before it happens.
-pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+/// The response-body cap for everything but the two history endpoints.
+///
+/// `/call`, `/account/balance`, `/network/status` and `/construction/submit`
+/// answer in a few hundred bytes: measured against the group N capture, the
+/// widest of them is `/network/status` at 664 bytes, and the widest reply any
+/// parser in this module reads outside history is `/network/options` at 964.
+/// Eight kibibytes is eight times that and twelve times the widest the client
+/// actually asks for.
+///
+/// It stays small on purpose. The cap bounds an allocation whose size a remote
+/// server chooses, and on these endpoints there is nothing for extra room to
+/// buy -- a reply that needs it is a reply this crate would refuse to parse
+/// anyway.
+pub const MAX_RECON_RESPONSE_BYTES: usize = 8 * 1024;
+/// The response-body cap for `/block` and `/search/transactions`.
+///
+/// These two scale with what they are reporting, so a single number sized from
+/// the small endpoints is a bound the CLI can walk into. Measured against the
+/// group N capture: a `/search/transactions` row is 1,221 bytes at its widest
+/// and a `/block` transaction 1,020, each transaction rendering about 337 bytes
+/// per operation.
+///
+/// 256 KiB holds:
+///
+/// * **214 search rows**, against the 100 that `--count`'s ceiling allows, so a
+///   full page fits twice over. A cap under 122,100 bytes would make `--count
+///   100` a value the parser accepts and the transport refuses.
+/// * **256 block transactions** at the widest recorded one, where mainnet
+///   blocks currently carry a handful.
+///
+/// What it does not hold is a block of transactions that each pay hundreds of
+/// destinations: at 337 bytes an operation, one 256-destination transaction
+/// renders around 87 KiB, so three of them in a block exceed this. That block
+/// gets a named refusal rather than an unbounded allocation, which is the
+/// trade a cap is.
+pub const MAX_HISTORY_RESPONSE_BYTES: usize = 256 * 1024;
+
+/// The response cap for `path`.
+///
+/// Unknown paths get the tight cap. A path this table does not name is not a
+/// reason to allow a larger allocation, and the two the history cap exists for
+/// are both named here.
+#[must_use]
+pub fn max_response_bytes(path: &str) -> usize {
+    match path {
+        "/block" | "/search/transactions" => MAX_HISTORY_RESPONSE_BYTES,
+        _ => MAX_RECON_RESPONSE_BYTES,
+    }
+}
 
 /// How bytes reach the middleware. `path` is the endpoint (`"/call"`), `body`
 /// an already-serialised JSON request; the return is the body of a 200
-/// response, at most [`MAX_RESPONSE_BYTES`] of it. Not sealed: the test tree
+/// response, at most [`max_response_bytes`] of it for that path. Not sealed: the test tree
 /// fakes it with recorded bodies, and nothing in it touches key material.
 pub trait Transport {
     fn post(&self, path: &str, body: &[u8]) -> Result<Vec<u8>>;

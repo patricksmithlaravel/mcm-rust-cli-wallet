@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use mochimo_crypto::mesh::http::UreqTransport;
-use mochimo_crypto::mesh::{codec, MeshClient, Transport, MAX_RESPONSE_BYTES};
+use mochimo_crypto::mesh::{codec, MeshClient, Transport, MAX_RECON_RESPONSE_BYTES};
 use mochimo_crypto::{Error, TransportKind};
 
 const TAG: [u8; 20] = [0x9f; 20];
@@ -180,15 +180,18 @@ fn non_200_status_is_reported_by_status_with_the_body_unread() {
 
 #[test]
 fn oversize_response_is_refused_at_the_cap() {
-    let big = vec![b'x'; MAX_RESPONSE_BYTES + 1];
+    // `/call` is a reconciliation endpoint, so the cap that applies is the
+    // tight one. The cap is the path's, not the transport's: the same body
+    // under `/block` is inside the history cap and would be read.
+    let big = vec![b'x'; MAX_RECON_RESPONSE_BYTES + 1];
     let (base, _rx, handle) = serve_once(Behaviour::Reply(response(200, "OK", &big, "")));
     let err = transport(&base).post("/call", b"{}").err().unwrap_or_else(|| panic!("an oversize body was returned"));
     assert!(
-        matches!(err, Error::PayloadTooLarge { what: "response body", max, .. } if max == MAX_RESPONSE_BYTES),
+        matches!(err, Error::PayloadTooLarge { what: "response body", max, .. } if max == MAX_RECON_RESPONSE_BYTES),
         "{err:?}"
     );
     handle.join().unwrap_or_else(|_| panic!("server thread panicked"));
-    println!("  loopback cap: a {}-byte body refused at {MAX_RESPONSE_BYTES}", big.len());
+    println!("  loopback cap: a {}-byte body refused at {MAX_RECON_RESPONSE_BYTES} on /call", big.len());
 }
 
 #[test]
