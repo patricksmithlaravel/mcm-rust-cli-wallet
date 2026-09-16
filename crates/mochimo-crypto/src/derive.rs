@@ -1,8 +1,7 @@
 //! The shipped extension's seed derivation, ported from the TypeScript in
 //! `reference/mochimo-wallet` — `redux/utils/derivation.ts`,
 //! `crypto/digestRandomGenerator.ts` and `core/MasterSeed.ts` — and the
-//! first-key construction it hands to `WOTS.generateRandomAddress`
-//! (`reference/mochimo-wots/src/protocol/wots.ts:335`).
+//! first-key construction it hands to `WOTS.generateRandomAddress`.
 //!
 //! # What this is checked against, and what that establishes
 //!
@@ -49,9 +48,9 @@
 //! injected in `tests/` so that flipping any one goes red at its own name:
 //!
 //! 1. **Two integer encodings on one path.** [`index_bytes`] is four bytes
-//!    **big-endian** (`intToBytes`, `digestRandomGenerator.ts:3`) and carries
+//!    **big-endian** (`intToBytes`) and carries
 //!    the account or rotation index; [`counter_bytes`] is four bytes
-//!    **little-endian** in an eight-byte buffer (`digestAddCounter`, `:35`)
+//!    **little-endian** in an eight-byte buffer (`digestAddCounter`)
 //!    and carries the generator's counters. Picking one convention for both
 //!    produces valid-looking, wrong keys. `F-counter-endianness`.
 //! 2. **The seed cycles on the ninth call, not the tenth.** `stateCounter`
@@ -98,14 +97,14 @@ use crate::secret::Secret;
 use crate::wots::{self, Adrs, PublicKey};
 
 /// SHA-512's output width, which is also the generator's state and seed width
-/// (`digestRandomGenerator.ts:29-30`: both buffers are 64 zero bytes).
+/// (both buffers are 64 zero bytes).
 const STATE_LEN: usize = 64;
 
 /// The legacy 12-byte tag's width and position: the last twelve bytes of a
-/// 2208-byte address (`reference/mochimo-wots/src/protocol/tag.ts:7,57`).
+/// 2208-byte address.
 const LEGACY_TAG_LEN: usize = 12;
 
-/// `intToBytes(id)`: four bytes, **big-endian** (`digestRandomGenerator.ts:3-10`).
+/// `intToBytes(id)`: four bytes, **big-endian**.
 ///
 /// Carries the account index into `deriveSeed` and the rotation index into
 /// `deriveWotsSeedAndAddress`. JS `>>` operates on the value as a 32-bit
@@ -118,7 +117,7 @@ pub fn index_bytes(id: u32) -> [u8; 4] {
 }
 
 /// `digestAddCounter(counter)`: the low 32 bits **little-endian**, then four
-/// zero bytes (`digestRandomGenerator.ts:35-48`).
+/// zero bytes.
 ///
 /// The other convention in the same scheme. `u64` because the shipped
 /// counters are JS numbers that never wrap; the `as u32` is JS's own
@@ -138,7 +137,7 @@ fn sha512(parts: &[&[u8]]) -> [u8; STATE_LEN] {
     h.finalize().into()
 }
 
-/// The extension's `DigestRandomGenerator` (`crypto/digestRandomGenerator.ts:21`),
+/// The extension's `DigestRandomGenerator`,
 /// a BouncyCastle-style digest PRNG over SHA-512.
 ///
 /// Both buffers start as 64 zero bytes and both counters at **1**
@@ -147,14 +146,14 @@ fn sha512(parts: &[&[u8]]) -> [u8; STATE_LEN] {
 pub struct DigestRandomGenerator {
     seed: Zeroizing<[u8; STATE_LEN]>,
     state: Zeroizing<[u8; STATE_LEN]>,
-    /// `stateCounter`, read before increment (`:70`).
+    /// `stateCounter`, read before increment.
     state_counter: u64,
-    /// `seedCounter`, read before increment (`:59`).
+    /// `seedCounter`, read before increment.
     seed_counter: u64,
 }
 
 impl DigestRandomGenerator {
-    /// `CYCLE_COUNT` (`digestRandomGenerator.ts:22`).
+    /// `CYCLE_COUNT`.
     pub const CYCLE_COUNT: u64 = 10;
 
     /// A fresh generator: zero state, zero seed, both counters at 1.
@@ -168,14 +167,14 @@ impl DigestRandomGenerator {
         }
     }
 
-    /// `cycleSeed()` (`:57-63`): `seed = SHA-512(seed ‖ counter_bytes(seedCounter++))`.
+    /// `cycleSeed()`: `seed = SHA-512(seed ‖ counter_bytes(seedCounter++))`.
     fn cycle_seed(&mut self) {
         let ctr = counter_bytes(self.seed_counter);
         self.seed_counter = self.seed_counter.wrapping_add(1);
         *self.seed = sha512(&[&*self.seed, &ctr]);
     }
 
-    /// `generateState()` (`:65-77`):
+    /// `generateState()`:
     /// `state = SHA-512(counter_bytes(stateCounter++) ‖ state ‖ seed)`, then
     /// the cycle test **on the incremented counter** — which is landmine 2.
     fn generate_state(&mut self) {
@@ -187,13 +186,13 @@ impl DigestRandomGenerator {
         }
     }
 
-    /// `addSeedMaterial(m)` (`:79-84`): `seed = SHA-512(m ‖ seed)`. The
+    /// `addSeedMaterial(m)`: `seed = SHA-512(m ‖ seed)`. The
     /// material goes **first**; `F-prng-seeded` pins the order.
     pub fn add_seed_material(&mut self, material: &[u8]) {
         *self.seed = sha512(&[material, &*self.seed]);
     }
 
-    /// `nextBytes(out.len())` (`:86-103`): one fresh state per 64-byte chunk,
+    /// `nextBytes(out.len())`: one fresh state per 64-byte chunk,
     /// the tail of the last state discarded. Landmine 3 — a generator that
     /// buffered the tail for the next call would pass any test drawing 32
     /// bytes once and fail `F-prng-chunking`.
@@ -236,7 +235,7 @@ impl fmt::Debug for DigestRandomGenerator {
     }
 }
 
-/// What `deriveSeed` returns (`derivation.ts:18-31`): the 32-byte secret and
+/// What `deriveSeed` returns: the 32-byte secret and
 /// the generator **as it was left**, which the first-key construction keeps
 /// drawing from.
 pub struct DerivedSeed {
@@ -267,7 +266,7 @@ impl fmt::Debug for DerivedSeed {
     }
 }
 
-/// `Derivation.deriveSeed(seed, id)` (`derivation.ts:18-31`).
+/// `Derivation.deriveSeed(seed, id)`.
 ///
 /// `SHA-512(seed ‖ index_bytes(id))` → a fresh generator's seed material →
 /// 32 bytes drawn. `seed` is a slice because the shipped function is called
@@ -343,7 +342,7 @@ impl WotsKey {
 
     /// The 40-byte v3 address under an account tag: `tag ‖ hash_of(pk)`, which
     /// is what `deriveWotsSeedAndAddress` returns as `address`
-    /// (`derivation.ts:48`; `WotsAddress.setTag` then `bytes()[..40]`).
+    /// (`WotsAddress.setTag` then `bytes()[..40]`).
     #[must_use]
     pub fn address(&self, tag: &Tag) -> Address {
         let implicit = self.implicit_address();
@@ -353,9 +352,9 @@ impl WotsKey {
         out
     }
 
-    /// The 2208-byte legacy address `generateRandomAddress` returns
-    /// (`wots.ts:347-373`): `pk ‖ pub_seed ‖ adrs ‖ tag12`, the twelve-byte
-    /// tag overlaid on the last twelve bytes (`tag.ts:57`).
+    /// The 2208-byte legacy address `generateRandomAddress` returns:
+    /// `pk ‖ pub_seed ‖ adrs ‖ tag12`, the twelve-byte
+    /// tag overlaid on the last twelve bytes.
     ///
     /// `wots_pkgen` mutates address words 5, 6 and 7 as it runs (group A's
     /// `adrs_in_words`/`adrs_out_words` pairs show exactly those three), and
@@ -388,7 +387,7 @@ impl fmt::Debug for WotsKey {
 
 /// The first-key construction: `WOTSWallet.create(name, secret, v3tag,
 /// generator)` with a generator supplied →
-/// `WOTS.generateRandomAddress` (`wallet.ts:245`, `wots.ts:335-373`), driven
+/// `WOTS.generateRandomAddress`, driven
 /// by the generator `deriveSeed` left behind.
 ///
 /// The generator fills a 2208-byte buffer in **one** call (35 states, the
@@ -423,7 +422,7 @@ pub fn first_key(derived: DerivedSeed) -> WotsKey {
 /// The first key **rebuilt from stored public components** rather than from a
 /// generator: what the shipped wallet does at `wotsIndex === -1`, where it
 /// memcpys `faddress` back into the generation buffer instead of deriving
-/// anything (`redux/selectors/accountSelectors.ts:24-31`).
+/// anything.
 ///
 /// This is the imported account's route to position 0, and it is the reason
 /// [`crate::account::Account::import`] takes the 2208-byte address at all: the
@@ -452,7 +451,7 @@ pub fn first_key_from_components(
     }
 }
 
-/// `Derivation.deriveAccountTag(master, account_index)` (`derivation.ts:6-16`):
+/// `Derivation.deriveAccountTag(master, account_index)`:
 /// the tag half of the first key's implicit address.
 #[must_use]
 pub fn derive_account_tag(master: &Secret<SEED_LEN>, account_index: u32) -> Tag {
@@ -461,7 +460,7 @@ pub fn derive_account_tag(master: &Secret<SEED_LEN>, account_index: u32) -> Tag 
 
 /// One rotation of an account's key: `deriveSeed(account_seed, rotation)`
 /// through the first-key construction — the `secret`/`wotsWallet` half of
-/// `Derivation.deriveWotsSeedAndAddress` (`derivation.ts:33-49`).
+/// `Derivation.deriveWotsSeedAndAddress`.
 ///
 /// `rotation` is the **shipped** numbering (the extension's `wotsIndex`, from
 /// 0); the crate's [`crate::account::WotsIndex`] maps onto it by
@@ -510,7 +509,7 @@ pub fn stream_id(seed: &Secret<SEED_LEN>) -> StreamId {
     StreamId::from_bytes(derive_wots_key(seed, 0).tag())
 }
 
-/// What `MasterSeed.deriveAccount` returns (`MasterSeed.ts:115-137`): the tag,
+/// What `MasterSeed.deriveAccount` returns: the tag,
 /// the account seed, and the first key.
 pub struct DerivedAccount {
     tag: Tag,
@@ -555,7 +554,7 @@ impl fmt::Debug for DerivedAccount {
     }
 }
 
-/// `MasterSeed.deriveAccount(account_index)` (`MasterSeed.ts:115-137`).
+/// `MasterSeed.deriveAccount(account_index)`.
 ///
 /// The shipped method derives twice — `deriveAccountTag` and then `deriveSeed`
 /// again for the address — and both derivations start the same generator from

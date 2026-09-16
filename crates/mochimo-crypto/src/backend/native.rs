@@ -40,7 +40,7 @@
 //!
 //! Every scratch buffer that holds secret material is [`Zeroizing`]. That
 //! includes `prf`'s 96-byte `buf`, which contains the *key* argument verbatim —
-//! and at `expand_seed`'s call site (`wots.c:130`) that key is the WOTS+ private
+//! and at `expand_seed`'s call site that key is the WOTS+ private
 //! seed. It includes `thash_f`'s `buf` and `bitmask`, and `gen_chain`'s working
 //! value, which is a private chain element until the last step turns it into a
 //! public one.
@@ -66,13 +66,13 @@ use crate::consts::{
 };
 use crate::error::Result;
 
-/// The WOTS+ `core_hash` (`wots.c:28`).
+/// The WOTS+ `core_hash`.
 ///
 /// `#define core_hash(out, in, inlen) sha256(in, inlen, out)` — the argument
 /// order is transposed by the macro, which is worth noticing once here rather
 /// than at each of the four call sites.
 ///
-/// The reference's own `sha256` (`sha256.c:99`) is a one-shot over
+/// The reference's own `sha256` is a one-shot over
 /// `sha256_init`/`_update`/`_final`. `Sha256::digest` is the same shape, and the
 /// two are compared in `tests/kat.rs` through group HS, which records the
 /// reference's digest at every input length across two blocks.
@@ -85,14 +85,14 @@ pub fn sha256(input: &[u8]) -> [u8; 32] {
 // Step 1 --- the chain function
 // -------------------------------------------------------------------------
 
-/// The XMSS hash padding domain separators (`wots.c:21-22`).
+/// The XMSS hash padding domain separators.
 const XMSS_HASH_PADDING_F: u64 = 0;
 const XMSS_HASH_PADDING_PRF: u64 = 3;
 
 /// `wots.c:51`. Writes `out.len()` bytes of `value` in **big-endian** order,
 /// truncating from the top when `out` is narrower than the value.
 ///
-/// The truncation is not incidental. `wots_checksum` (`wots.c:204`) calls this
+/// The truncation is not incidental. `wots_checksum` calls this
 /// with a 2-byte buffer and a `csum` that has already been shifted left by 4, so
 /// the top bits of a 32-bit `int` are dropped by design; a Rust version that
 /// used `to_be_bytes()` and copied a fixed width would be a different function
@@ -121,7 +121,7 @@ pub fn ull_to_bytes(out: &mut [u8], value: u64) {
 /// This is the function that makes the `adrs` byte order a *serialization*
 /// rather than a memory layout: the caller holds words, and the bytes that reach
 /// `prf` are big-endian regardless of host endianness. The transaction path
-/// stores those same words host-endian (`put32`, `extlib.c:86`), so the two
+/// stores those same words host-endian (`put32`), so the two
 /// differ by a per-word reversal on a little-endian host — recorded here because
 /// this function is where the two conventions meet, and settled against
 /// `fixtures/group_d_tx.json` and group A rather than by reasoning.
@@ -134,7 +134,7 @@ pub fn addr_to_bytes(adrs: &[u32; 8]) -> [u8; 32] {
     bytes
 }
 
-// The address setters (`wots.c:32`, `:37`, `:42`). Named rather than inlined so
+// The address setters. Named rather than inlined so
 // that a wrong index reads as a wrong index: an injection that writes word 4
 // instead of word 5 is only legible as a fault if the words have names here.
 //
@@ -154,7 +154,7 @@ fn set_key_and_mask(adrs: &mut [u32; 8], key_and_mask: u32) {
 /// `wots.c:78`. `PRF(key, in)` = `sha256(pad(3) ‖ key ‖ in)` over 96 bytes.
 ///
 /// Returns [`Result`] only because the C binding's `prf` did, its `Err` arm
-/// carrying the reference's `int` return. The C's `return 0` at `wots.c:89` is
+/// carrying the reference's `int` return. The C's `return 0` is
 /// unconditional, so this arm was unreachable on both sides; the signature was
 /// held identical anyway, because a differential test whose two sides have
 /// different types has something between them to be wrong, and it is kept.
@@ -312,9 +312,9 @@ pub fn gen_chain_counted(
 /// That is the argument, and reproducing the loop as written is what keeps it
 /// true of this code rather than only of the C.
 ///
-/// The `& (WOTSW - 1)` mask at `wots.c:181` is what confines every digit to
+/// The `& (WOTSW - 1)` mask is what confines every digit to
 /// `0..=15`. That is not cosmetic: `wots_pk_from_sig` computes
-/// `WOTSW - 1 - lengths[i]` (`wots.c:300`), which underflows if a digit ever
+/// `WOTSW - 1 - lengths[i]`, which underflows if a digit ever
 /// exceeded 15.
 pub fn base_w(output: &mut [i32], input: &[u8]) {
     let needed = output.len().div_ceil(2);
@@ -688,7 +688,7 @@ pub fn wots_pk_from_sig_counted(
 ///
 /// The two Keccak variants differ in one byte and both compile. The reference
 /// picks FIPS-202: `sha3.c:79` is `ctx->st.b[ctx->pt] ^= 0x06`, where the same
-/// file's `keccak_final` (`sha3.c:139`) uses `0x07`. The rate agrees
+/// file's `keccak_final` uses `0x07`. The rate agrees
 /// independently — `sha3.c:48` is `rsiz = 200 - (outlen << 1)`, giving 72 for
 /// `outlen = 64`, which is SHA3-512's rate. Two reads, one conclusion.
 ///
@@ -981,14 +981,14 @@ const BASE58_MAP: [u8; 256] = {
 /// The C's length probe (`out == NULL`) is one short whenever the input is
 /// **entirely zero bytes**, and that is the whole class — not an approximation
 /// of one. The mechanism, from `base58.c:59-77`: `low` is initialised to
-/// `size`, the conversion loop at `:64` runs `inlen - zeros` times, and for an
+/// `size`, the conversion loop runs `inlen - zeros` times, and for an
 /// all-zero input that is zero times, so `low` is never assigned. `low++` at
 /// `:72` then leaves it at `size + 1`, and the probe returns
 /// `zeros + size - low` = `zeros - 1`. Writing is unaffected — `:84` memsets
 /// `zeros` `'1'` characters regardless — so the reference *encodes* correctly
 /// and *reports* one byte less than it wrote.
 ///
-/// `inlen == 0` is rejected by the C at `:52` and is rejected here, so the
+/// `inlen == 0` is rejected by the C and is rejected here, so the
 /// class is "all-zero and non-empty" exactly.
 ///
 /// An all-zero tag is a reachable value — `fixtures/group_c_addr.json`'s C7 is
@@ -1043,7 +1043,7 @@ pub fn base58_encode(input: &[u8]) -> Result<String> {
 /// # The reference faults here, and this is where it does it
 ///
 /// For a string of **entirely `'1'` characters** the same stale-cursor
-/// mechanism as in [`base58_encode`] leaves `low == size + 1` at `:134`, so
+/// mechanism as in [`base58_encode`] leaves `low == size + 1`, so
 /// `:144`'s `memcpy(out + zeros, buffer + low, size - low)` is called with
 /// `size - low == -1`, converted to `(size_t)(-1)`. `fixtures/group_c_addr.json`'s
 /// `C-base58-degenerate` records the crash under `lldb` and notes that the
@@ -1056,9 +1056,9 @@ pub fn base58_encode(input: &[u8]) -> Result<String> {
 /// with no oracle behind it, and `tests/kat.rs::ts_base58_decode` checks it
 /// against the `bs58`-executed crosscheck value.
 ///
-/// Rejection matches the reference exactly, and only there: the empty string
-/// (`:111`), a byte with the high bit set (`:122`), and any byte the alphabet
-/// does not contain (`:124`). Notably **not** a checksum — `base58.c` has no
+/// Rejection matches the reference exactly, and only there: the empty string,
+/// a byte with the high bit set (`:122`), and any byte the alphabet
+/// does not contain. Notably **not** a checksum — `base58.c` has no
 /// checksum logic, which fixture C12 pins from the other side.
 pub fn base58_decode(s: &[u8]) -> Result<Vec<u8>> {
     let reject = || {

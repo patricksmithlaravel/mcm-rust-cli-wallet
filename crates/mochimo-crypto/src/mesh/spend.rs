@@ -44,7 +44,7 @@
 //! The destination reference grammar is enforced here since S10, by
 //! [`reference_is_valid`]: a transcription, state for state, of the node's
 //! `mdst_val__reference` (`tx.c:510-573` at the corpus's pinned commit,
-//! refused as `EMCM_XTXREF` at `tx.c:626`). It was deliberately not
+//! refused as `EMCM_XTXREF`). It was deliberately not
 //! restated for a time -- a restated state machine agrees with itself, and
 //! the corpus records the reference's verdict on two values only
 //! (`D16-badref`) -- and restating became admissible when the reference
@@ -57,7 +57,7 @@
 //!
 //! Deliberately **not** enforced here: the node's *configured* fee (`Myfee`,
 //! `tx.c:1034`), of which only the protocol floor is knowable offline; the
-//! block-to-live window (`bnum <= btl <= bnum + 0x100`, `tx.c:724-734`),
+//! block-to-live window (`bnum <= btl <= bnum + 0x100`),
 //! whose bound is a literal inside `tx_val` that can neither be bound nor
 //! restated without becoming a second `valid_op` — `blk_to_live` is the
 //! caller's, zero (no expiry, the only value the node does not check) unless
@@ -97,10 +97,10 @@ use crate::wots::{self, Adrs};
 use super::{LedgerEntry, TxId};
 
 /// The node's validator for a destination's 16-byte reference field
-/// (`MDST::ref`, `types.h:407-418`), transcribed from `mdst_val__reference`
-/// at `tx.c:510-573` of the reference at the corpus's pinned commit,
+/// (`MDST::ref`), transcribed from `mdst_val__reference`
+/// of the reference at the corpus's pinned commit,
 /// `bbbaceabe5c21b5d8a094cf34c050d28e4ae93f4`, where its refusal is
-/// `EMCM_XTXREF` (`tx.c:626`).
+/// `EMCM_XTXREF`.
 ///
 /// State for state. The C's states are `START`, `DIGIT_DASH`, `DIGIT`,
 /// `UPPER_DASH`, `UPPER` and `ZERO`, and the enum below carries the same
@@ -184,18 +184,18 @@ impl SpendPlan {
     ///    the key this store signs with next; I4's divergence, stopped at.
     /// 2. a destination count outside `1..=256` — `Error::Range`, from
     ///    [`Transaction::new`].
-    /// 3. a zero amount — [`Error::ZeroAmount`] (`tx.c:607`).
+    /// 3. a zero amount — [`Error::ZeroAmount`].
     /// 4. a destination carrying the source's tag —
-    ///    [`Error::DestinationIsSource`] (`tx.c:612`).
-    /// 5. the amount tally overflowing — [`Error::Overflow`] (`tx.c:616`).
+    ///    [`Error::DestinationIsSource`].
+    /// 5. the amount tally overflowing — [`Error::Overflow`].
     /// 6. a reference the node's rule refuses — [`Error::InvalidReference`]
     ///    (`tx.c:626`, [`reference_is_valid`]).
     /// 7. `fee_total < MFEE × count` — [`Error::FeeBelowMinimum`]
-    ///    (`tx.c:621,636`; `tx_val`'s own `fee >= MFEE` at `:747` is implied
+    ///    (`tx_val`'s own `fee >= MFEE` is implied
     ///    for one destination or more).
     /// 8. `send + fee > balance` — [`Error::InsufficientBalance`]; the change
     ///    is the remainder, so `send + change + fee == balance` holds by
-    ///    construction against the observation (`tx.c:776-792`).
+    ///    construction against the observation.
     ///
     /// Destinations are **sorted** by their 44-byte image (`tx.c:601`,
     /// `EMCM_TXMDSTSORT`), duplicates kept: a transform rather than a
@@ -323,7 +323,7 @@ impl SpendPlan {
 
     /// The ledger balance the plan was built against: `entry.balance` as
     /// [`SpendPlan::new`] observed it, the number `tx_val` will demand
-    /// `send + change + fee` equal exactly (`tx.c:776-792`). Stored at
+    /// `send + change + fee` equal exactly. Stored at
     /// construction rather than summed from the three totals, so what the
     /// keystore records for the reservation is the
     /// observation itself and not a value derived from three other fields;
@@ -389,15 +389,15 @@ impl SignedTransaction {
     ///
     /// **The `adrs` on the wire is the state `pk_from_sig` leaves behind**,
     /// not the words the key started from. `tx_val__wots` compares the
-    /// supplied `adrs` against the post-recovery one (`tx.c:681`), and the
-    /// reference requires the last twelve bytes to be a specific triple
-    /// (`types.h:441-443`); that triple is what every WOTS+ chain walk ends
+    /// supplied `adrs` against the post-recovery one, and the
+    /// reference requires the last twelve bytes to be a specific triple;
+    /// that triple is what every WOTS+ chain walk ends
     /// on, so taking it from the recovery reproduces it without restating it.
     /// `Ds7` records the reference rejecting an image whose tail is one byte
     /// off; the Ds6 images pin this byte for byte in `tests/spend.rs`.
     ///
     /// The trailer is then sealed: nonce zero, `id = TX_HASH_ID`, the pair
-    /// the node writes itself after validation (`tx.c:1286-1287`).
+    /// the node writes itself after validation.
     pub fn attach(plan: &SpendPlan, sig: &SpendSignature) -> Result<SignedTransaction> {
         if sig.spent_index != plan.position {
             return Err(Error::PositionMismatch {
@@ -443,13 +443,13 @@ impl SignedTransaction {
     }
 }
 
-/// `tx_val__wots` (`tx.c:653-694`) over an assembled image, without the
+/// `tx_val__wots` over an assembled image, without the
 /// tail literal: recover the public key from the wire's own `adrs` over
 /// `TX_HASH_MESSAGE`; the post-recovery `adrs` must equal the wire's
 /// (`tx.c:681`'s first comparison, which for a real signature also settles
 /// the second — a wrong tail is a different post-state, as `Ds7` records);
-/// and the recovered key's address hash must be the source's hash half
-/// (`tx.c:687-689`). `Ok` is the verdict the reference recorded for `D1v`,
+/// and the recovered key's address hash must be the source's hash half.
+/// `Ok` is the verdict the reference recorded for `D1v`,
 /// `Ds8b` and the four `Ds6` images; the `Err` names which comparison
 /// failed (`Ds7`: the address scheme; `Ds8`–`Ds11`: the source hash).
 pub fn verify_wots(tx: &Transaction) -> Result<()> {

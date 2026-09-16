@@ -336,7 +336,7 @@ const KIND_IMPORTED: u8 = 1;
 pub struct Figures {
     /// The ledger balance the plan was built against, in nanoMochimo.
     pub reserved_balance: u64,
-    /// The plan's block-to-live; zero never expires (`types.h:471`).
+    /// The plan's block-to-live; zero never expires.
     pub blk_to_live: u64,
 }
 

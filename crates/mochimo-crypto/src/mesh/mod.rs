@@ -23,9 +23,9 @@
 //! # What a 200 from `submit` means
 //!
 //! **The bytes left the process; nothing more.** `constructionSubmitHandler`
-//! (`reference/mochimo-mesh/construction_handler.go`) decodes the hex with
+//! decodes the hex with
 //! `TransactionFromHex`, hands it to `SubmitTransaction`, and that function
-//! (`reference/go_mcminterface/queries.go`) writes the bytes as `OP_TX` to
+//! writes the bytes as `OP_TX` to
 //! each of a set of picked nodes, one raw frame per socket, and returns
 //! `nil` as soon as one of those writes completes **without reading a
 //! reply** from any of them. Nothing is validated on the way ("Validate the signed
@@ -38,7 +38,7 @@
 //!
 //! # The `tx_val` residue, at this site
 //!
-//! `tx_val` (`tx.c:707`) runs on the node against an open ledger, and **no
+//! `tx_val` runs on the node against an open ledger, and **no
 //! image in the corpus has ever been through it**. What this
 //! crate checks a transaction against offline is layout, `mdst_val` and
 //! `tx_val__wots`; the ledger arms — exact balance equality, the block-to-live
@@ -89,7 +89,7 @@ pub mod spend;
 pub use spend::{SignedTransaction, SpendPlan};
 
 /// The middleware's request-body cap: `http.MaxBytesReader(w, r.Body,
-/// 30*1024)` in `maxRequestSizeMiddleware` (`reference/mochimo-mesh/main.go`).
+/// 30*1024)` in `maxRequestSizeMiddleware`.
 /// Enforced here too, so an oversize body is a named refusal rather than a
 /// dropped connection. A 256-destination signed image is 13,628 bytes —
 /// 27,256 hex characters plus the envelope — and fits.
@@ -201,18 +201,17 @@ impl<T: Transport> MeshClient<T> {
     /// not reconciled with it (see [`codec::MeshTransaction::metadata`]).
     ///
     /// Served only where the deployment set `EnableIndexer`; where it did
-    /// not, the handler answers an internal error rather than an empty page
-    /// (`search_handler.go:114-118`).
+    /// not, the handler answers an internal error rather than an empty page.
     pub fn search_by_hash(&self, hash: &[u8; HASHLEN]) -> Result<codec::SearchPage> {
         let reply = self.transport.post("/search/transactions", &codec::request_search_by_hash(hash))?;
         codec::parse_search(&reply)
     }
 
-    /// `POST /search/transactions` by account tag, newest first
-    /// (`indexer/search.go:70`), at most `limit` rows.
+    /// `POST /search/transactions` by account tag, newest first,
+    /// at most `limit` rows.
     ///
     /// `limit` must be in `1..=100`: outside that the handler ignores it and
-    /// uses its own default of 10 (`search_handler.go:71-74`), so a caller
+    /// uses its own default of 10, so a caller
     /// that passed 250 would be answered with ten rows and no indication.
     /// The command line refuses the count before it reaches here.
     pub fn search_by_account(&self, tag: &Tag, limit: u64) -> Result<codec::SearchPage> {

@@ -3,27 +3,25 @@
 //! This is the decided shape: **ordinary Rust types with a
 //! serializer at the boundary** — no self-referential buffer, no stored
 //! offsets, no `Pin`, no `unsafe`. The reference's transaction container
-//! (`types.h:563`) keeps fifteen interior pointers as a memoized index over
+//! keeps fifteen interior pointers as a memoized index over
 //! one buffer; `tx__init` computes every one of them from three option bytes
-//! (`tx.c:119`) and `tx_read` recomputes them all before copying anything
-//! (`tx.c:474`). These types keep the index and drop the memoization: the
+//! and `tx_read` recomputes them all before copying anything.
+//! These types keep the index and drop the memoization: the
 //! serializer is where the index is spent.
 //!
 //! The layout is designed from the wire format as the reference defines it,
 //! not from the container struct:
 //!
 //! - header: `options[4]`, `src_addr[40]`, `chg_addr[40]`, `send_total[8]`,
-//!   `change_total[8]`, `fee_total[8]`, `blk_to_live[8]` — 116 bytes
-//!   (`types.h:477-487`);
+//!   `change_total[8]`, `fee_total[8]`, `blk_to_live[8]` — 116 bytes;
 //! - `MDST_COUNT` destinations of `tag[20]`, `ref[16]`, `amount[8]` — 44
-//!   bytes each (`types.h:423-429`), where `MDST_COUNT = options[2] + 1`
-//!   in 1..=256 (`types.h:176`; there is no `MAX_DESTINATIONS` macro — the
-//!   bound is `mdst[256]` at `types.h:498` plus the `word8` range);
-//! - WOTS+ validation data: `signature[2144]`, `pub_seed[32]`, `adrs[32]`
-//!   (`types.h:445-451`);
-//! - an optional trailer: `nonce[8]`, `id[32]` (`types.h:533-538`).
+//!   bytes each, where `MDST_COUNT = options[2] + 1`
+//!   in 1..=256 (there is no `MAX_DESTINATIONS` macro — the
+//!   bound is `mdst[256]` plus the `word8` range);
+//! - WOTS+ validation data: `signature[2144]`, `pub_seed[32]`, `adrs[32]`;
+//! - an optional trailer: `nonce[8]`, `id[32]`.
 //!   `tx_read` accepts a wire image with the trailer whole, absent, or
-//!   partial (`tx.c:493`).
+//!   partial.
 //!
 //! Multi-byte numbers are little-endian; the four 64-bit header fields
 //! (`send_total`, `change_total`, `fee_total`, `blk_to_live`) and the nonce
@@ -34,7 +32,7 @@
 //! # The serializer takes what it is given
 //!
 //! `send_total`, `fee_total` and the rest are **fields, not computations**.
-//! `mdst_val` (`tx.c:586`) is where the reference decides whether
+//! `mdst_val` is where the reference decides whether
 //! `send_total` equals the amount tally and whether `fee_total` covers
 //! `count × mfee`; a serializer that "helpfully" recomputed either would be
 //! unable to reproduce the `D19-totals`/`D19-fees` wire images, whose totals
@@ -65,7 +63,7 @@
 //! digests (`tests/kat.rs::reference_verdicts_native`, `tests/txwire.rs`).
 //! The construction differential against the C container and the framing
 //! agreement with `tx_read` over arbitrary bytes went with the binding. But
-//! `tx_val` (`tx.c:707`) needs an open ledger and is not
+//! `tx_val` needs an open ledger and is not
 //! callable offline, so **no wire image in the corpus is a transaction the C
 //! accepted end to end** — `D17`'s recorded booleans are the reference's own
 //! comparators over the emitted bytes, and the path that acts on them never
@@ -77,15 +75,15 @@
 //!
 //! # The two digests, and the trailer the node writes
 //!
-//! `tx_hash` (`tx.c:447-463`) is one `sha256` over one of two prefixes of the
+//! `tx_hash` is one `sha256` over one of two prefixes of the
 //! wire image: `TX_HASH_MESSAGE` stops at the validation data — the first
 //! [`Transaction::dsa_off`] bytes, the message a signature is over — and
 //! `TX_HASH_ID` stops at the trailer's `id`, so it covers the nonce as well.
 //! [`Transaction::message_digest`] and [`Transaction::id_digest`] are those
 //! two, and they hash bytes this module writes rather than bytes it slices out
-//! of `to_wire`, so no index is involved. `process_tx` (`tx.c:1258`) zeroes
-//! the nonce and writes `TX_HASH_ID` into the trailer *after* validation
-//! (`tx.c:1286-1287`), which is why whatever trailer a wallet sends is ignored
+//! of `to_wire`, so no index is involved. `process_tx` zeroes
+//! the nonce and writes `TX_HASH_ID` into the trailer *after* validation,
+//! which is why whatever trailer a wallet sends is ignored
 //! by the node and why [`Transaction::seal`] writes exactly that pair.
 //!
 //! The hash is `backend::selected`'s `sha256`: the bytes are public, so the
@@ -101,10 +99,10 @@ use crate::error::{Error, Result};
 
 use super::{DAT_MDST, DSA_WOTS, MAX_DESTINATIONS};
 
-/// One destination: `MDST` on the wire (`types.h:423-429`).
+/// One destination: `MDST` on the wire.
 ///
 /// `reference` is the 16-byte destination reference field. Its *grammar*
-/// (`types.h:407-418`, enforced by `mdst_val__reference` at `tx.c:510`) is a
+/// (`types.h:407-418`, enforced by `mdst_val__reference`) is a
 /// validator concern, not a serializer one: these bytes are emitted as given,
 /// which is what lets `D16-badref`'s reference-rejected image round-trip.
 /// The validator this crate applies before a spend is laid out is
@@ -121,10 +119,10 @@ pub struct Destination {
 }
 
 impl Destination {
-    /// The 44-byte `MDST` image (`types.h:423-429`): `tag ‖ ref ‖ amount`,
+    /// The 44-byte `MDST` image: `tag ‖ ref ‖ amount`,
     /// the amount little-endian. What [`Transaction::to_wire`] emits for a
     /// destination, and the key `mdst_val`'s sort compares — `memcmp` over
-    /// the whole struct (`tx.c:601`), so a builder that orders destinations
+    /// the whole struct, so a builder that orders destinations
     /// by this image orders them the way the validator requires.
     pub fn mdst_image(&self) -> [u8; SIZEOF_MDST] {
         let mut out = [0u8; SIZEOF_MDST];
@@ -137,7 +135,7 @@ impl Destination {
     }
 }
 
-/// The WOTS+ validation data: `WOTSVAL` on the wire (`types.h:445-451`).
+/// The WOTS+ validation data: `WOTSVAL` on the wire.
 ///
 /// Held inline rather than boxed, so this module has no allocation site of
 /// its own beyond the destination list. Nothing here is secret: a signature,
@@ -150,13 +148,13 @@ pub struct WotsVal {
     /// `WOTSVAL::pub_seed`.
     pub pub_seed: [u8; 32],
     /// `WOTSVAL::adrs`. The reference documents a required tail for a *valid*
-    /// transaction (`types.h:441-443`); `tx_val__wots` enforces it, this type
+    /// transaction; `tx_val__wots` enforces it, this type
     /// does not — `Ds7` records the reference rejecting exactly that, over an
     /// image that still parses and round-trips.
     pub adrs: [u8; 32],
 }
 
-/// The transaction trailer: `TXTLR` on the wire (`types.h:533-538`).
+/// The transaction trailer: `TXTLR` on the wire.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trailer {
     /// `TXTLR::nonce` — little-endian on the wire.
@@ -170,11 +168,10 @@ pub struct Trailer {
 ///
 /// The destination list is private because it carries the type's one
 /// invariant: **1..=256 destinations**, the range `MDST_COUNT = options[2]+1`
-/// can express (`types.h:176`). Everything else is plain data and public.
+/// can express. Everything else is plain data and public.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Transaction {
-    /// `TXHDR::src_addr` — tag half at offset 0, hash half at offset 20
-    /// (`types.h:114-128`).
+    /// `TXHDR::src_addr` — tag half at offset 0, hash half at offset 20.
     pub src_addr: [u8; ADDR_LEN],
     /// `TXHDR::chg_addr`.
     pub chg_addr: [u8; ADDR_LEN],
@@ -182,8 +179,8 @@ pub struct Transaction {
     pub send_total: u64,
     /// `TXHDR::change_total`.
     pub change_total: u64,
-    /// `TXHDR::fee_total`. The container aliases this pointer `tx_fee`
-    /// (`tx.c:172`); the header struct's own name is kept here.
+    /// `TXHDR::fee_total`. The container aliases this pointer `tx_fee`;
+    /// the header struct's own name is kept here.
     pub fee_total: u64,
     /// `TXHDR::blk_to_live`.
     pub blk_to_live: u64,
@@ -272,19 +269,19 @@ impl Transaction {
         self.dsts.len() as u16
     }
 
-    /// Offset of the validation data: `sizeof(TXHDR) + sizeof(MDST) * count`
-    /// (`tx.c:144`). Equal to the signed length the corpus records.
+    /// Offset of the validation data: `sizeof(TXHDR) + sizeof(MDST) * count`.
+    /// Equal to the signed length the corpus records.
     pub fn dsa_off(&self) -> usize {
         SIZEOF_TXHDR + SIZEOF_MDST * self.dsts.len()
     }
 
-    /// Offset of the trailer: `dsaoff + sizeof(WOTSVAL)` (`tx.c:153`).
+    /// Offset of the trailer: `dsaoff + sizeof(WOTSVAL)`.
     pub fn tlr_off(&self) -> usize {
         self.dsa_off() + SIZEOF_WOTSVAL
     }
 
-    /// The full transaction size, trailer included: `tlroff + sizeof(TXTLR)`
-    /// (`tx.c:164`). This is the container's `tx_sz` whether or not the wire
+    /// The full transaction size, trailer included: `tlroff + sizeof(TXTLR)`.
+    /// This is the container's `tx_sz` whether or not the wire
     /// form carried the trailer, because `tx_read` recomputes it from the
     /// option bytes alone.
     pub fn tx_sz(&self) -> usize {
@@ -321,7 +318,7 @@ impl Transaction {
         }
     }
 
-    /// The validation data, `WOTSVAL` (`types.h:445-451`).
+    /// The validation data, `WOTSVAL`.
     fn write_wots(&self, w: &mut Vec<u8>) {
         w.extend_from_slice(&self.wots.signature);
         w.extend_from_slice(&self.wots.pub_seed);
@@ -342,7 +339,7 @@ impl Transaction {
         w
     }
 
-    /// `TX_HASH_MESSAGE` (`tx.c:452-455`): `sha256` over the header and
+    /// `TX_HASH_MESSAGE`: `sha256` over the header and
     /// destinations — the first [`Self::dsa_off`] bytes — which is the
     /// message a WOTS+ signature is over. Group D records it as
     /// `signed_len`; `tx_sign` in the fixture generator hashes exactly this.
@@ -352,10 +349,10 @@ impl Transaction {
         backend::sha256(&w)
     }
 
-    /// `TX_HASH_ID` (`tx.c:457-460`): `sha256` over everything up to the
+    /// `TX_HASH_ID`: `sha256` over everything up to the
     /// trailer's `id`, so the nonce is included. The nonce hashed is the one
     /// this value holds, or zero when the trailer is absent — the form
-    /// `process_tx` produces (`tx.c:1286`) and the mesh middleware echoes.
+    /// `process_tx` produces and the mesh middleware echoes.
     pub fn id_digest(&self) -> [u8; HASHLEN] {
         let nonce = self.trailer.as_ref().map_or(0, |t| t.nonce);
         self.id_digest_with_nonce(nonce)
@@ -369,8 +366,8 @@ impl Transaction {
         backend::sha256(&w)
     }
 
-    /// Writes the trailer the node itself writes after validation
-    /// (`tx.c:1286-1287`): nonce zero, `id = TX_HASH_ID`. What a wallet
+    /// Writes the trailer the node itself writes after validation:
+    /// nonce zero, `id = TX_HASH_ID`. What a wallet
     /// sends here is overwritten on receipt, so sealing is for the wallet's
     /// own bookkeeping — the id is what `/mempool` and
     /// `/construction/submit` name the transaction by — not for the node.
@@ -381,14 +378,14 @@ impl Transaction {
 
     /// Parses a wire image, accepting exactly what `tx_read` accepts.
     ///
-    /// The checks run in the reference's order: header length (`tx.c:477`),
+    /// The checks run in the reference's order: header length,
     /// then the two type bytes (`tx.c:141-157` — only `TXDAT_MDST` and
     /// `TXDSA_WOTS`, anything else before any further arithmetic), then the
-    /// length window `tx_sz - sizeof(TXTLR) <= len <= tx_sz` (`tx.c:493`).
+    /// length window `tx_sz - sizeof(TXTLR) <= len <= tx_sz`.
     ///
     /// A partial trailer — any of the 39 lengths strictly inside the window —
     /// is **zero-extended**, reproducing the reference's state after its
-    /// `memset` (`tx.c:483`) and partial `memcpy` (`tx.c:499`). So
+    /// `memset` and partial `memcpy`. So
     /// `to_wire(from_wire(x)) == x` holds for the two canonical lengths, and
     /// for the partial lengths it produces the full-trailer image the
     /// reference's own container would hold; the round-trip differential

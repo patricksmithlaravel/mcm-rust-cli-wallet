@@ -158,7 +158,7 @@ pub mod consts {
         /// The minimum transaction fee, in nanoMochimo. `types.h:48`; the
         /// 64-bit little-endian form the validators take is `MFEE64` at
         /// `types.h:78`. `u64` because `tx_val` compares it against
-        /// `tx_fee` (`tx.c:747`) and `mdst_val` accumulates one per
+        /// `tx_fee` and `mdst_val` accumulates one per
         /// destination into the floor `fee_total` must clear (`tx.c:621`,
         /// `:636`). Read by `mesh::spend`; the C binding's `mdst_val` shim,
         /// its only reader before that, took the eight-byte pointer form and
@@ -211,7 +211,7 @@ pub mod consts {
     /// A WOTS+ public key, and equally a WOTS+ signature.
     ///
     /// The reference calls these `WOTS_PK_LEN` / `WOTS_SIG_LEN` and files them
-    /// under the "LEGACY" comment at `types.h:130`. They are not legacy: that
+    /// under the "LEGACY" comment. They are not legacy: that
     /// comment spans both dead constants (the 12-byte legacy tag's, which this
     /// crate never bound) and load-bearing ones (the 2,208-byte `WOTSVAL`
     /// layout these two size, `STATIC_ASSERT`-pinned), so its scope is not

@@ -144,7 +144,7 @@ fn hex_bytes(b: &[u8]) -> String {
 /// kind of string they are looking at. Refusing says the one true thing: this
 /// program cannot presently tell you where to send money. The branch is not
 /// reachable for a tag — [`crate::base58::encode`] refuses only a NULL or
-/// empty input (`base58.c:32-33`) and this payload is twenty-two bytes — which
+/// empty input and this payload is twenty-two bytes — which
 /// is stated here rather than asserted, because no input reaches it and a
 /// marker nobody can discharge is worse than knowledge.
 fn destination(tag: &Tag) -> crate::Result<String> {
@@ -461,13 +461,13 @@ fn state_of(status: &AccountStatus) -> String {
 /// no refusal is on these pages, and the route out is escalated.
 ///
 /// What each phrase rests on, read on disk: a deposit credits by tag in place
-/// (`bval.c:350-358`, `ledger.c:640-646`) and `tx_val` demands
-/// `send + change + fee` equal the balance exactly (`tx.c:776-793`), so a
+/// and `tx_val` demands
+/// `send + change + fee` equal the balance exactly, so a
 /// moved balance is dead for good; block N is the last block that can carry
 /// btl N (`tx.c:731` under `bval.c:309`) and `txclean` drops it against the
-/// next block (`tx.c:1031-1034`), so the artifact is dead once the tip
-/// reaches the value; zero never expires
-/// (`types.h:471`). The block-to-live marker in `tests/cli.rs` harvests every decimal token of `status`
+/// next block, so the artifact is dead once the tip
+/// reaches the value; zero never expires.
+/// The block-to-live marker in `tests/cli.rs` harvests every decimal token of `status`
 /// and `balance` against a ceiling of 64; these lines add the block-to-live
 /// and the tip to a page that carried four.
 fn reservation_lines(spent_index: WotsIndex, reservation: &Reservation, indent: &str) -> String {
@@ -1212,16 +1212,16 @@ fn reference_line(label: &str, field: &[u8; ADDR_REF_LEN]) -> String {
 /// artifact.
 ///
 /// The value is inside the signed digest (`blk_to_live` is the last field of
-/// `TXHDR`, `types.h:484`) and `resign` refuses without it, and once no
+/// `TXHDR`) and `resign` refuses without it, and once no
 /// command printed it in any labelled or decimal form. What each phrase
-/// rests on, read on disk: zero can never expire (`types.h:471`); a non-zero
-/// value expires for every block number greater than it (`types.h:472-473`),
+/// rests on, read on disk: zero can never expire; a non-zero
+/// value expires for every block number greater than it,
 /// which a block enforces against its own number (`bval.c:309` hands
 /// `bt.bnum` to `txe_val`) and the queue against the NEXT block (`tx.c:
 /// 1031-1034` validates against `Cblocknum + 1`), so the transaction is dead
 /// once the tip reaches the value; and on arrival a node refuses a value more
 /// than 256 blocks past its tip (`tx.c:724-734`, `bnum + 0x100`, with
-/// `Cblocknum` as `bnum` at `tx.c:1282`). The operator-facing text carries no
+/// `Cblocknum` as `bnum`). The operator-facing text carries no
 /// citation at all; the lines are here.
 ///
 /// The first mitigation, and no longer the only copy: the record carries the
@@ -2021,7 +2021,7 @@ pub fn cmd_blocks<T: Transport>(client: &MeshClient<T>, count: u64) -> Report {
 /// The Mesh answers its own failures as HTTP 200 carrying a code, which the
 /// codec has already turned into `Error::Mesh`; an internal error from
 /// `/search/transactions` most often means the deployment runs no indexer,
-/// which is its default (`search_handler.go:114-118`), and saying so is the
+/// which is its default, and saying so is the
 /// difference between a useful page and a number.
 fn explorer_refusal(e: &Error) -> String {
     let mut text = format!("{e}");

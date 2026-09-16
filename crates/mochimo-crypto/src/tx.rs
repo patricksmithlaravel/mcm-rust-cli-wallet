@@ -18,24 +18,24 @@
 
 use crate::consts::ADDR_LEN;
 
-/// `TXDAT_MDST` (`types.h:168`) — the one transaction-data type `tx__init`
-/// accepts. Every other value takes its `default:` arm at `tx.c:146`.
+/// `TXDAT_MDST` — the one transaction-data type `tx__init`
+/// accepts. Every other value takes its `default:` arm.
 pub const DAT_MDST: u8 = crate::consts::TXDAT_MDST;
 
-/// `TXDSA_WOTS` (`types.h:173`) — the one signature-algorithm type `tx__init`
+/// `TXDSA_WOTS` — the one signature-algorithm type `tx__init`
 /// accepts. `types.h:514-516` lists three more commented out; none is live, and
-/// the `default:` arm at `tx.c:156` rejects them.
+/// the `default:` arm rejects them.
 pub const DSA_WOTS: u8 = crate::consts::TXDSA_WOTS;
 
-/// `ADDR_REF_LEN` (`types.h:116`) — the optional destination reference field.
+/// `ADDR_REF_LEN` — the optional destination reference field.
 pub const REF_LEN: usize = crate::consts::ADDR_REF_LEN;
 
-/// `HASHLEN` (`types.h:84`) — the transaction id is a SHA-256 digest.
+/// `HASHLEN` — the transaction id is a SHA-256 digest.
 pub const ID_LEN: usize = crate::consts::HASHLEN;
 
 /// The largest destination count an options byte can encode.
 ///
-/// `MDST_COUNT(options)` is `options[2] + 1` (`types.h:176`), so a `word8` of
+/// `MDST_COUNT(options)` is `options[2] + 1`, so a `word8` of
 /// `0xFF` yields 256 — not zero, and not 255. `tx.c:130-140` leans on exactly
 /// this bound to argue that no offset it computes can leave the buffer.
 pub const MAX_DESTINATIONS: u16 = 256;
@@ -58,7 +58,7 @@ use crate::backend::selected;
 
 /// The transaction-data type code: the first options byte.
 ///
-/// `TXDAT_TYPE(options)` at `types.h:166`.
+/// `TXDAT_TYPE(options)`.
 #[must_use]
 pub fn dat_type(options: &[u8; 4]) -> u8 {
     selected::dat_type(options)
@@ -66,7 +66,7 @@ pub fn dat_type(options: &[u8; 4]) -> u8 {
 
 /// The DSA type code: the second options byte.
 ///
-/// `TXDSA_TYPE(options)` at `types.h:171`.
+/// `TXDSA_TYPE(options)`.
 #[must_use]
 pub fn dsa_type(options: &[u8; 4]) -> u8 {
     selected::dsa_type(options)
@@ -74,7 +74,7 @@ pub fn dsa_type(options: &[u8; 4]) -> u8 {
 
 /// The multi-destination count: the third options byte, plus one.
 ///
-/// `MDST_COUNT(options)` at `types.h:176`. Returns `u16` rather than `u8`
+/// `MDST_COUNT(options)`. Returns `u16` rather than `u8`
 /// because the macro's `+ 1` integer-promotes: an options byte of `0xFF` yields
 /// **256**, not 0. Truncating that would be a behaviour change rather than a
 /// binding.
@@ -85,7 +85,7 @@ pub fn mdst_count(options: &[u8; 4]) -> u16 {
 
 /// The tag half of an address: `ADDR_TAG_LEN` bytes from `ADDR_TAG_OFF`.
 ///
-/// `ADDR_TAG_PTR(ptr)` at `types.h:126`. Returned as a slice rather than a raw
+/// `ADDR_TAG_PTR(ptr)`. Returned as a slice rather than a raw
 /// pointer, with both the offset and the length taken from bound constants.
 ///
 /// # `crate::addr::tag_of` is not a substitute, and the agreement is not evidence
@@ -103,7 +103,7 @@ pub fn tag_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
 
 /// The hash half of an address: `ADDR_HASH_LEN` bytes from `ADDR_HASH_OFF`.
 ///
-/// `ADDR_HASH_PTR(ptr)` at `types.h:128`. See [`tag_ptr`] on why
+/// `ADDR_HASH_PTR(ptr)`. See [`tag_ptr`] on why
 /// `addr::hash_of` is not a substitute -- and note that `hash_of` slices at
 /// `ADDR_TAG_LEN`, which infers that the halves abut, where the native backend
 /// reads the offset `types.h:124` states.
@@ -114,7 +114,7 @@ pub fn hash_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
 
 /// Minimum length of a transaction received over the network.
 ///
-/// `TXLEN_MIN` at `types.h:148`, a sum of three `sizeof`s. The C binding
+/// `TXLEN_MIN`, a sum of three `sizeof`s. The C binding
 /// reached it through a shim, because its generator could not evaluate a
 /// `sizeof` expression; this crate sums `crate::consts::wire`, which carries
 /// the reference's own `STATIC_ASSERT` expressions rather than three numbers.
@@ -125,7 +125,7 @@ pub fn len_min() -> usize {
 
 /// Minimum length of a transaction on disk: `TXLEN_MIN` plus a trailer.
 ///
-/// `TXLEN_DSK_MIN` at `types.h:151`.
+/// `TXLEN_DSK_MIN`.
 #[must_use]
 pub fn len_dsk_min() -> usize {
     selected::len_dsk_min()

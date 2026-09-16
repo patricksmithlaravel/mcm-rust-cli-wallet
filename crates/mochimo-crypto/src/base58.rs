@@ -1,7 +1,7 @@
 //! Base58.
 //!
 //! The reference codec carries **no checksum**. Mochimo's tag checksum is two
-//! CRC-16 bytes the caller appends before encoding (`tx.c:270`), so it is not
+//! CRC-16 bytes the caller appends before encoding, so it is not
 //! this module's business.
 //!
 //! # The probe, and why these functions still exist

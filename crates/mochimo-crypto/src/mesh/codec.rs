@@ -10,7 +10,7 @@
 //! is ordered, so keys come out sorted, which is what makes a request body
 //! here byte-equal to `json.dumps(obj, sort_keys=True, separators=(',',':'))`
 //! on the capture side. Every endpoint takes the same `network_identifier`,
-//! `{blockchain: "mochimo", network: "mainnet"}` (`constants.go:12-13`),
+//! `{blockchain: "mochimo", network: "mainnet"}`,
 //! compared exactly by every handler (`ErrWrongNetwork` otherwise).
 //!
 //! # Responses
@@ -19,7 +19,7 @@
 //! parser reads exactly the fields the endpoint documents, checking presence,
 //! type, width and range before a Rust value exists. The middleware's own
 //! failures come back as **HTTP 200** carrying `{code, message, retriable}`
-//! (`giveError`, `handlers.go:140-151`), so every parser first asks whether
+//! (`giveError`), so every parser first asks whether
 //! the object is that shape and answers [`Error::Mesh`] if it is. Anything
 //! else off the documented shape is [`Error::MeshResponse`] naming the field,
 //! never the bytes.
@@ -34,11 +34,11 @@ use super::hex;
 use super::spend::SignedTransaction;
 use super::{BalanceAt, ChainTip, LedgerEntry, TxId, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES};
 
-/// `Constants.NetworkIdentifier.Blockchain`, `reference/mochimo-mesh/constants.go:12`.
+/// `Constants.NetworkIdentifier.Blockchain`.
 pub const NETWORK_BLOCKCHAIN: &str = "mochimo";
-/// `Constants.NetworkIdentifier.Network`, `reference/mochimo-mesh/constants.go:13`.
+/// `Constants.NetworkIdentifier.Network`.
 pub const NETWORK_NAME: &str = "mainnet";
-/// The one `/call` method the middleware answers (`call_handler.go:43`).
+/// The one `/call` method the middleware answers.
 pub const TAG_RESOLVE_METHOD: &str = "tag_resolve";
 /// `MCMCurrency`, `handlers.go`: the symbol and decimals every amount carries.
 pub const CURRENCY_SYMBOL: &str = "MCM";
@@ -130,9 +130,9 @@ pub fn request_submit_wire(wire: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// `POST /block` by index (`blockHandler`, `block_handler.go:23`).
+/// `POST /block` by index (`blockHandler`).
 ///
-/// **Index 0 is not genesis.** `getBlock` (`:56-80`) routes to the
+/// **Index 0 is not genesis.** `getBlock` routes to the
 /// by-number query only when `Index != 0`; an identifier carrying 0 with no
 /// hash falls through to the `else` arm, which fetches the **current**
 /// block. Genesis is not reachable by number through this endpoint, so the
@@ -144,7 +144,7 @@ pub fn request_block_by_index(index: u64) -> Vec<u8> {
     }))
 }
 
-/// `POST /block` by hash (`getBlock`'s second arm, `block_handler.go:67`).
+/// `POST /block` by hash (`getBlock`'s second arm).
 /// The handler takes a hash of at most `32*2+2` characters and reads it from
 /// the deployment's own archive folder, so a hash is served only for blocks
 /// that deployment archived — a not-found is about the archive, not the
@@ -158,7 +158,7 @@ pub fn request_block_by_hash(hash: &[u8; HASHLEN]) -> Vec<u8> {
 }
 
 /// `POST /search/transactions` by transaction hash
-/// (`searchTransactionsHandler`, `search_handler.go:49`).
+/// (`searchTransactionsHandler`).
 pub fn request_search_by_hash(hash: &[u8; HASHLEN]) -> Vec<u8> {
     body(&json!({
         "network_identifier": network_identifier(),
@@ -170,16 +170,16 @@ pub fn request_search_by_hash(hash: &[u8; HASHLEN]) -> Vec<u8> {
 ///
 /// The address is the 20-byte **tag**: the indexer matches
 /// `a.account_tag`, converting whatever hex it is handed to base58 of the
-/// tag (`indexer/search.go:44-57`), which is the same form
+/// tag, which is the same form
 /// [`request_tag_resolve`] builds.
 ///
 /// `limit` is passed as given and the caller is responsible for the
 /// endpoint's window: the handler takes the value **only** when
-/// `0 < limit <= 100` and otherwise leaves its own default of 10
-/// (`search_handler.go:71-74`), so an out-of-range count would silently
+/// `0 < limit <= 100` and otherwise leaves its own default of 10,
+/// so an out-of-range count would silently
 /// return ten rows rather than be clamped. No `offset` is sent: the rows
-/// come back `ORDER BY bm.block_height DESC, tm.id DESC`
-/// (`indexer/search.go:70`), so offset 0 already names the newest.
+/// come back `ORDER BY bm.block_height DESC, tm.id DESC`,
+/// so offset 0 already names the newest.
 ///
 /// No group N vector records this shape either; it is built from the Go.
 pub fn request_search_by_account(tag: &Tag, limit: u64) -> Vec<u8> {
@@ -439,8 +439,8 @@ pub const OP_FEE: &str = "FEE";
 /// One transaction as an explorer endpoint renders it.
 ///
 /// `block` and `timestamp` are `Some` only on `/search/transactions`, which
-/// carries a `block_identifier` and a `timestamp` per row
-/// (`search_handler.go:40-46`); inside a `/block` reply the block is the
+/// carries a `block_identifier` and a `timestamp` per row;
+/// inside a `/block` reply the block is the
 /// enclosing one and the fields are absent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MeshTransaction {
@@ -454,7 +454,7 @@ pub struct MeshTransaction {
     /// **Not parsed into numbers, on purpose.** The same four keys come back
     /// as decimal strings from `/block` and as JSON numbers from
     /// `/search/transactions`, because both handlers put them in an untyped
-    /// `map[string]interface{}` (`search_handler.go:45`) and the Go
+    /// `map[string]interface{}` and the Go
     /// expression's type leaks into the JSON. Rendering them as they arrived
     /// is what lets a page say which endpoint it read without reconciling
     /// two computations that are both correct.
@@ -476,12 +476,12 @@ pub struct SearchPage {
     pub transactions: Vec<MeshTransaction>,
     pub total_count: u64,
     /// `next_offset`, set by the handler only when a full page came back and
-    /// more rows exist (`indexer/search.go:182`).
+    /// more rows exist.
     pub next_offset: Option<u64>,
 }
 
 /// The most rows this codec will copy out of one reply, whatever the reply
-/// claims. The handler's own ceiling is 100 (`search_handler.go:72`) and a
+/// claims. The handler's own ceiling is 100 and a
 /// block cannot carry more transactions than the chain allows; this is the
 /// codec's own bound, applied before anything is allocated.
 const MAX_ROWS: usize = 4096;

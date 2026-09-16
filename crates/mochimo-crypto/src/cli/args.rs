@@ -134,7 +134,7 @@ pub enum Command {
 /// How `block` was asked for.
 ///
 /// The endpoint takes either, but **not index 0**: `getBlock`
-/// (`block_handler.go:56-80`) routes to the by-number query only when
+/// routes to the by-number query only when
 /// `Index != 0`, so an identifier carrying 0 falls through to the arm that
 /// serves the *current* block. Genesis is unreachable by number there, and
 /// the parser refuses `block 0` rather than let the tip be printed under
@@ -374,8 +374,7 @@ and requires one.";
 ///
 /// * a **destination** — Base58 over the tag and its CRC16, 22 to 31
 ///   characters. This is what every human-facing Mochimo tool emits and takes:
-///   the reference node parses it for `-m/--maddr`
-///   (`reference/mochimo-core/src/mochimo.c:1195-1216`), `tag-utils.ts`
+///   the reference node parses it for `-m/--maddr`, `tag-utils.ts`
 ///   produces it, and the shipped extension accepts nothing else.
 /// * **`0x` followed by 40 hex characters** — the machine form, which is what
 ///   every Mesh endpoint in the pinned tree uses
@@ -404,8 +403,8 @@ and requires one.";
 ///
 /// # Disjointness, doubly
 ///
-/// The Base58 alphabet excludes `0`
-/// (`reference/mochimo-core/include/crypto-c/src/base58.c:20-21`), so no
+/// The Base58 alphabet excludes `0`,
+/// so no
 /// destination can begin `0x` and the prefix arm cannot capture one. And a
 /// destination is at most [`crate::addr::TAG_BASE58_MAX_CHARS`] = 31
 /// characters where a hex tag is 40, so the two do not overlap by length
@@ -450,7 +449,7 @@ fn tag_from_text(s: &str, what: &'static str) -> Result<Tag, Usage> {
 /// `"crc16": 0` and `"base58_of_tag22": "1111111111111111111111"` — so the
 /// all-zero tag's own checksum matches, and `tag_from_base58` returns it on
 /// the happy path. Everything downstream accepts it too: `SpendPlan::new` has
-/// no zero-tag rule, `mdst_val` (`reference/mochimo-core/src/tx.c:604-627`)
+/// no zero-tag rule, `mdst_val`
 /// refuses a zero *amount* and a destination equal to the source but not a
 /// zero tag, and the ledger creates the account on credit. So a payment to it
 /// settles, and nothing can ever spend it again.
@@ -905,7 +904,7 @@ fn hash_arg(arg: Option<&String>, verb: &'static str) -> Result<[u8; HASHLEN], U
 /// `block <number>` or `block <hash>`.
 ///
 /// **Index 0 is refused.** The endpoint's `getBlock` routes by number only
-/// when `Index != 0` (`block_handler.go:56-80`), so a request carrying 0
+/// when `Index != 0`, so a request carrying 0
 /// falls through to the arm that serves the *current* block: `block 0` would
 /// print the tip and label it block 0. Genesis is not reachable by number
 /// through this endpoint at all, and a refusal that says so is better than a

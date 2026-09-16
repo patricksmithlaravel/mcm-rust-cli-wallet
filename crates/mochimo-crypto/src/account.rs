@@ -70,8 +70,8 @@
 //! reconstructible from its root.** Its public seed and hash address came
 //! from a generator seeded by the *master* seed, which an imported account
 //! never had; the shipped wallet keeps them as `faddress` and rebuilds the
-//! first key from that, not from the seed
-//! (`redux/selectors/accountSelectors.ts:24-31`). So they are **stored**:
+//! first key from that, not from the seed.
+//! So they are **stored**:
 //! [`KeyMaterial::Imported`] carries `first` beside the root and has no
 //! constructor that omits it, which makes I8's loss mode — a never-spent
 //! imported account that cannot sign at position 0 — unrepresentable rather
@@ -203,8 +203,7 @@ pub(crate) enum KeyMaterial {
 
 /// An imported account's first-key public components: the 64 bytes at the
 /// tail of the shipped `faddress` (`pub_seed` then the hash-address image),
-/// which the extension memcpys back at `wotsIndex === -1`
-/// (`redux/selectors/accountSelectors.ts:24-31`).
+/// which the extension memcpys back at `wotsIndex === -1`.
 ///
 /// Private fields and no public constructor: the only way to one is
 /// [`Account::import`] or [`Account::restore_from_record`], both of which
@@ -215,10 +214,10 @@ pub(crate) enum KeyMaterial {
 /// **Why 64 bytes and not 2208.** The public key is `wots::pkgen(root,
 /// pub_seed, adrs)`, so storing it would store a value the other three
 /// determine. And the twelve bytes the shipped format overlays on the address
-/// image (the generator's 12-byte tag, `tag.ts:57`) do not matter: the
+/// image (the generator's 12-byte tag) do not matter: the
 /// reference writes address words 5, 6 and 7 before every use —
 /// `set_chain_addr` per chain (`reference/mochimo-core/src/wots.c:37-40`,
-/// called at `:238` and `:268`), `set_hash_addr` per step (`:42-45`, called at
+/// called), `set_hash_addr` per step (`:42-45`, called at
 /// `:155`), `set_key_and_mask` twice per `thash_f` (`:32-35`, called at `:105`
 /// and `:110`) — so their incoming values never reach a hash. Measured before
 /// this design was written: `pkgen` from the overlaid words reproduces
@@ -379,7 +378,7 @@ pub enum AccountRecord {
 impl Account {
     /// Build an imported account from the pair a `.mcm` entry carries: the
     /// 32-byte retained root and the 2208-byte first address the shipped
-    /// wallet stores as `faddress` (`walletActions.ts:365-381`).
+    /// wallet stores as `faddress`.
     ///
     /// **Verifying, and the tag is computed rather than supplied.** The
     /// address's public key must be `wots::pkgen(root, pub_seed, adrs)` over

@@ -26,24 +26,24 @@
 //!
 //! 1. **A tag absent from the ledger has never been funded — it was not
 //!    emptied.** `le_update`'s write of a merged entry
-//!    (`reference/mochimo-core/src/ledger.c:684`) carries **no zero-balance
-//!    filter** — its only guard is the merge position (`:682`) — and the only
-//!    balance mutation is the `'-'` DEBIT case zeroing it (`:654`). So a tag
+//!    carries **no zero-balance
+//!    filter** — its only guard is the merge position — and the only
+//!    balance mutation is the `'-'` DEBIT case zeroing it. So a tag
 //!    whose balance reaches zero keeps its entry and keeps being rehashed.
 //!    Absence means *never paid* — absence **from the ledger**, which is not
 //!    what this wallet observes; fact 3.
 //! 2. **Per-index usage is unobservable.** The ledger holds **one entry per
-//!    tag**: the merge is keyed on `addr_tag_compare` (`:608`), every
-//!    equal-tag transaction is applied to that one entry (`:633`), and a new
-//!    tag's entry is created exactly once (`:626-627`). `le_find` then
-//!    binary-searches it comparing an address *prefix* (`:314-353`), so a
+//!    tag**: the merge is keyed on `addr_tag_compare`, every
+//!    equal-tag transaction is applied to that one entry, and a new
+//!    tag's entry is created exactly once. `le_find` then
+//!    binary-searches it comparing an address *prefix*, so a
 //!    full-address query answers *"is this the tag's current address?"* and
 //!    never *"was this address ever used"*. Every index except the current one
 //!    reads as unused — including every index already spent from — so a gap
 //!    scan has no stopping signal on this chain at all.
 //!
 //!    **Not the sort check.** `:704` is `addr_compare(le_prev.addr, le.addr)`,
-//!    and `addr_compare` is `memcmp(a, b, ADDR_LEN)` (`:61-64`) — the *whole*
+//!    and `addr_compare` is `memcmp(a, b, ADDR_LEN)` — the *whole*
 //!    40-byte address. It proves no duplicate **addresses**, which is a
 //!    weaker statement than one-entry-per-tag and does not imply it. It was
 //!    cited for the stronger claim and the audit caught it; the merge, not
@@ -53,11 +53,10 @@
 //!    Mesh, and the Mesh answers code 4 in three situations it does not
 //!    distinguish. `callHandler` maps *any* error from `QueryTagResolve` to
 //!    `ErrAccountNotFound` (`reference/mochimo-mesh/call_handler.go:68-73`;
-//!    `retriable` is a constant `true` on that error, `handlers.go:132`, so
+//!    `retriable` is a constant `true` on that error, so
 //!    the flag carries nothing), and `QueryTagResolve` asks several nodes,
 //!    **discards every answer whose amount is zero**, and errors when no
-//!    address reaches quorum
-//!    (`reference/go_mcminterface/query_manager.go:551-580`). So the answer
+//!    address reaches quorum. So the answer
 //!    arrives for a tag the ledger has no entry for, for a tag the ledger
 //!    holds at ZERO balance, and for a lookup that failed — too few nodes
 //!    answered, a node between blocks, a timeout — and the first live
@@ -353,7 +352,7 @@ pub struct Diagnosis {
     /// tag is at the spent address, so a spend from this key has not landed
     /// and the balance can only have RISEN -- a deposit credits by tag, in
     /// place (module doc, fact 1) -- and `tx_val` demands
-    /// `send + change + fee` equal the balance exactly (`tx.c:776-793`), so
+    /// `send + change + fee` equal the balance exactly, so
     /// the signed bytes are dead.
     pub balance_moved: bool,
     /// The balance the entry carries now.
@@ -364,14 +363,14 @@ pub struct Diagnosis {
 /// The block-to-live against the tip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expiry {
-    /// `blk_to_live == 0`: never expires (`types.h:471`), and the reference
+    /// `blk_to_live == 0`: never expires, and the reference
     /// checks only non-zero values (`tx.c`), so no tip is read for it.
     NoExpiry,
     /// The tip is below the block-to-live: still landable.
     Below { tip: u64 },
     /// The tip has REACHED the block-to-live. Block N is the last block that
     /// can carry btl N (`tx.c:731` under `bval.c:309`'s own number) and
-    /// `txclean` drops it against `Cblocknum + 1` (`tx.c:1031-1034`), so the
+    /// `txclean` drops it against `Cblocknum + 1`, so the
     /// artifact can never be included: dead at `tip >= blk_to_live`, the
     /// boundary the rule draws. (At `tip == blk_to_live` a node still
     /// accepts the submit and drops it at the next `txclean`; the reservation

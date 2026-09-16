@@ -1,4 +1,4 @@
-//! The reference's little-endian integer accessors (`extlib.h:70-74`).
+//! The reference's little-endian integer accessors.
 //!
 //! These are real linkable C functions, not macros, so they bind directly. They
 //! are here because every multi-byte field on the wire goes through them, and a

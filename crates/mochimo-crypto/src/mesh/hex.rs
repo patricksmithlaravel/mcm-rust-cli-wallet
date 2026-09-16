@@ -1,6 +1,6 @@
 //! Hex, as the Mesh API spells bytes: lowercase on the way out, either case
 //! on the way in, with or without a `0x` prefix depending on the field
-//! (`reference/mochimo-mesh`: account and block identifiers carry `0x`,
+//! (account and block identifiers carry `0x`,
 //! `signed_transaction` and the submit reply's `hash` do not).
 //!
 //! Hand-written rather than a dependency: forty lines with no protocol

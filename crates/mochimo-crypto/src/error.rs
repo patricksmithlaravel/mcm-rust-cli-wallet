@@ -245,7 +245,7 @@ pub enum Error {
         status: u16,
     },
     /// The Mesh returned its error object: `{code, message, retriable}`.
-    /// `code` is the middleware's table (`handlers.go:129-137`: 1 invalid
+    /// `code` is the middleware's table (1 invalid
     /// request, 4 account not found, 5 wrong network, 8 invalid account
     /// format, ...); the message is dropped, because a server-authored
     /// string is not something to render or compare.
@@ -316,16 +316,16 @@ pub enum Error {
         needed: u64,
     },
     /// `fee_total` is under the protocol floor of one `MFEE` per destination
-    /// (`mdst_val`, `tx.c:621,636`).
+    /// (`mdst_val`).
     FeeBelowMinimum {
         fee: u64,
         min: u64,
     },
-    /// A destination amount of zero (`mdst_val`, `tx.c:607`).
+    /// A destination amount of zero (`mdst_val`).
     ZeroAmount {
         index: usize,
     },
-    /// A destination whose tag is the source's (`mdst_val`, `tx.c:612`).
+    /// A destination whose tag is the source's (`mdst_val`).
     DestinationIsSource {
         index: usize,
     },
@@ -673,7 +673,7 @@ impl std::error::Error for Error {}
 /// when the code is not `VEOK` — either `_errno`/`_errno_name`/`_errno_text`
 /// **or** `_errno_set: false`. That last case is real: `mdst_val__reference`
 /// fails without touching `errno`, and its caller supplies `EMCM_XTXREF`
-/// afterwards at `tx.c:625`.
+/// afterwards.
 ///
 /// A `Result<(), Error>` would drop the code on success, and the fixtures pin
 /// the success code too. Collapsing "failed with `errno` 0" into "failed" would
@@ -695,14 +695,14 @@ impl Verdict {
         self.rc == crate::consts::VEOK
     }
 
-    /// The reference's own spelling of [`Self::rc`] — `ve2str` (`error.c:237`).
+    /// The reference's own spelling of [`Self::rc`] — `ve2str`.
     #[must_use]
     pub fn rc_name(self) -> String {
         ve2str(self.rc)
     }
 }
 
-/// `ve2str` (`error.h:301`): the reference's name for a `VE*` return code.
+/// `ve2str`: the reference's name for a `VE*` return code.
 ///
 /// **Panics.** The reference's diagnostic strings are deliberately not
 /// ported: a Rust `match rc { 0 => "VEOK", .. }` would compare our naming to
@@ -732,7 +732,7 @@ const NO_NATIVE_DIAGNOSTIC_STRINGS: &str = "the reference's diagnostic strings \
      invariants.rs::every_unimplemented_site_is_knowledge_not_debt, whose entries \
      are all dischargeable.";
 
-/// `mcm_strerrorname` (`error.h:304`): the symbolic name of an `errno` value,
+/// `mcm_strerrorname`: the symbolic name of an `errno` value,
 /// including the reference's own `EMCM_*` extensions.
 ///
 /// **Panics.** See [`ve2str`] for why this is not ported.
@@ -741,7 +741,7 @@ pub fn errno_name(_errnum: i32) -> String {
     unimplemented!("{}", NO_NATIVE_DIAGNOSTIC_STRINGS)
 }
 
-/// `mcm_strerror` (`error.h:303`): the human-readable text for an `errno`
+/// `mcm_strerror`: the human-readable text for an `errno`
 /// value, including the reference's own `EMCM_*` extensions.
 ///
 /// **Panics.** See [`ve2str`] for why this is not ported.

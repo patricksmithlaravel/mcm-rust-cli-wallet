@@ -6,10 +6,10 @@
 //!
 //! `fromPhrase` runs `mnemonicToSeed` — PBKDF2-HMAC-SHA512 over the NFKD
 //! phrase with salt `"mnemonic" ‖ passphrase`, 2048 rounds, 64 bytes
-//! (`@scure/bip39/index.js:116` for the salt, `:128` for the call) — and
+//! (`@scure/bip39/index.js:116` for the salt for the call) — and
 //! keeps **the first 32 bytes** as the
-//! master seed (`MasterSeed.ts:55-56`). It stores the mnemonic's entropy
-//! separately (`:52`). The two are different values and only the first is
+//! master seed. It stores the mnemonic's entropy
+//! separately. The two are different values and only the first is
 //! the seed every account derives from; `F-from-phrase` pins both, and
 //! `F-create-not-inverse` pins that a seed constructed directly and then
 //! exported as a phrase does **not** come back as itself — what comes back
@@ -175,7 +175,7 @@ pub fn entropy_from_phrase(phrase: &str) -> Result<Zeroizing<Vec<u8>>> {
 
 /// `mnemonicToSeed(phrase, passphrase)`: the full 64-byte BIP39 seed.
 ///
-/// The phrase is validated first, as `fromPhrase` does (`MasterSeed.ts:46`),
+/// The phrase is validated first, as `fromPhrase` does,
 /// so a phrase with a bad checksum is refused rather than stretched.
 pub fn bip39_seed(phrase: &str, passphrase: &str) -> Result<Zeroizing<[u8; BIP39_SEED_LEN]>> {
     let _entropy = entropy_from_phrase(phrase)?;
@@ -191,7 +191,7 @@ pub fn bip39_seed(phrase: &str, passphrase: &str) -> Result<Zeroizing<[u8; BIP39
 }
 
 /// The master seed `MasterSeed.fromPhrase` holds: the first [`SEED_LEN`]
-/// bytes of [`bip39_seed`] (`MasterSeed.ts:55-56`). The extension passes no
+/// bytes of [`bip39_seed`]. The extension passes no
 /// passphrase; the parameter is here so the port cannot silently hardcode
 /// the empty one where a caller meant otherwise.
 ///
@@ -225,8 +225,8 @@ pub fn master_seed_from_phrase(phrase: &str, passphrase: &str) -> Result<Secret<
     Ok(Secret::new(*head))
 }
 
-/// `toPhrase` with **no stored entropy** (`MasterSeed.ts:83-86`): the seed's
-/// 32 bytes are used **as** entropy. The other branch (`:79-80`) is
+/// `toPhrase` with **no stored entropy**: the seed's
+/// 32 bytes are used **as** entropy. The other branch is
 /// [`phrase_from_entropy`] over the stored entropy. Exposed because
 /// `F-create-not-inverse` pins that this and [`master_seed_from_phrase`] are
 /// not inverses.

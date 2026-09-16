@@ -46,7 +46,7 @@ pub fn hash_of(addr: &Address) -> &[u8] {
 /// which is a compile error at the call site rather than a value reaching
 /// `sha3_init`.
 ///
-/// Only [`sha3_512`] is on the address path (`ledger.c:100`); [`sha3_256`] is
+/// Only [`sha3_512`] is on the address path; [`sha3_256`] is
 /// `peach.c:212`'s. The other two have no caller in the reference and are here
 /// because the oracle covers them and the width is one constant apart — see
 /// `backend::native::sha3_224` for why "no caller today" stopped being the
@@ -65,7 +65,7 @@ pub fn sha3_384(input: &[u8]) -> [u8; crate::consts::SHA3LEN384] {
     backend::sha3_384(input)
 }
 
-/// SHA3-512, the address path's width (`ledger.c:100`). See [`sha3_224`].
+/// SHA3-512, the address path's width. See [`sha3_224`].
 pub fn sha3_512(input: &[u8]) -> [u8; crate::consts::SHA3LEN512] {
     backend::sha3_512(input)
 }
@@ -75,8 +75,8 @@ pub fn sha3_512(input: &[u8]) -> [u8; crate::consts::SHA3LEN512] {
 ///
 /// # The reference-faulting class is routed, not forwarded
 ///
-/// The reference corrupts its own stack for `input.len() % 64 >= 56`
-/// (`ripemd160.c:170-183`), which once made this safe public function end
+/// The reference corrupts its own stack for `input.len() % 64 >= 56`,
+/// which once made this safe public function end
 /// the process — attacker-shaped input, since the caller chooses the slice.
 /// The foreign-function `ripemd160` was given that class as an `unsafe`
 /// contract and this wrapper made to answer
