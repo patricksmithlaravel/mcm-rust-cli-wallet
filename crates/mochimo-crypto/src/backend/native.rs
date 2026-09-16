@@ -142,17 +142,19 @@ fn set_key_and_mask(adrs: &mut [u32; 8], key_and_mask: u32) {
 
 /// `PRF(key, in)` = `sha256(pad(3) ‖ key ‖ in)` over 96 bytes.
 ///
-/// **The [`Result`] is always `Ok`.** Nothing in the body can fail: the
-/// buffer is fixed-width, the writes are infallible, and `sha256` is total.
-/// The `Err` arm exists in the type and is unreachable, so every caller
-/// carries a `?` that can never fire.
-pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> Result<[u8; 32]> {
+/// **Total.** The buffer is fixed-width, the writes are infallible and
+/// `sha256` is total, so there is no input for which this has no answer. The
+/// return type says so: a fallible one would put a failure arm in front of
+/// every caller on the signing path, and the only values a caller could
+/// invent for it are wrong keys.
+#[must_use]
+pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> [u8; 32] {
     // Secret: `key` is the private seed at expand_seed's call site.
     let mut buf = Zeroizing::new([0u8; 2 * PARAMSN + 32]);
     ull_to_bytes(&mut buf[..PARAMSN], XMSS_HASH_PADDING_PRF);
     buf[PARAMSN..2 * PARAMSN].copy_from_slice(key);
     buf[2 * PARAMSN..].copy_from_slice(input);
-    Ok(sha256(&buf[..]))
+    sha256(&buf[..])
 }
 
 /// The keyed, masked compression step.
@@ -179,14 +181,12 @@ pub fn thash_f(input: &[u8; 32], pub_seed: &[u8; SEED_LEN], adrs: &mut [u32; 8])
 
     set_key_and_mask(adrs, 0);
     let key_addr = addr_to_bytes(adrs);
-    // `prf` cannot fail (see its doc comment); the reference ignores this
-    // return value and so does this.
-    let key = prf(&key_addr, pub_seed).unwrap_or([0u8; 32]);
+    let key = prf(&key_addr, pub_seed);
     buf[PARAMSN..2 * PARAMSN].copy_from_slice(&key);
 
     set_key_and_mask(adrs, 1);
     let mask_addr = addr_to_bytes(adrs);
-    let bitmask = Zeroizing::new(prf(&mask_addr, pub_seed).unwrap_or([0u8; 32]));
+    let bitmask = Zeroizing::new(prf(&mask_addr, pub_seed));
 
     for i in 0..PARAMSN {
         buf[2 * PARAMSN + i] = input[i] ^ bitmask[i];
@@ -453,7 +453,7 @@ fn expand_seed_into(out: &mut [u8], inseed: &[u8; SEED_LEN]) {
     let mut ctr = Zeroizing::new([0u8; 32]);
     for i in 0..WOTSLEN_TOTAL {
         ull_to_bytes(&mut ctr[..], i as u64);
-        let seed = Zeroizing::new(prf(&ctr, inseed).unwrap_or([0u8; 32]));
+        let seed = Zeroizing::new(prf(&ctr, inseed));
         out[i * PARAMSN..(i + 1) * PARAMSN].copy_from_slice(&seed[..]);
     }
 }

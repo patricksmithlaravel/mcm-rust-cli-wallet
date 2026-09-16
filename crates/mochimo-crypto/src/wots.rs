@@ -2,7 +2,6 @@
 
 use crate::backend::selected as backend;
 use crate::consts::{PK_LEN, SEED_LEN, SIG_LEN, WOTSLEN};
-use crate::error::Result;
 use crate::secret::Secret;
 
 /// The XMSS hash address, `word32 addr[8]` in the reference.
@@ -141,7 +140,7 @@ pub fn pk_from_sig(
 pub(crate) mod internals {
     use super::*;
 
-    pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> Result<[u8; 32]> {
+    pub fn prf(input: &[u8; 32], key: &[u8; SEED_LEN]) -> [u8; 32] {
         backend::prf(input, key)
     }
 

@@ -438,7 +438,7 @@ fn pkgen(ctx: &mut Ctx) {
 fn prf(ctx: &mut Ctx) {
     let input: [u8; 32] = ctx.arr("in");
     let key: [u8; SEED_LEN] = ctx.arr("key");
-    let out = raw::prf(&input, &key).expect("reference prf() returned non-zero");
+    let out = raw::prf(&input, &key);
     ctx.eq_bytes("out", &out);
 }
 

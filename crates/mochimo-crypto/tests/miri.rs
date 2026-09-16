@@ -175,7 +175,7 @@ fn walk_native() -> BTreeSet<&'static str> {
 
     let mut adrs = [1u32, 2, 3, 4, 5, 6, 7, 8];
     exercise!(log, addr_to_bytes(&adrs));
-    let hashed = exercise!(log, prf(&[0x33u8; 32], &seed)).expect("prf over 32 bytes");
+    let hashed = exercise!(log, prf(&[0x33u8; 32], &seed));
     exercise!(log, thash_f(&hashed, &pub_seed, &mut adrs));
     exercise!(log, gen_chain(&seed, 3, 4, &pub_seed, &mut adrs));
     exercise!(log, gen_chain_counted(&seed, 0, 15, &pub_seed, &mut adrs));
