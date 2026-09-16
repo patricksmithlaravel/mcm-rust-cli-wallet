@@ -467,9 +467,9 @@ fn stripper_refuses_to_truncate_on_an_unterminated_string() {
 
 #[test]
 fn stripper_does_not_open_a_comment_inside_a_raw_string() {
-    // Class 1, and the silent one. Before the repair the quotes re-paired --
-    // `"a"` read as a complete string -- leaving ` // b"#;` as code, so the
-    // line comment ran to the newline and took the statement's `;` with it.
+    // Class 1, and the silent one. A stripper that re-pairs the quotes reads
+    // `"a"` as a complete string, leaving ` // b"#;` as code, so the line
+    // comment runs to the newline and takes the statement's `;` with it.
     let line = "let s = r#\"a\" // b\"#;\nlet keep = 1;";
     assert_eq!(code_only(line), line);
 
@@ -480,8 +480,8 @@ fn stripper_does_not_open_a_comment_inside_a_raw_string() {
     let across = "let s = r##\"a\" /* b\"##;\nlet gone = 1; /* x */\nlet keep = 2;";
     assert_eq!(code_only(across), "let s = r##\"a\" /* b\"##;\nlet gone = 1; \nlet keep = 2;");
 
-    // A closer with no opener. Before the repair this reached the `"` after
-    // `b` and ran off the end of the input.
+    // A closer with no opener, which a stripper that scans for one reads past
+    // the `"` after `b` and off the end of the input.
     let closer = "let s = r#\"a\" */ b\"#;\nlet keep = 1;";
     assert_eq!(code_only(closer), closer);
 }
@@ -643,10 +643,9 @@ fn crate_sources() -> Vec<(String, String)> {
 /// itself rather than any one vector.
 ///
 /// This is `test_source_files()` joined, rather than a second copy of the same
-/// walk. The two used to be separate walks that were *said* to agree, and the
-/// check that scans this corpus for stripper damage replays "the concatenation
-/// exactly as `test_sources()` does" -- an unverifiable claim while there were
-/// two of them. Now there is one walk and the claim is structural.
+/// walk. The check that scans this corpus for stripper damage replays "the
+/// concatenation exactly as `test_sources()` does", which is an unverifiable
+/// claim against a second walk said to agree. One walk makes it structural.
 ///
 /// # The strip
 ///
@@ -732,12 +731,9 @@ fn test_sources() -> String {
     // assertion is what stands between a broken walk and both of them passing
     // over an empty string.
     //
-    // **It named a count, and the count was wrong for eight sessions.** This
-    // said *thirty* in one review and *twenty-eight* in the next -- both of them raw
-    // `grep -c "test_sources("` output, which counts the comment mentions
-    // above as well as the two calls. The figure tracked the grep across
-    // sessions while the sentence around it did not, which is what proves
-    // nobody counted. A documentation-only pass corrected the two documents and
+    // **It names no count, on purpose.** A raw `grep -c "test_sources("`
+    // counts the comment mentions above as well as the two calls, so a figure
+    // taken from one tracks the grep and not the callers. A documentation-only pass corrected the two documents and
     // could not correct this file; a later audit did, and
     // **names the two consumers instead of counting them** -- the grep reads
     // 30 again today, so a number here would re-enter the same defect the
@@ -817,7 +813,7 @@ fn test_sources() -> String {
 /// # Residue — read this before treating a green census as the property
 ///
 /// This module is the sole mechanism for "the required test ran", so
-/// what it cannot see is recorded here rather than only in the errata:
+/// what it cannot see is recorded here:
 ///
 /// * **A substantial body that prints a plausible evidence line is a forgery
 ///   this cannot detect.** The census raises the accident from *anyone writes a
@@ -976,7 +972,7 @@ mod census {
             bin: "kat",
             tier: Tier::Executed,
             evidence: "group E constants anchored",
-            floor: 32, // every integer the constants block carries but sizeof_TX (Known-open 23)
+            floor: 32, // every integer the constants block carries but sizeof_TX
         },
         // --- Miri's domain over the native backend --------------------------
         Row {
@@ -1052,19 +1048,17 @@ mod census {
             tier: Tier::Executed,
             evidence: "I5 restore scan:",
             // Twenty positions, each found exactly, each by its own restore.
-            // This was "the gap limit I5's decision fixes" while the recovery
-            // ceiling was BIP-44's 20 and the proof walked the default; S15
-            // raised the ceiling to 10,000 and the proof names its own walk,
+            // The proof names its own walk rather than taking the default,
             // because one restore per position costs n(n+1)/2 derivations and
             // 10,000 of them is about 616 hours in this profile. The floor is
             // the walk the proof is required to drive, not the default.
             floor: 20,
         },
         // --- The acknowledged path I4's report names, executed through
-        // the shipped binary under a pty against a loopback ledger. For a
-        // time that path did not exist in the binary -- `reconcile` was
-        // dispatched behind the `Wallet::open` that refuses on the divergence
-        // it was started to reconcile -- and nothing censused it.
+        // the shipped binary under a pty against a loopback ledger. Dispatched
+        // behind the `Wallet::open` that refuses on the divergence it was
+        // started to reconcile, that path does not exist in the binary at all,
+        // and nothing but a census notices.
         // The floor is the prompts the run answers: nine commands, each
         // opening the store once.
         Row {
@@ -1116,7 +1110,7 @@ mod census {
             bin: "invariants",
             tier: Tier::Executed,
             evidence: "raw-signer route scan:",
-            floor: 2, // the two ports of wots.c's wots_sign the scan must find private (S2)
+            floor: 2, // the two ports of the reference's signer the scan must find private
         },
         // --- I1 across accounts ---------------------------
         Row {
@@ -1470,8 +1464,8 @@ mod census {
         //
         // **Working directory.** `pkg_dir`, the OWNING PACKAGE's root, because
         // that is the directory cargo makes current when it runs a test binary.
-        // The first draft used the workspace root, and the difference is not
-        // cosmetic: with the workspace root as cwd, trybuild finds no cases,
+        // The workspace root is not interchangeable with it: as cwd,
+        // trybuild finds no cases,
         // compiles nothing and reports `ok` in 0.12 s, where the same binary
         // under cargo's own cwd takes 0.96 s and FAILS. That is a vacuous pass
         // inside the module written to prevent vacuous passes, and it was
@@ -1664,7 +1658,7 @@ fn execution_census_population_is_libtests_run_list() {
     assert!(
         total >= 200,
         "libtest lists {total} tests across {} binaries; it was 285 when this \
-         message was last re-derived, at the S1 re-gate. Two-sided in spirit: \
+         message was last re-derived. Two-sided in spirit: \
          too few and the census is reading a truncated population, and the \
          likeliest cause is that it stopped asking libtest. Re-derive by \
          running this test and reading what it printed, not by arithmetic on \
@@ -1674,8 +1668,8 @@ fn execution_census_population_is_libtests_run_list() {
     );
 
     // The witness that the population is libtest's and not a parse of items.
-    // It used to be a `proptest!`-emitted name, which no item parser can
-    // produce; the differential suite that carried it is gone. What is left
+    // A `proptest!`-emitted name, which no item parser can produce, would be
+    // the strongest witness; the suite that carried one is gone. What is left
     // that a naive parse would misread is a test inside a `cfg`-gated inline
     // module: libtest lists it under its module path, and a parser that
     // ignored the gate, or the module, would spell it differently or list a
@@ -1722,9 +1716,7 @@ fn censused_rows_are_bound_to_live_guards() {
     assert!(
         rows.len() >= 25,
         "the census table holds {} row(s); it was 25 when this floor was \
-         written, at the S1 re-gate, which removed the rows whose targets \
-         lived in the differential and TXENTRY binaries that are not here and \
-         added the group E and drop-witness rows. A table that shrank is \
+         written. A table that shrank is \
          guards that stopped being censused.",
         rows.len()
     );
@@ -1778,12 +1770,9 @@ fn censused_rows_are_bound_to_live_guards() {
 /// renamed in the clearing commit from `i1_one_signature_per_key`
 /// (a discharged marker keeps its useful half), with both of its bounds in the name.
 ///
-/// # What used to be here
+/// # Crate-private, and how that is held
 ///
-/// A designed compile-break: the test called `wots::sign` twice on one key
-/// and panicked, so that the day the signer was demoted this file stopped
-/// compiling and the marker had to be rewritten rather than forgotten. That
-/// day came. `wots::sign` and `wots::internals` are `pub(crate)`;
+/// `wots::sign` and `wots::internals` are `pub(crate)`;
 /// `backend` is `pub(crate)` unless the `raw-backend` feature is on, which
 /// only the test tree turns on through the crate's dev-dependency on itself;
 /// and the one public path to a signature is `Keystore::sign_spend`, which
@@ -1802,8 +1791,7 @@ fn censused_rows_are_bound_to_live_guards() {
 /// checks refuse it where the master is at hand, and
 /// `duplicate_key_streams_are_refused_within_one_keystore_not_across_stores`
 /// closed the half they cannot see, with format v2, by storing the identity in every
-/// record. This named it under its pre-clearing spelling, as a red, for
-/// some time after.
+/// record.
 ///
 /// **Crate-private, not absent.** In-crate code can call the signer; the test
 /// tree reaches it through `backend` under `raw-backend`; and a dependent
@@ -2015,9 +2003,8 @@ fn no_wallet_visible_fn_hands_out_a_wots_signature() {
         "`backend` does not resolve to a restricted module in the wallet view: {:?}",
         a.modules.get("backend")
     );
-    // Two ports since S2: the foreign-function backend's `wots_sign` went with
-    // the backend, so the positive control is the native port and the
-    // crate-private wrapper over it.
+    // Two ports: the native one and the crate-private wrapper over it, which
+    // is what the positive control names.
     for port in ["wots.rs::sign", "backend/native.rs::wots_sign"] {
         assert!(
             a.signers_found.contains(port),
@@ -2963,9 +2950,8 @@ fn duplicate_key_streams_are_refused_within_one_keystore_not_across_stores() {
 // ---------------------------------------------------------------------------
 // I2 - I5. The crash-consistency and restore invariants.
 //
-// These four had no test, no marker and no reference anywhere in the tree for
-// twenty sessions, and the reason given was that they need a wallet crate that
-// does not exist. That defence fails by execution: `i1_one_signature_per_key`
+// The argument that these need a wallet crate that does not exist fails by
+// execution: `i1_one_signature_per_key`
 // (cleared and renamed to
 // `key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent`)
 // and `imported_accounts_have_a_restore_path` (cleared and renamed to
@@ -3029,10 +3015,10 @@ fn files_naming_a_durable_write() -> (usize, Vec<String>) {
 /// # WHAT THIS MARKER CAN AND CANNOT SEE
 ///
 /// It is the sole mechanism for its property, so the residue is stated here
-/// rather than only in the errata.
+/// rather than nowhere.
 ///
 /// * **There is no oracle behind this and there cannot be one.** The C has no
-///   counterpart -- `reference/mochimo-core` is a node, not a wallet, and
+///   counterpart -- the C reference is a node, not a wallet, and
 ///   persists a ledger rather than a key index -- so no differential reaches it.
 ///   The extension's storage layer is not an oracle either: it is a third-party
 ///   client in the recon tier, and agreeing with it would prove only that we
@@ -3047,12 +3033,9 @@ fn files_naming_a_durable_write() -> (usize, Vec<String>) {
 ///   acknowledges a flush it did not perform violates I2 with every layer above
 ///   it behaving correctly. That is out of reach of any test this project can
 ///   write and is recorded so nobody reads a green I2 as a durability proof.
-/// # What this used to be
+/// # The bound is in the name
 ///
-/// `index_is_persisted_before_a_signature_is_released`, red until
-/// `src/keystore` landed. Renamed rather than deleted in the clearing
-/// commit (a discharged marker keeps its useful half), with the bound in the
-/// name: the artefact whose release is gated is the **receipt** — no signer
+/// The artefact whose release is gated is the **receipt** — no signer
 /// exists yet, and the census row's target name predates the receipt — and
 /// the crash model is a **kill at a syscall boundary**, not power loss.
 ///
@@ -3133,10 +3116,9 @@ fn index_is_durable_before_the_receipt_under_syscall_kill_not_power_loss() {
 ///   let the index and the keystore disagree between them, which is precisely
 ///   what I3 forbids. The required test has to observe *across* the members, and
 ///   the census cannot tell whether it did.
-/// # What this used to be
+/// # The crash model is in the name
 ///
-/// `spend_state_advances_atomically`, red until the keystore landed. Renamed in the
-/// clearing commit with the crash model in the name: the
+/// The
 /// proof interrupts at the four steps I3's clause names by killing at syscall
 /// boundaries, reopens, and finds index, pending record and generation
 /// fully pre or fully post together. It cannot see power loss or an fsync
@@ -3716,17 +3698,12 @@ fn durable_witness_has_one_construction_site() {
 /// **I6 at rest, GREEN.** The imported root — and, since the same
 /// session, the master seed — reach the snapshot encrypted.
 ///
-/// # The premise arm moved, exactly as this marker said it must
+/// # Where the premise arm lives
 ///
-/// Before encryption at rest this test measured its own premise live: it wrote a
-/// store with a patterned root and asserted the root's bytes **were** in the
-/// file, naming byte offset 43. Its own text said that arm depended on the
-/// defect existing and had to move into the proof when encryption landed, or
-/// the marker would become a false red about a fixed problem. When version 3
-/// landed the arm did exactly what it was written to do: it went red, on the
-/// premise, saying so in its own words.
-///
-/// It now lives in `keystore.rs::snapshot_bytes_never_contain_the_imported_root`,
+/// Measuring the premise live -- writing a store with a patterned root and
+/// asserting the root's bytes **are** in the file at byte offset 43 -- is an
+/// arm that depends on the defect existing, so encryption at rest inverts it
+/// rather than retiring it. It lives in `keystore.rs::snapshot_bytes_never_contain_the_imported_root`,
 /// flipped to assert absence — and offset 43 is the first place that test
 /// looks, because *not at 43* and *not anywhere* are different claims and the
 /// weaker one is what an encryption bug would satisfy.
@@ -3873,9 +3850,8 @@ fn startup_refuses_divergence_at_the_wallet_layer_not_at_the_keystore() {
 
     // The acknowledged path, through the shipped binary.
     // The proof above shows the report names an index; this shows the
-    // operator can take the path it names -- which for a time they
-    // could not, the command being dispatched behind the refusal it was
-    // meant to act on, and no test running the binary against a chain state.
+    // operator can take the path it names, which a command dispatched behind
+    // the refusal it is meant to act on cannot offer.
     const PTY: &str = "pty::reconcile_on_a_real_pty_takes_the_acknowledged_path_the_report_names";
     if let Err(why) = census::check(
         "startup_refuses_divergence_at_the_wallet_layer_not_at_the_keystore",
@@ -3938,17 +3914,16 @@ fn startup_refuses_divergence_at_the_wallet_layer_not_at_the_keystore() {
 /// **`within_the_scan_bound_never_from_zero`.** Ten thousand positions are
 /// tried by default -- the recovery ceiling, `RECOVERY_CEILING`, which the
 /// operator can set for one invocation -- and past that the bound reached is
-/// reported rather than guessed past. (Twenty until S15, BIP-44's gap limit
-/// over unused addresses, which is not the quantity this bounds; 10,000 is
+/// reported rather than guessed past. (BIP-44's twenty is a gap limit over
+/// unused addresses, which is not the quantity this bounds; 10,000 is
 /// what the shipped browser extension walks for the quantity this does
 /// bound. The proof below walks twenty at a ceiling it names, because one
 /// restore per position is quadratic and ten thousand of them would not
 /// finish.) Three things produce that failure and
 /// the scan cannot tell them apart: the account has spent that many times or
 /// more, this seed does not own this tag, or the wallet is on another chain.
-/// (For a time this paragraph named the first and denied it -- *not
-/// "the wallet is further along than twenty"* -- which is the one cause a
-/// ceiling produces by construction.) Zero is returned only when
+/// (Naming the first and denying it -- *not "the wallet is further along than
+/// twenty"* -- denies the one cause a ceiling produces by construction.) Zero is returned only when
 /// position 0's address is the one the chain holds, which is a match like any
 /// other, never a default.
 ///
@@ -4130,7 +4105,7 @@ mod recon_proof {
     };
 
     /// The ceiling the two proofs below walk, named rather than taken from
-    /// the default. `BOUND` is 10,000 since S15 -- the bound the shipped
+    /// the default. `BOUND` is 10,000 -- the bound the shipped
     /// browser extension walks for the same quantity -- and both proofs
     /// drive walks that must EXHAUST it to prove anything, which at the
     /// 44.4 ms a derivation costs in this profile is about 7 m 24 s for one
@@ -4204,7 +4179,7 @@ fn startup_refuses_to_start_on_index_divergence() {
     // (3) the chain holds an address no index of this seed reproduces.
     // Through the reconciler `W::open` calls, at a ceiling this case names,
     // rather than through `open` itself: `open` takes no scope and its
-    // default ceiling became 10,000 at S15, so an unlocatable address costs
+    // default ceiling is 10,000, so an unlocatable address costs
     // ten thousand derivations there -- about 7 m 24 s in this profile. The
     // classification is what this case is about and `reconcile_account_with`
     // is where it is decided; that `open` refuses on whatever the reconciler
@@ -4320,19 +4295,17 @@ fn startup_refuses_to_start_on_index_divergence() {
 ///
 /// # The bound, and what it is a bound on
 ///
-/// `RECOVERY_CEILING` positions -- 10,000 since S15 -- are tried by default
+/// `RECOVERY_CEILING` positions -- 10,000 of them -- are tried by default
 /// and the ordinary case never reaches the last of them. It bounds the *failing* search: a tag that
 /// resolves to an address no walked position reproduces is an account further
 /// along than the walk, a seed that does not own the tag, or a wallet on
 /// another chain -- indistinguishable at this arm, which is why the failure
-/// names all three (this said *not "the wallet is further along"*
-/// for a time). Both edges are asserted — the last position inside the
+/// names all three rather than denying one. Both edges are asserted — the last position inside the
 /// bound is found, the first outside it is refused with the bound reported.
 /// The ceiling this proof walks is named in its body rather than taken from
-/// the default, and the raised ceiling is proved in `tests/recon.rs`. Until
-/// S15 the two were the same number and this paragraph said the proof's
-/// integers were counts at the default bound; they are counts at the walk
-/// the census floor of 20 requires, which is what that floor always
+/// the default, and the raised ceiling is proved in `tests/recon.rs`. The
+/// integers below are counts at the walk the census floor of 20 requires,
+/// which is what that floor always
 /// guarded -- the default's own value is pinned in `tests/recon.rs`, without
 /// a walk, because exhausting 10,000 positions costs about seven minutes in
 /// this profile.
@@ -4672,8 +4645,8 @@ fn attrs_in_tokens(tokens: proc_macro2::TokenStream, want: &str) -> usize {
 ///
 /// # The domain, measured rather than assumed
 ///
-/// The first draft of this check walked `syn`'s items only and saw **109** of
-/// the suite's **138** `#[test]` attributes. The missing 29 are in
+/// Walking `syn`'s items only sees **109** of the suite's **138** `#[test]`
+/// attributes. The missing 29 are in
 /// `native.rs`'s ten `proptest!` blocks — 21% of the suite, in the file with
 /// the most tests — because a `proptest!` body is not parseable as Rust items
 /// (`args in strategy` is not fn syntax), so `syn` yields `Item::Macro` and
@@ -4805,16 +4778,14 @@ fn no_test_in_the_suite_is_ignored() {
     );
     // Floor calibrated against the MEASURED population, and against the same
     // population the ban walks -- item-level `#[test]` plus any inside a
-    // macro invocation's body. 300 at the S1 re-gate, with no macro-emitted
-    // tests left in the tree (the differential suite's `proptest!` blocks
-    // went with it); the macro arm stays because it is what would see the
+    // macro invocation's body. Measured at 300, with no macro-emitted tests
+    // in the tree; the macro arm stays because it is what would see the
     // next one. A substring count drifts as documentation mentioning the
     // attribute is written, which is why this walks tokens.
     assert!(
         tests >= 200,
         "found only {tests} #[test] functions across {files} files; the \
-         collector is broken and any result from it is vacuous. Measured at 300 \
-         at the S1 re-gate."
+         collector is broken and any result from it is vacuous. Measured at 300."
     );
 
     assert!(
@@ -4862,9 +4833,7 @@ fn no_test_in_the_suite_is_ignored() {
 /// failure message prints, so a second constant cannot join the exclusion
 /// without a reason, and two guards refuse a stale row (a name the fixture
 /// does not carry -- a permit for nothing) and a lying row (a name the
-/// checker compares after all). This row was red on the board from the S1
-/// re-gate to S6 (AGENT.md, Known-open 23), until the operator decided the
-/// packet size is not this wallet's to pin.
+/// checker compares after all). The packet size is not this wallet's to pin.
 ///
 /// Deliberately not named after a session. This debt went missing in the first
 /// place because one sequence number covered two different pieces of work.
@@ -4878,8 +4847,7 @@ const NOT_THIS_WALLETS_TO_PIN: [(&str, &str); 1] = [(
      or reads such a packet -- it speaks to the Mesh over HTTP, and the node's own framing is \
      the specification's open item -- and the two ways to pin the number here, a literal \
      transcribed from the fixture or an expression transcribed from the reference's types.h, \
-     both compare the fixture to itself. Decided by the operator on 2026-09-14 (AGENT.md, \
-     Known-open 23).",
+     both compare the fixture to itself.",
 )];
 
 #[test]
@@ -4925,9 +4893,8 @@ fn group_e_constants_stay_anchored() {
     // all: a value assertion cannot see a constant nobody wrote an assertion
     // for, which is precisely the failure this test exists to prevent.
     const CHECKER: &str = "group_e_constants_match_the_reference";
-    // `test_sources()` strips, so the second `code_only` that used
-    // to be here is gone rather than left as a no-op that reads like a
-    // precaution.
+    // `test_sources()` strips, so a second `code_only` here would be a no-op
+    // that reads like a precaution.
     //
     // # The needle below is UN-TERMINATED on purpose. The reason was measured.
     //
@@ -5058,11 +5025,9 @@ fn group_e_constants_stay_anchored() {
 
     // EXECUTION, not text. The scan above reads the checker's SOURCE, and a
     // checker compiled out by a `#[cfg]` still contains every name. Measured
-    // at the S1 re-gate: `tests/kat.rs`'s checker was gated on the dead
-    // foreign-function feature, so the constants `consts::net` declares as
-    // literals were compared to the fixture the reference printf'd by nothing
-    // that ran, and this arm is what said so (AGENT.md, Known-open 20, closed
-    // at S2). The census row's floor is 32, the count the checker itself
+    // A checker gated out of the build leaves the constants `consts::net`
+    // declares compared to the fixture the reference printf'd by nothing that
+    // runs, and this arm is what says so. The census row's floor is 32, the count the checker itself
     // asserts; the 33rd integer, `sizeof_TX`, has no native literal.
     if let Err(why) = census::check("group_e_constants_stay_anchored", CHECKER) {
         panic!(
@@ -5106,7 +5071,7 @@ fn group_e_constants_stay_anchored() {
 /// - *Name removal.* Dropping a name from `crosscheck_verdicts`' list is
 ///   supposed to leave the field mentioned nowhere in `tests/`, which this test
 ///   fails on. **That holds for five of the nine fields and not for the other
-///   four**, and the sentence above used to claim it without qualification.
+///   four**, so the sentence above is qualified.
 ///
 ///   The corpus this arm searches is the whole of `tests/`, including this
 ///   file. `crosscheck_typescript_executed`, `crosscheck_typescript_expected`,
@@ -5142,7 +5107,7 @@ fn group_e_constants_stay_anchored() {
 ///   correction folded into a stripper repair is indistinguishable from the
 ///   stripper repair afterwards.
 /// - *Assertion removal* is **not** caught here, and the attempt to catch it is
-///   what made this test go green under fault injection at first: deleting the
+///   what makes this test go green under fault injection: deleting the
 ///   `eq_str` while leaving the enclosing `ctx.has(...)` in place keeps the name
 ///   present, and a `contains` check cannot tell a mention from an assertion.
 ///   That path is covered by `Ctx::check_coverage` instead, which reports the
@@ -5214,9 +5179,9 @@ fn crosscheck_fields_stay_asserted() {
 
     // The two allow-lists, located once and fail-closed.
     //
-    // This used to be `if let Some(start) = support.find(...)` inside the loop
-    // below, and a miss did not fail the arm -- it *removed* it, which looks
-    // identical to the arm running and finding nothing. Injected:
+    // An `if let Some(start) = support.find(...)` inside the loop below lets
+    // a miss *remove* the arm rather than fail it, which looks identical to
+    // the arm running and finding nothing. Injected:
     // allow-list `crosscheck_matches` onto `METADATA_KEYS` and this test goes
     // red naming it, as it should; additionally rename the constant, a change
     // that compiles and that nothing else in the suite objects to, and the
@@ -5636,9 +5601,8 @@ fn fixture_reference_blocks_agree_with_each_other_and_with_the_documents() {
 /// * every row of the corpus table, `| group | file | subject | vectors |
 ///   oracle |`, against that file's `vectors` array;
 /// * the absence of the dead `ffi-oracle` feature: no `cfg` attribute and no
-///   `cfg!()` read anywhere under `crates/` names it. From the plant to S2 this
-///   arm held a count (87, then 76) in AGENT.md and Cargo.toml to the tree;
-///   S2 stripped every site and the arm became the check that none returns.
+///   `cfg!()` read anywhere under `crates/` names it. There are none, so the
+///   arm is the check that none returns and that no count of them reappears.
 ///   The documents state no count any more, and a count claim reappearing
 ///   in either is itself reported.
 ///
@@ -5727,9 +5691,9 @@ fn documented_counts_match_the_artifacts() {
         lexed += 1;
     }
     // Positive controls: the walk lexed the tree and saw `cfg` attributes at
-    // all. Measured at S2: 82 files and 99 attributes (every
+    // all. Measured at 82 files and 99 attributes (every
     // `#[cfg(feature = "native")]`, `#[cfg(not(miri))]` and `#[cfg(test)]`);
-    // the floor is set well under that, and a first draft that guessed
+    // the floor is set well under that, and a floor guessed
     // "hundreds" and floored at 100 was red on its first run, which is what a
     // positive control is for.
     assert!(lexed >= 40, "the cfg walk lexed only {lexed} file(s) under crates/");
@@ -5741,7 +5705,7 @@ fn documented_counts_match_the_artifacts() {
     assert!(
         naming_the_dead_feature.is_empty(),
         "the dead `ffi-oracle` feature is named by {} cfg site(s):\n  {}\n\
-         S2 stripped every one with the C it gated; the feature is not declared and a \
+         The feature is not declared and a \
          site naming it is an `unexpected_cfgs` error under the clippy gates as well.",
         naming_the_dead_feature.len(),
         naming_the_dead_feature.join("\n  ")
@@ -5856,17 +5820,15 @@ fn documented_counts_match_the_artifacts() {
     // # Where the needle is anchored, and why it was moved
     //
     // The floor below demands the phrase occur at least once, so that the arm
-    // cannot go quiet by matching nothing. For a time the only occurrence was
-    // inside a paragraph describing the stripped feature -- prose with a
-    // finite life, which made this arm's survival depend on prose nobody was
-    // keeping for its sake. Deleting that paragraph would have failed this
-    // check with a message about its own needle, at a moment when nothing was
-    // actually wrong.
+    // cannot go quiet by matching nothing. An occurrence inside prose kept
+    // for some other purpose makes the arm's survival depend on that prose,
+    // and deleting it fails this check with a message about its own needle at
+    // a moment when nothing is wrong.
     //
-    // The sentence was relocated rather than the needle re-pointed. Relocating
-    // keeps the arm asserting exactly what it asserted before -- no count of
-    // these sites in either document -- where re-pointing would have changed
-    // the subject to whatever the new needle happened to name. The anchor now
+    // The anchor is a relocated sentence rather than a re-pointed needle:
+    // relocating keeps the arm asserting what it asserts -- no count of these
+    // sites in either document -- where re-pointing changes the subject to
+    // whatever the new needle names. The anchor now
     // sits in AGENT.md under "What holds this document to the code", a
     // paragraph whose subject is this check, so the phrase stays for the
     // reason the check needs it to.
@@ -5998,10 +5960,8 @@ fn all_crate_rust_sources_raw() -> Vec<(String, String)> {
 ///
 /// A regex for the shape within a run yields `..._anywhere_in` and
 /// `all_two_byte_inputs` from those two sites and reports both as names the
-/// tree does not define. The first draft of this check was written that way
-/// and declared the second as a legitimate partial; the table's own
-/// still-cited assertion rejected the row, because the scan had never
-/// produced it.
+/// tree does not define, and the table's own still-cited assertion rejects a
+/// row for either, because the scan never produced one.
 fn lower_snake_names_of_at_least(words: usize, text: &str) -> BTreeSet<String> {
     let b = text.as_bytes();
     let mut out = BTreeSet::new();
@@ -6068,8 +6028,7 @@ const HISTORY_ROW_MARK: &str = "CORRECT HISTORY";
 /// project has already lost three renames to bare-identifier scans -- `send`,
 /// `Parsed` and `run`, in `no_wallet_visible_fn_hands_out_a_wots_signature`
 /// -- and the remedy there is the same remedy here: key on
-/// qualified paths. That is **not this session's work**; it belongs to a
-/// session the scan has not flagged.
+/// qualified paths, which is work this check does not do.
 ///
 /// Three further bounds, stated because a check narrows quietly:
 ///
@@ -6196,9 +6155,8 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
     // Four segments. See the table's doc for why not three.
     const MIN_SEGMENTS: usize = 4;
 
-    // The verification-layer defect, exactly: a permit table was once a dict whose
-    // duplicate key silently discarded sixteen permits. A list of pairs plus
-    // this assert is the shape that entry prescribes, so a repeat survives
+    // A permit table written as a dict lets a duplicate key silently discard
+    // permits. A list of pairs plus this assert is the shape that avoids it, so a repeat survives
     // long enough to be asserted on.
     let mut names: Vec<&str> = DECLARED_UNRESOLVED_SRC_NAMES.iter().map(|(n, _)| *n).collect();
     let declared_rows = names.len();
@@ -6314,9 +6272,10 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
         let remedy = if reason.starts_with(HISTORY_ROW_MARK) {
             format!(
                 "\n\x20     this is a {HISTORY_ROW_MARK} row. It permits nothing but the sentence \
-                 under src/ that records what the name used to assert, so the row and that \
-                 sentence are removed together, in one change, by {SWEEP_NAMES}. \
-                 DECLARED_HISTORY_MARKER_SITES declares it so that sweep can find it."
+                 under src/ that names the retired marker, so the row and that sentence are \
+                 removed in one change: delete the sentence alone and the row permits nothing, \
+                 delete the row alone and the sentence is the dangling citation this check \
+                 exists to catch."
             )
         } else {
             String::new()
@@ -6393,7 +6352,7 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
 /// The extension has two kinds of account and only one of them is derivable.
 /// A standard account carries `index` and its seed is a pure function of the
 /// master seed at that index, so it can be rebuilt from the mnemonic alone. An
-/// imported account carries **`index: undefined`** (`walletActions.ts:374`,
+/// imported account carries **`index: undefined`** (
 /// spelled as a literal ternary arm) and its `seed` is the only copy of its key
 /// material anywhere: it came out of an `.mcm` file, not out of the master seed,
 /// and no index reproduces it.
@@ -6414,11 +6373,9 @@ fn names_cited_in_src_resolve_to_a_fn_or_are_declared_matched_by_shape_not_by_pa
 /// *non*-derived account survives a restore, which no derivation vector can
 /// express. It is a shape the wallet has to have, so it is checked as one.
 ///
-/// # What this used to be
+/// # What it holds
 ///
-/// `imported_accounts_have_a_restore_path`, red until `src/account.rs`
-/// landed. Renamed rather than deleted in the clearing commit
-/// (a discharged marker keeps its useful half): the useful half — three
+/// Three
 /// reference anchors and a runtime-assembled needle that keep deriving what
 /// is demanded — survives, and the name now carries the green's bound the
 /// way `native_transaction_path_is_checked_on_layout_not_acceptance` does.
@@ -6655,7 +6612,7 @@ fn imported_account_restores_from_stored_seed() {
 /// # What the pair is, and what it is not
 ///
 /// `F-address-widths`' account seed and its recorded 2208-byte first address
-/// — the shape a `.mcm` entry carries (`walletActions.ts:365-381` stores all
+/// — the shape a `.mcm` entry carries (the import action stores all
 /// 2208 bytes as `faddress`), reached here from group F rather than from an
 /// `.mcm` file, because nothing in this crate reads one. **That is the bound
 /// in the marker's post-discharge name.** The pair is a derived account's,
@@ -6680,9 +6637,7 @@ fn imported_account_restores_from_stored_seed() {
 /// session's to catch. And it says nothing about at-rest secrecy -- which is
 /// a different sentence since encryption at rest, because the root is no longer plaintext
 /// beside the components: the whole record body is sealed, and
-/// `imported_roots_and_the_master_seed_are_encrypted_at_rest` is green. This
-/// comment claimed the opposite, naming the marker's pre-rename spelling as
-/// "still-red", for a session after it was sealed.
+/// `imported_roots_and_the_master_seed_are_encrypted_at_rest` is green.
 #[test]
 fn imported_index_zero_pk_reproduces_the_first_address() {
     use keystore_harness::{imported_account, reopen, ScratchDir, IMPORTED_FIRST_ADDRESS, IMPORTED_TAG, ROOT};
@@ -6759,7 +6714,7 @@ fn imported_index_zero_pk_reproduces_the_first_address() {
 /// this: `types/account.ts` declares `faddress`, the `.mcm` import stores it
 /// verbatim beside `seed`, and the `wotsIndex === -1` selector rebuilds the
 /// first key by copying `faddress` into the generator buffer rather than
-/// deriving anything (`redux/selectors/accountSelectors.ts:24-31`).
+/// deriving anything.
 /// **The funds an imported account held at import time sit at the first
 /// address**, so a model holding the root alone could not spend them.
 ///
@@ -6776,9 +6731,8 @@ fn imported_index_zero_pk_reproduces_the_first_address() {
 /// Only 64 bytes are stored because the public key is
 /// `wots::pkgen(root, pub_seed, adrs)`, and the twelve bytes the shipped
 /// format overlays on the address image do not matter: the reference writes
-/// address words 5, 6 and 7 before every use
-/// (`reference/mochimo-core/src/wots.c:32-45`, called at `:105`, `:110`,
-/// `:155`, `:238`, `:268`), so their incoming values never reach a hash.
+/// address words 5, 6 and 7 before every use, so their incoming values
+/// never reach a hash.
 /// Measured by execution before the design was written.
 ///
 /// # THE BOUND IN THE NAME
@@ -6883,8 +6837,8 @@ fn group_f_is_specification_not_crosscheck() {
     let dir = repo_root().join("fixtures");
     // Counts fixtures that make a provenance claim of *either* kind -- a `pin`
     // block or an `oracle` block. Not "fixtures that are fully declared": that
-    // is what it counted at first, and injection showed the difference matters.
-    // Deleting the `oracle` block from group F left the count at zero, so the
+    // would count a different thing, and injection shows the difference
+    // matters. Deleting the `oracle` block from group F leaves the count at zero, so the
     // vacuity floor fired first and reported "the walk found no `pin` block"
     // for a file that plainly had one -- the precise arm below, which is the
     // whole point of the check, never got to speak. A vacuity floor is supposed
@@ -7428,7 +7382,7 @@ fn group_c_crosscheck_is_an_executed_oracle() {
             // `addrTagToBase58` itself calls, and the vectors that reach it
             // directly are the ones the tag encoder cannot answer -- lengths
             // other than 20, and the all-'1' class where the reference faults.
-            // It is third-party and shares no code with reference/mochimo-core,
+            // It is third-party and shares no code with the C reference,
             // which is the property this check is really about.
             const SECOND_IMPLEMENTATIONS: [&str; 2] = ["reference/mochimo-wots", "bs58 6.0.0"];
             let source = obj.get("source").and_then(serde_json::Value::as_str).unwrap_or("");
@@ -7619,9 +7573,8 @@ fn zeroization_has_no_reference_counterpart() {
 /// The bytes a `Secret` held are gone from its storage after the drop.
 ///
 /// The proof `zeroization_has_no_reference_counterpart` demands. It lived in
-/// the differential suite until the S1 re-gate; it is not a differential and
-/// never was -- there is nothing to diff a freed frame against -- so it moved
-/// here beside its guard when that suite went.
+/// It is not a differential -- there is nothing to diff a freed frame
+/// against -- so it lives here beside its guard.
 ///
 /// # The construction is the delicate part, and the obvious one is wrong
 ///
@@ -7744,13 +7697,13 @@ fn secret_bytes_are_gone_after_drop() {
 /// indistinguishable from breaking the rule it anchors, and the collision was
 /// worth more written down than silently accommodated.
 ///
-/// **The signing path tripped it, exactly as foreseen, and repaired it as prescribed.**
-/// The signing path needs one comparison of key material -- a root or seed
+/// **The signing path needs one comparison of key material, and that is what
+/// makes the anchor's shape matter.**
+/// It needs one comparison of key material -- a root or seed
 /// against every stored imported root, so that two accounts cannot sit over
 /// one key stream -- and `Secret::ct_eq` over
 /// `subtle::ConstantTimeEq` is the remedy `secret.rs`'s own doc names. The
-/// substring anchor fired on the word `ConstantTimeEq`. The repair, its own
-/// commit with its own injection, is the one this comment prescribed: the
+/// A substring anchor fires on the word `ConstantTimeEq`, so the
 /// anchor below parses `secret.rs` and matches the **item forms that grant
 /// comparison** -- a `derive(..)` naming `PartialEq`/`Eq`/`PartialOrd`/`Ord`
 /// on any item (inside `cfg_attr` too), or an `impl` of one of those traits
@@ -7905,11 +7858,9 @@ fn secret_has_no_equality_and_nothing_enforces_it() {
 /// one that derives `Debug` over a field the redaction does not cover, is not
 /// visible to any existing check.
 ///
-/// # What this used to be
+/// # What supplies its subject
 ///
-/// `secret_holders_may_not_derive_debug`, red by construction until the
-/// account model landed — a designed last red, waiting for a subject
-/// rather than for work. `src/account.rs` supplied the subject
+/// `src/account.rs` supplies it
 /// (`ImportedRoot`, plus the holders around it) and
 /// `no_holder_of_key_material_derives_debug` supplied the scan, so the
 /// marker is green and renamed in the clearing commit (a discharged marker
@@ -7947,13 +7898,13 @@ fn secret_holder_debug_redaction_is_enforced_by_the_scan() {
             // Not glob-spelled, and the reason has EXPIRED -- kept as a record,
             // not as a live constraint.
             //
-            // `code_only` USED TO treat a `/` followed by `*` as a block-comment
-            // opener wherever it occurred, including inside a string literal,
-            // and the region it then swallowed belonged to whichever check read
-            // the corpus next. An earlier draft of this line globbed the walk
-            // and turned `crosscheck_fields_stay_asserted` and
-            // `group_e_constants_stay_anchored` red, with failure messages about
-            // independence and group E that pointed nowhere near the cause.
+            // A `code_only` that treats a `/` followed by `*` as a
+            // block-comment opener wherever it occurs, including inside a
+            // string literal, swallows a region belonging to whichever check
+            // reads the corpus next -- turning
+            // `crosscheck_fields_stay_asserted` and
+            // `group_e_constants_stay_anchored` red with failure messages
+            // about independence and group E that point nowhere near the cause.
             //
             // The repair: string literals are now emitted
             // verbatim with no comment token inside them interpreted, and
@@ -8210,10 +8161,9 @@ fn no_holder_of_key_material_derives_debug() {
 
 /// Memory-safety is established for the native paths Miri walks, and no further.
 ///
-/// # What this used to be
+/// # Why equivalence is not the property
 ///
-/// `memory_safety_equivalence_is_not_a_differential_property`, red, and the
-/// name was the finding: the C reads fixed-size buffers through raw pointers, so
+/// The C reads fixed-size buffers through raw pointers, so
 /// an over-read runs into adjacent memory and returns a wrong answer or nothing
 /// observable; the Rust port indexes slices, where the same bug panics. Feeding
 /// both a malformed input and comparing outputs cannot decide it — the two
@@ -8352,10 +8302,8 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 /// `to_le_bytes` and `to_ne_bytes` compile to the same thing. That was measured,
 /// not assumed — re-measured with the third test in place.
 ///
-/// An earlier draft wrote here that `put32` had neither of `put16`'s two anchors. **The
-/// first half was false.** `group_d_tx.c:117-119` calls `put32` and
-/// `group_d_tx.json` records the bytes as `identity.adrs_tail12`; nothing read
-/// them for a time. `put32` now has the C8-shaped anchor and still lacks the
+/// The generator calls `put32` and `group_d_tx.json` records the bytes as
+/// `identity.adrs_tail12`, so `put32` has the C8-shaped anchor and lacks the
 /// CX-C9-shaped one, so a `to_be_bytes` port is caught by a fixture and a
 /// `to_ne_bytes` port is caught **only here**. Narrowed, not retired — and this
 /// check is still the sole enforcement for `get32`, which no fixture records at
@@ -8368,9 +8316,9 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 /// it felt different from writing any other source scan, which is the point —
 /// the fact that made it critical lived in another file.
 ///
-/// # The rule, and the fifteen sessions nothing checked it
+/// # The rule, and why it needs a check at all
 ///
-/// The decision settled the host-endianness question for all three sites it found
+/// The decision settles the host-endianness question for all three sites it found
 /// — the `adrs` conversion, `put16`, and SHA3's state read — and stated the
 /// consequence in bold: **"No `from_ne_bytes` or `to_ne_bytes` anywhere in the
 /// crate."** That was a decision in a document. Nothing asserted it, and a
@@ -8391,8 +8339,8 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 /// "…"]` attribute carrying a string *literal* and a `//` comment is not there
 /// at all — so a mention in this file's prose is not an `Ident` and cannot
 /// satisfy anything. The paragraph above deliberately spells both names out to
-/// prove it. That is stronger than the comment-stripping this check used to
-/// rely on, which left a name inside a string literal able to match.
+/// prove it. That is stronger than comment-stripping, which leaves a name
+/// inside a string literal able to match.
 ///
 /// # Two needles have been wrong here, and injection said so both times
 ///
@@ -8403,8 +8351,8 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 /// scan **green**.
 ///
 /// The second was its replacement, `format!("{needle}(")` over comment-stripped
-/// text. It required the `(` to be the very next byte, so **three classes went
-/// unseen and stayed unseen for six sessions**, all three measured by execution
+/// text. It required the `(` to be the very next byte, so **three classes go
+/// unseen**, all three measured by execution
 /// with the raw-string repair rather than reasoned about:
 ///
 /// | injected | old needle | now |
@@ -8462,7 +8410,7 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
 ///
 /// # This check is the sole enforcement of the little-endian decision
 ///
-/// Stated here and not only in the errata entry that discovered it, because
+/// Stated here, because
 /// sources do not get read at the moment somebody is editing a needle and the
 /// check's own doc comment is where they are looking. A differential
 /// against the FFI **cannot** catch a native-endian conversion: on a
@@ -8667,7 +8615,7 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
           the ten edge assertions of the shipped-index mapping, and \
           the import verification's two refusals, the aliasing case's \
          stream equality and the restore refusals; plus the two of the \
-         ceiling test (S6, Known-open 15): the whole Range the refusal at \
+         ceiling test: the whole Range the refusal at \
          u32::MAX carries, and the position below it advancing to it.",
     ),
     (
@@ -8702,7 +8650,7 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
         "crates/mochimo-crypto/src/keystore/mod.rs",
         "assert_eq!",
         3,
-        "inside the #[cfg(test)] unit-test module (S6, Known-open 14): the \
+        "inside the #[cfg(test)] unit-test module: the \
          premise generation, the generation a fresh open reads after the \
          failed application, and the position it reads.",
     ),
@@ -8718,24 +8666,24 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
         "crates/mochimo-crypto/src/cli/args.rs",
         "assert!",
         36,
-        "inside the #[cfg(test)] parser tests (S7, Known-open 30): the help \
+        "inside the #[cfg(test)] parser tests: the help \
          spellings recognised before the verb, and refused by name after it; \
          the repeated-flag test's control, each flag once parsing; the \
-         `--ref` test's four (S10, Known-open 19): a refusal names the flag \
+         `--ref` test's four: a refusal names the flag \
          and the value, carries the rule's words, a seventeenth character and \
-         a non-ASCII value are refused by their own reasons; and S12's nine \
+         a non-ASCII value are refused by their own reasons; nine \
          over the destination list -- the odd-token and duplicate refusals \
          and their words, the 257th destination, `--ref` and `all` each \
          refused with several, `all` parsing as an unknown amount, and the \
-         file parser's four refusals by line. S13's six over the explorer verbs: \
+         file parser's four refusals by line. Six over the explorer verbs: \
          the count flag's default, its ceiling and its two refusals carrying the \
          endpoint's own reason; `block 0` refused as the tip's index; and a short \
-         hash refused. S15's four over `discover`'s `--to`: the refusal named \
+         hash refused. Four over `discover`'s `--to`: the refusal named \
          across three bad values, and the flag held to the parser's own \
          rules -- given twice, given without a value, and a positional \
          argument where the flag belongs. Its fifth asserted ONE reason for \
          both ends of that range, which is exactly the defect a live run \
-         found, and it moved into S17's eight (Known-open 46): four per arm, \
+         found, and it is eight now: four per arm, \
          being the bounds with the value echoed, that arm's own reason, the \
          sentence saying what to do about it or what already answers it, and \
          the ABSENCE of the other arm's reason -- the assertion the defect \
@@ -8747,13 +8695,13 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
         29,
         "same #[cfg(test)] module: the repeated-flag refusal, named flag by \
          flag; `address --account N`'s parsed shape and its missing-value \
-         refusal (S7, Known-open 7); the `--ref` test's two (S10): the \
+         refusal; the `--ref` test's two: the \
          node's examples laid out NUL-padded, and the zero field without the \
-         flag; and S12's fifteen over the destination list -- three pairs \
+         flag; and fifteen over the destination list -- three pairs \
          parsed in order with their amounts and tags, the fee defaulting to \
          the floor for three and to 500 for one, the single-destination \
-         shape `all` parses to, and the file's three columns line by line. S13's six: the two default counts, the ceiling \
-         taken, `block 1` and the two hash spellings parsed. S15's three: \
+         shape `all` parses to, and the file's three columns line by line. Six more: the two default counts, the ceiling \
+         taken, `block 1` and the two hash spellings parsed. Three over \
          `discover`'s default `--to`, its ceiling and its floor, each parsed \
          to the `Command` it should be.",
     ),
@@ -8762,14 +8710,14 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
         "panic!",
         20,
         "same #[cfg(test)] module: `refusal`'s arm for argv that parsed when \
-         the case expected a refusal; the `--ref` test's four (S10), the \
+         the case expected a refusal; the `--ref` test's four, the \
          arms for a value that parsed to another command, was refused, or \
-         read as help when the case expected a spend; and S12's three -- \
+         read as help when the case expected a spend; and three more -- \
          `sent`'s two arms, for argv that parsed to another command or did \
          not parse at all, and the file parser's arm for text that was \
-         expected to parse. S13's nine: the arms for argv that \
-         parsed to another command or did not parse at all, across the three \
-         explorer parser tests. S15's three: the same arms for `discover`'s \
+         expected to parse. Nine over the explorer parser tests: the arms for \
+         argv that parsed to another command or did not parse at all. Three \
+         more over `discover`'s \
          default, ceiling and floor.",
     ),
     (
@@ -9098,8 +9046,8 @@ fn panicking_constructs_are_declared_at_their_sites() {
 /// The allow-list held six files while the foreign-function backend was
 /// here: the binding itself, the `TXENTRY` handle in `tx.rs`, the diagnostic
 /// strings in `error.rs`, `word16_max`'s shim call in `lib.rs`, and the two
-/// class-routed calls in `addr.rs` and `base58.rs`. S2 deleted every one of
-/// those sites with the C, so the list is empty and the check is an absence
+/// class-routed calls in `addr.rs` and `base58.rs`. Every one of those sites
+/// went with the C, so the list is empty and the check is an absence
 /// check: any `unsafe` keyword under `src/` is a red naming the file. It
 /// keeps its file floor so an empty walk cannot pass, and its positive
 /// control is the fault-injection row that puts one `unsafe {}` back.
@@ -9115,8 +9063,8 @@ fn panicking_constructs_are_declared_at_their_sites() {
 /// subject itself.
 #[test]
 fn unsafe_is_confined_to_declared_files() {
-    // Empty since S2; every row it held named a site the foreign-function
-    // backend brought, and every one went with it. A row added here needs the
+    // Empty: every row it held named a site the foreign-function backend
+    // brought, and every one went with it. A row added here needs the
     // argument its predecessors carried: which boundary, and why Miri cannot
     // walk it.
     const ALLOWED: [(&str, &str); 0] = [];
@@ -9228,8 +9176,8 @@ fn unsafe_is_confined_to_declared_files() {
 ///   that parameter is `&[u8]` (immutable), and the return type is an array.
 ///   A width that is caller data has to arrive through a parameter or an
 ///   out-buffer; a signature with neither cannot carry one.
-/// * **bindings** — this arm read a bindgen allow-list that is not in this
-///   repository, and is gone with it.
+/// * **bindings** — an arm reading a bindgen allow-list, which is not in this
+///   repository and so is not here either.
 #[test]
 fn sha3_width_is_a_type_not_a_parameter() {
     // The foreign-function backend carried the same four wrappers; it is not
@@ -9388,7 +9336,7 @@ fn unimplemented_sites_are_declared_with_a_reason() {
 enum Owing {
     /// Someone can state what turns it green, so it belongs in the tooling.
     Owed,
-    /// Nobody can, so it is knowledge and lives in the errata.
+    /// Nobody can, so it is knowledge rather than debt.
     Excluded,
 }
 
@@ -9397,29 +9345,9 @@ enum Owing {
 /// The reasons are at the sites; this is the census. Grouped by module because
 /// the *kind* of gap differs by module and the debt marker reports them that way.
 const DECLARED_UNIMPLEMENTED: &[(&str, &str, Owing)] = &[
-    // The backend gap was EMPTY since the width change, and since S2 there is no second
-    // backend to have a gap. Seven stubs lived here; two were
-    // genuinely missing code (`get32`, `put32`, now in native.rs) and five were
-    // the C's *shape* rather than missing behaviour: `sha3`'s runtime `outlen`
-    // became four fixed-width functions, and the four base58 `_probe`/`_into`
-    // entry points were the probe-then-allocate-then-call convention, whose
-    // semantics native already had under Rust-shaped names.
-    //
-    // Nothing needs adding here by hand when the gap reopens. The set difference
-    // asserted above computes it, and it will name the function.
-    //
-    // THE `tx` ROWS ARE GONE, and they went the way the marker demanded rather
-    // than by being reclassified. Seven `Owing::Owed` entries sat here --
-    // dat_type, dsa_type, mdst_count, tag_ptr, hash_ptr, len_min, len_dsk_min --
-    // over shims for `types.h` macros. The accessor port put all seven into
-    // `backend::native`, which is why there is nothing to declare: there is no
-    // `unimplemented!()` left to have a reason.
-    //
-    // The comment that stood here said their oracle was "group D, 18 of whose 44
-    // vectors are still unreplayed". That stopped being true when the corpus
-    // was completed and nothing moved it, which is the drift class -- recorded rather
-    // than silently corrected, because a session that quietly fixes its own
-    // evidence cannot report on the rate.
+    // The backend gap is EMPTY and there is no second backend to have one.
+    // Nothing needs adding here by hand when the gap reopens. The set
+    // difference asserted above computes it, and it will name the function.
     //
     // What did NOT come with them is a native transaction path. Emptying these
     // rows produced the accessor surface and nothing more; the path was filed
@@ -9457,15 +9385,12 @@ const DECLARED_UNIMPLEMENTED: &[(&str, &str, Owing)] = &[
 /// **The backend half cleared with the width change.** `crate::base58`, `crate::bytes` and
 /// `crate::addr` all work natively; the empty stub module that once held the
 /// computed difference `ffi − native == unported` went with the
-/// foreign-function backend at S2. The seven `tx` rows below were the whole
+/// foreign-function backend. The seven `tx` rows below were the whole
 /// remainder.
 ///
 /// They are shims over `types.h` macros, and their oracle is group D. **That
-/// oracle is complete**: this paragraph said "of whose 44 vectors
-/// `deferred_groups_are_unverified` still carries 18 unreplayed" for six
-/// sessions, and the generator change it asked for landed — the entry is
-/// emitted at each of the fifteen sites that recorded a verdict or a hash on
-/// bytes the corpus did not carry, and all 44 replay.
+/// oracle is complete**: the entry is emitted at each of the fifteen sites
+/// that record a verdict or a hash on bytes, and all 44 replay.
 ///
 /// So what remains is the translation, which is what this marker was waiting to
 /// be able to say. Each of the seven has a vector behind it: `TXDAT_TYPE`,
@@ -9479,12 +9404,12 @@ const DECLARED_UNIMPLEMENTED: &[(&str, &str, Owing)] = &[
 /// an `unimplemented!()` constructor would be a constructor for the thing the
 /// invariant forbids.
 ///
-/// # What this section used to say, and why that is worth recording
+/// # The shape of the claim, and its bound
 ///
-/// Once it described "the backend seven" as address-path-shaped work and "the
-/// four Base58 entry points" as a pending decision, and offered `put32` as the
-/// worked example on the grounds that `put16`'s little-endian verification was
-/// an *inference* about the 32-bit pair rather than a measurement. All three
+/// Describing "the backend seven" as address-path-shaped work and "the
+/// four Base58 entry points" as a pending decision, with `put32` as the
+/// worked example on the grounds that `put16`'s little-endian verification is
+/// an *inference* about the 32-bit pair rather than a measurement: all three
 /// were discharged a session or more earlier:
 ///
 /// * five of the seven were never missing behaviour — they were the C's calling
@@ -9575,21 +9500,7 @@ fn every_unimplemented_site_is_knowledge_not_debt() {
 /// The native transaction path exists and is checked on layout, encoding and
 /// the two offline validators — **not on acceptance**.
 ///
-/// # What this was
-///
-/// This test was `no_native_transaction_path_exists`, the red
-/// marker filed with the accessor port so the transaction path could
-/// not be absorbed into that port's green, corrected into the port's
-/// last item, and unblocked by the shape decision (
-/// ordinary Rust types with a serializer at the boundary) and the shape-space
-/// fill (three shapes the corpus could not see were measured, then
-/// emitted). Then `tx::wire` landed — owned types, `to_wire`,
-/// `from_wire` — and the marker was renamed in the same commit rather than
-/// deleted, because the useful half survives discharge: the anchors below
-/// still hold the arrangement in place. Errata **146** records
-/// the landing.
-///
-/// # What it asserts now
+/// # What it asserts
 ///
 /// **The proof test runs, passes, and reports** (execution census):
 /// `txwire.rs::native_transaction_round_trip_needs_no_reference`, the native
@@ -9618,7 +9529,7 @@ fn native_transaction_path_is_checked_on_layout_not_acceptance() {
     // Two anchors and one census row this guard carried are gone with their
     // subjects: the reference's `types.h` container, the `#[cfg]` gate over
     // the FFI handle in `tx.rs` (compiled out, and on the list to be deleted
-    // -- AGENT.md, Known-open 1), and the differential round trip against
+    // -- and the differential round trip against
     // the reference's parse. What remains is the codec's own round trip in
     // the binary gated on `native` alone.
     const C_FREE_PROOF: &str = "native_transaction_round_trip_needs_no_reference";
@@ -9668,7 +9579,7 @@ fn read_crate_file(rel: &str) -> String {
 ///
 /// # Why this parses instead of matching a prefix
 ///
-/// This was once `line.strip_prefix("pub fn ")`, which returns `None` for
+/// A `line.strip_prefix("pub fn ")` returns `None` for
 /// `pub unsafe fn`, `pub const fn` and `pub async fn`. Measured: a
 /// `pub unsafe fn` appended to `backend/native.rs` — **precisely the shape Miri
 /// coverage exists to police** — left both
@@ -9814,7 +9725,7 @@ fn no_restricted_visibility_fn_in_the_backend() {
 }
 
 // -------------------------------------------------------------------------
-// Harness debt found by this session's own work
+// Harness debt in the walk itself
 // -------------------------------------------------------------------------
 
 /// Every `.rs` under this crate's `tests/`, as `(path, text)`, sorted by path.
@@ -9875,7 +9786,7 @@ fn test_source_files() -> Vec<(String, String)> {
 /// edit to a file it does not read. Not caught by a vacuity assertion either:
 /// the corpus was not empty, only silently shorter than its sources.
 ///
-/// Measured before the repair, on the concatenated `tests/` corpus:
+/// Measured on the concatenated `tests/` corpus:
 ///
 /// | corpus, in bytes | length |
 /// | --- | --- |
@@ -10153,9 +10064,9 @@ fn code_only_understands_every_construct_its_inputs_contain() {
         findings.join("\n")
     );
 
-    // Reported, not merely asserted. This test passed on the holed corpus too --
-    // both of its properties are about internal consistency, and a corpus that
-    // is uniformly 13,310 bytes short is perfectly self-consistent. The
+    // Reported, not merely asserted. Both of this test's properties are about
+    // internal consistency, and a corpus uniformly 13,310 bytes short is
+    // perfectly self-consistent, so it passes over one. The
     // number is what separates "green" from "green for the right reason", so it
     // is printed where `--nocapture` shows it rather than left to be re-derived.
     println!(
@@ -10203,7 +10114,7 @@ fn code_only_understands_every_construct_its_inputs_contain() {
 ///
 /// The defect that makes this group necessary was unfixed when the corpus was
 /// generated. The record of its disclosure status lived in the errata document
-/// of the repository this one was forked from; the fixture's `disclosure`
+/// of a repository this one does not carry; the fixture's `disclosure`
 /// field points there and this site states nothing.
 #[test]
 fn group_rx_is_an_oracle_with_no_reference_side() {
@@ -10270,8 +10181,8 @@ fn group_rx_is_an_oracle_with_no_reference_side() {
             ));
         }
     }
-    // The fixture's `disclosure` and `errata` fields point at the errata
-    // entry that recorded the defect's disclosure status. That document is
+    // The fixture's `disclosure` and `errata` fields point at the entry that
+    // recorded the defect's disclosure status. That document is
     // not in this repository, and the check that every site pointed at it
     // rather than restating it went with the sites; the two fields are read
     // here so the walk stays fail-closed over the block's shape, and nothing
@@ -10820,12 +10731,10 @@ fn the_cli_cannot_reach_around_the_wallet() {
             }
             // **What enforces the property is not this ban**.
             //
-            // For a time the arm above was followed by a "positive
-            // control": `block.contains("self.file")`, whose own comment said
-            // its purpose was to ensure *"the impl really does write to the
-            // acquired descriptor, or the ban above is satisfied by an impl
-            // that shows nothing at all."* An impl that showed nothing at all
-            // is what shipped -- `self.file` was named, opened read-only, and
+            // A "positive control" of `block.contains("self.file")` would
+            // claim to ensure *the impl really does write to the acquired
+            // descriptor, or the ban above is satisfied by an impl that shows
+            // nothing at all*. It does not: `self.file` can be named, opened read-only, and
             // every write to it failed with `EBADF` and was discarded. Naming
             // a descriptor is a text property; writing to it is a runtime one,
             // and a source scan cannot tell them apart. The control was
@@ -10857,11 +10766,10 @@ fn the_cli_cannot_reach_around_the_wallet() {
             // wrote it beside the impl it had just fixed. The free
             // `read_secret_line` that the eight store-opening commands prompt
             // through sat one function outside that scope, writing its prompt
-            // with `eprint!`, so `balance 2>file` asked for a password on no
-            // screen while this arm was green -- the scan's domain was an
-            // impl header and the defect was the same class in the next
-            // function down (a check does not weaken loudly; it
-            // narrows). Now: the four print macros may occur only inside `fn
+            // with `eprint!`, so `balance 2>file` asks for a password on no
+            // screen while an impl-scoped arm stays green -- the scan's domain
+            // an impl header, the defect the same class in the next function
+            // down (a check does not weaken loudly; it narrows). So: the four print macros may occur only inside `fn
             // main`, which prints the report and the usage and nothing else,
             // so no prompt anywhere in the binary can reach a process-wide
             // stream. Sites are located at identifier boundaries so the
@@ -11146,7 +11054,7 @@ struct TextUnit {
 /// to `tests/compile_fail.rs` rather than tests, which is why
 /// `test_source_files()` does not carry them (its module doc says so); the
 /// narrative walk below carries them because a comment there can cite the
-/// old repository as easily as one under `src/`, and until S5 twenty of the
+/// old repository as easily as one under `src/`, and twenty of the
 /// twenty-four did.
 fn ui_and_example_source_files() -> Vec<(String, String)> {
     let root = repo_root();
@@ -11268,13 +11176,12 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
     (files, out)
 }
 
-/// The floors the three walks share, re-derived at S5 from the measurement
+/// The floors the three walks share, derived from the measurement
 /// the evidence lines print: 82 files, 16,799 comment lines in 2,550 runs and
-/// 11,955 string lines (58, 16,515, 2,521 and 11,894 at S4, before `ui/` and
-/// `examples/` joined the walk). Each floor sits at roughly two thirds of its
+/// 11,955 string lines. Each floor sits at roughly two thirds of its
 /// measurement -- well above what a walk that dropped a directory, a kind, or
 /// the strip would report, and the files floor sits above the 58 the two
-/// original roots hold, so a walk that lost the two roots S5 added is red.
+/// original roots hold, so a walk that lost `ui/` and `examples/` is red.
 fn assert_text_walk_floors(what: &str, files: usize, units: &[TextUnit]) -> (usize, usize) {
     let comment_lines = units.iter().filter(|u| u.kind == TextKind::Comment).count();
     let string_lines = units.iter().filter(|u| u.kind == TextKind::Str).count();
@@ -11330,13 +11237,6 @@ impl MarkerClass {
     }
 }
 
-/// The sweeps that own the declared sites. Spelled once so a row cannot name
-/// a sweep by a slightly different phrase, and named after the work rather
-/// than numbered one through four, because the division of the prose cleanup
-/// into four passes is a schedule and the root a file sits under is not.
-const SWEEP_TESTS: &str = "the tests/ prose sweep (one of Phases 1-4)";
-const SWEEP_NARRATIVE: &str = "the self-narrative sweep";
-const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 
 /// Every site under `crates/` that carries a development-history marker
 /// today, declared per subject with the count it holds and the sweep that
@@ -11391,26 +11291,18 @@ const SWEEP_NAMES: &str = "the declared-name sweep (one of Phases 1-4)";
 /// for the three text classes and a name for [`MarkerClass::DeclaredName`].
 /// A subject appears at most once per class; a duplicate is refused below,
 /// since the second row of a pair silently raises the first one's ceiling.
-const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
-    // Session labels. Every one of these passed the ban until the `S` arm
-    // existed to read them.
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/invariants.rs", 46, SWEEP_TESTS),
-    // Open-item citations, found by the matcher this change added.
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
-    // Errata citations. One site, and it is emphasised: the separator set
-    // could not see a number wrapped in markup until this change, so the
-    // ban stood green over the one citation left in the tree.
-    (MarkerClass::ErrataNumber, "crates/mochimo-crypto/tests/invariants.rs", 1, SWEEP_TESTS),
-    // Self-narrative passages, per file. The count is HITS and not
-    // sentences -- see NARRATIVE_PHRASES -- and it comes down by deleting
-    // prose, never by rephrasing around a row.
-    (MarkerClass::Narrative, "crates/mochimo-crypto/tests/invariants.rs", 61, SWEEP_NARRATIVE),
-    // Names that DECLARED_UNRESOLVED_SRC_NAMES permits because a sentence
-    // under `src/` cites them and nothing in the tree defines them. Each
-    // count is the number of `src/` files carrying such a sentence, so the
-    // count falls to zero as those sentences go and the permit is deleted
-    // with them. None stands today.
-];
+///
+/// # It is empty, and that is the end state rather than a starting one
+///
+/// Every class reached zero. A row is what permits a site, so with no rows
+/// each of the four checks is now an absence check over the whole tree, and
+/// **a green says nothing about whether the matcher behind it still works.**
+/// That is what the self-tests are for: each of those checks exercises its
+/// matcher on text it constructs before it reads the tree, so a green there
+/// means the matcher ran and fired, and then found nothing. Read them as the
+/// live half. This table's own property from here is that it stays empty --
+/// a row appearing in it is a site somebody chose to permit.
+const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[];
 
 /// The rows declared for one class, with the duplicate refused.
 fn baseline_rows(class: MarkerClass) -> Vec<(&'static str, usize, &'static str)> {
@@ -11999,7 +11891,7 @@ fn window_hits(units: &[TextUnit], matcher: fn(&str) -> Option<usize>, advance: 
 /// cites an entry of the old repository's errata document by number.
 ///
 /// That document is not here, so such a citation is a pointer into nothing.
-/// S3 rewrote every one under `src/`'s comments and S4 the rest: a sentence
+/// A sentence
 /// that stood on its own lost the number, a sentence that needed the entry
 /// now carries the reason, and a sentence whose reason is in the
 /// specification or in `AGENT.md` points there by section. Operator pages
@@ -12145,9 +12037,9 @@ fn no_comment_or_string_under_the_crate_cites_a_document_that_is_not_in_this_rep
 /// are the harder half to find by eye and the half a reader most needs gone.
 ///
 /// And the letter followed immediately by a digit is not otherwise vocabulary
-/// here: every occurrence in the four walked roots when this arm was written
-/// was a session label -- 138 of them across 24 files, the count the baseline
-/// declares -- with no bucket name, signal name or standard number among
+/// here: measured over the four walked roots, every occurrence is a session
+/// label -- 138 of them across 24 files -- with no bucket
+/// name, signal name or standard number among
 /// them. The delimiters carry the rest -- a letter
 /// before the `S` rejects `AES256`, a word character after the digits rejects
 /// an identifier that merely begins that way, and a third digit rejects the
@@ -12287,9 +12179,7 @@ fn row_names_in_run(lines: &[&str]) -> Vec<String> {
 /// beyond what [`DECLARED_HISTORY_MARKER_SITES`] declares, and no comment run
 /// that speaks of a fault matrix or a row names one of its rows.
 ///
-/// The labels named sessions of a history that is not here; every sentence
-/// that stood without its label kept the sentence, and every label that was
-/// the sentence went. The matcher covers the brief's forms, the bare `P`
+/// The labels name sessions of a history that is not here. The matcher covers the brief's forms, the bare `P`
 /// labels, the `L`, `Q` and `V` labels, this repository's own `S` labels, and
 /// the lower-case suffixes a word-boundary regex over the brief's forms would
 /// miss.
