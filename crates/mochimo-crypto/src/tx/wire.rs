@@ -102,11 +102,11 @@ use super::{DAT_MDST, DSA_WOTS, MAX_DESTINATIONS};
 /// One destination: `MDST` on the wire.
 ///
 /// `reference` is the 16-byte destination reference field. Its *grammar*
-/// (`types.h:407-418`, enforced by `mdst_val__reference`) is a
+/// (enforced by `mdst_val__reference`) is a
 /// validator concern, not a serializer one: these bytes are emitted as given,
 /// which is what lets `D16-badref`'s reference-rejected image round-trip.
 /// The validator this crate applies before a spend is laid out is
-/// `mesh::spend::reference_is_valid`, a transcription of the node's (S10).
+/// `mesh::spend::reference_is_valid`, a transcription of the node's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Destination {
     /// `MDST::tag` — the destination address tag, 20 bytes.
@@ -193,7 +193,7 @@ pub struct Transaction {
     /// The WOTS+ validation data.
     pub wots: WotsVal,
     /// The trailer, present in the disk form and absent in the network form
-    /// (`tx.c:493` accepts both).
+    /// (the node accepts both).
     pub trailer: Option<Trailer>,
 }
 
@@ -301,9 +301,9 @@ impl Transaction {
     /// [`Self::dsa_off`] bytes of the image and the whole of what
     /// `TX_HASH_MESSAGE` covers.
     fn write_signed_prefix(&self, w: &mut Vec<u8>) {
-        w.push(DAT_MDST); // options[0], types.h:166
-        w.push(DSA_WOTS); // options[1], types.h:171
-        // options[2] is zero-based (types.h:176-177). Lossless: the list is
+        w.push(DAT_MDST); // options[0]
+        w.push(DSA_WOTS); // options[1]
+        // options[2] is zero-based. Lossless: the list is
         // bounded at 256 by the constructor and setter, so len - 1 <= 255.
         w.push((self.dsts.len() - 1) as u8);
         w.push(self.reserved); // options[3]
@@ -379,7 +379,7 @@ impl Transaction {
     /// Parses a wire image, accepting exactly what `tx_read` accepts.
     ///
     /// The checks run in the reference's order: header length,
-    /// then the two type bytes (`tx.c:141-157` — only `TXDAT_MDST` and
+    /// then the two type bytes (only `TXDAT_MDST` and
     /// `TXDSA_WOTS`, anything else before any further arithmetic), then the
     /// length window `tx_sz - sizeof(TXTLR) <= len <= tx_sz`.
     ///
@@ -418,7 +418,7 @@ impl Transaction {
                 got: u64::from(options[1]),
             });
         }
-        let ndst = usize::from(options[2]) + 1; // types.h:176, zero-based
+        let ndst = usize::from(options[2]) + 1; // zero-based
         let reserved = options[3];
         let tx_sz = SIZEOF_TXHDR + SIZEOF_MDST * ndst + SIZEOF_WOTSVAL + SIZEOF_TXTLR;
         if bytes.len() > tx_sz || bytes.len() < tx_sz - SIZEOF_TXTLR {
@@ -455,7 +455,7 @@ impl Transaction {
 
         // The window check bounded what remains to 0..=sizeof(TXTLR). Empty
         // is the network form; anything else is a whole or partial trailer,
-        // zero-extended per tx.c:483/499.
+        // zero-extended.
         let trailer = if r.is_empty() {
             None
         } else {

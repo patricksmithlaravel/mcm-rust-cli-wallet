@@ -33,7 +33,7 @@ pub fn hash_of(addr: &Address) -> &[u8] {
     &addr[ADDR_TAG_LEN..]
 }
 
-/// `sha3` at each of the four widths `sha3.h:44` declares compatible, exposed
+/// `sha3` at each of the four widths the reference declares compatible, exposed
 /// because group C pins the two halves of [`hash_generate`] separately.
 ///
 /// # Four names, not one `outlen`
@@ -46,8 +46,8 @@ pub fn hash_of(addr: &Address) -> &[u8] {
 /// which is a compile error at the call site rather than a value reaching
 /// `sha3_init`.
 ///
-/// Only [`sha3_512`] is on the address path; [`sha3_256`] is
-/// `peach.c:212`'s. The other two have no caller in the reference and are here
+/// Only [`sha3_512`] is on the address path; [`sha3_256`] belongs to the
+/// miner. The other two have no caller in the reference and are here
 /// because the oracle covers them and the width is one constant apart — see
 /// `backend::native::sha3_224` for why "no caller today" stopped being the
 /// deciding question.
@@ -119,21 +119,20 @@ fn ripemd160_on_defined_domain(input: &[u8]) -> [u8; 20] {
 // own output: it printed a bare 40-hex tag and the shipped Chrome wallet
 // refuses that outright. What every Mochimo v3 client actually takes is
 // **Base58 over the tag followed by its CRC16**, and the reference composes it
-// in three statements at `tx.c:269-271`:
+// in three statements:
 //
 // ```c
-// word8 tag[ADDR_TAG_LEN + 2];                        /* tx.c:241 */
+// word8 tag[ADDR_TAG_LEN + 2];
 // put16(tag + ADDR_TAG_LEN, crc16(tag, ADDR_TAG_LEN));
 // base58_encode(tag, sizeof(tag), base58_tag);
 // ```
 //
 // The shipped TypeScript agrees, and is where the *checksum byte order* is
-// visible as a decision rather than as a call:
-// `reference/mochimo-wots/src/utils/tag-utils.ts:9-15` builds `csumBytes` as
+// visible as a decision rather than as a call: it builds `csumBytes` as
 // `[csum & 0xFF, (csum >> 8) & 0xFF]` — little-endian.
 //
 // **`put16` itself is not the authority for that, and the distinction matters
-// here.** `extended-c/src/extlib.c:67-70` is a bare dereference —
+// here.** `put16` is a bare dereference —
 // `*((word16 *) buff) = value` — with no swap and no endianness macro, so it
 // is little-endian because the hosts are, not because the function says so.
 // The reference's own authority is its unit tests:
@@ -251,7 +250,7 @@ impl core::fmt::Display for NotATag {
 
 /// The destination string for `tag`: Base58 over the tag and its CRC16.
 ///
-/// `tx.c:269-271`'s composition, through the selected backend at every step.
+/// The reference's own composition, through the selected backend at every step.
 /// This is the form `create`, `address` and `balance` print, and the only form
 /// another Mochimo wallet will take.
 pub fn tag_to_base58(tag: &Tag) -> crate::Result<String> {

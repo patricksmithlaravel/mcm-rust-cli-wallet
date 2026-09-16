@@ -2,7 +2,7 @@
 //! package `MasterSeed.fromPhrase` resolves (`fixtures/group_f_derivation.json`
 //! pins `scure_bip39_version`).
 //!
-//! Generated from `reference/node_modules/@scure/bip39/wordlists/english.js`
+//! Generated from the `@scure/bip39` English wordlist
 //! and checked against that file by
 //! `tests/derive.rs::embedded_wordlist_matches_the_pinned_package`, so the
 //! constant is compared to the artifact it was copied from rather than

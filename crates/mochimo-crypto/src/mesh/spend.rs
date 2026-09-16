@@ -24,7 +24,7 @@
 //! not a second opinion, and a disagreement between the two would be a block
 //! boundary rather than evidence. What makes one call defensible is the
 //! node's own rule: `tx_val` requires `send + change + fee` to equal the
-//! ledger balance **exactly** (`tx.c:776-792`, `EMCM_TXTOTAL`). A lied
+//! ledger balance **exactly** (`EMCM_TXTOTAL`). A lied
 //! balance, high or low, makes the totals disagree with the ledger and the
 //! transaction is rejected; change goes to this wallet's own next key in
 //! either case. A wrong balance is a rejected transaction, never a theft.
@@ -41,9 +41,9 @@
 //! `tests/kat.rs::reference_verdicts_native`). The rest are what the node
 //! will say, read off its source.
 //!
-//! The destination reference grammar is enforced here since S10, by
+//! The destination reference grammar is enforced here by
 //! [`reference_is_valid`]: a transcription, state for state, of the node's
-//! `mdst_val__reference` (`tx.c:510-573` at the corpus's pinned commit,
+//! `mdst_val__reference` (read at the corpus's pinned commit,
 //! refused as `EMCM_XTXREF`). It was deliberately not
 //! restated for a time -- a restated state machine agrees with itself, and
 //! the corpus records the reference's verdict on two values only
@@ -56,7 +56,7 @@
 //! given, and the rule is applied before them.
 //!
 //! Deliberately **not** enforced here: the node's *configured* fee (`Myfee`,
-//! `tx.c:1034`), of which only the protocol floor is knowable offline; the
+//! of which only the protocol floor is knowable offline; the
 //! block-to-live window (`bnum <= btl <= bnum + 0x100`),
 //! whose bound is a literal inside `tx_val` that can neither be bound nor
 //! restated without becoming a second `valid_op` — `blk_to_live` is the
@@ -189,7 +189,7 @@ impl SpendPlan {
     ///    [`Error::DestinationIsSource`].
     /// 5. the amount tally overflowing — [`Error::Overflow`].
     /// 6. a reference the node's rule refuses — [`Error::InvalidReference`]
-    ///    (`tx.c:626`, [`reference_is_valid`]).
+    ///    ([`reference_is_valid`]).
     /// 7. `fee_total < MFEE × count` — [`Error::FeeBelowMinimum`]
     ///    (`tx_val`'s own `fee >= MFEE` is implied
     ///    for one destination or more).
@@ -197,7 +197,7 @@ impl SpendPlan {
     ///    is the remainder, so `send + change + fee == balance` holds by
     ///    construction against the observation.
     ///
-    /// Destinations are **sorted** by their 44-byte image (`tx.c:601`,
+    /// Destinations are **sorted** by their 44-byte image (
     /// `EMCM_TXMDSTSORT`), duplicates kept: a transform rather than a
     /// refusal, so callers do not each reimplement the validator's key.
     pub fn new(
@@ -446,7 +446,7 @@ impl SignedTransaction {
 /// `tx_val__wots` over an assembled image, without the
 /// tail literal: recover the public key from the wire's own `adrs` over
 /// `TX_HASH_MESSAGE`; the post-recovery `adrs` must equal the wire's
-/// (`tx.c:681`'s first comparison, which for a real signature also settles
+/// (the node's first comparison, which for a real signature also settles
 /// the second — a wrong tail is a different post-state, as `Ds7` records);
 /// and the recovered key's address hash must be the source's hash half.
 /// `Ok` is the verdict the reference recorded for `D1v`,

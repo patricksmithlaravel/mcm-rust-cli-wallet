@@ -52,9 +52,8 @@
 //!    Fact 1 is about the ledger; this wallet reads the ledger through the
 //!    Mesh, and the Mesh answers code 4 in three situations it does not
 //!    distinguish. `callHandler` maps *any* error from `QueryTagResolve` to
-//!    `ErrAccountNotFound` (`reference/mochimo-mesh/call_handler.go:68-73`;
-//!    `retriable` is a constant `true` on that error, so
-//!    the flag carries nothing), and `QueryTagResolve` asks several nodes,
+//!    `ErrAccountNotFound` (`retriable` is a constant `true` on that error,
+//!    so the flag carries nothing), and `QueryTagResolve` asks several nodes,
 //!    **discards every answer whose amount is zero**, and errors when no
 //!    address reaches quorum. So the answer
 //!    arrives for a tag the ledger has no entry for, for a tag the ledger
@@ -80,11 +79,9 @@
 //! range: its bound is the *divergence window* — how large a disagreement
 //! between local and chain can be diagnosed wherever the account sits.
 //!
-//! **They no longer coincide, and that is the point.** Both were 20, both
-//! inherited from BIP-44, and the claim that they are two quantities rather
-//! than one was asserted here and observable nowhere: every test that moved
-//! one moved the other. Since S15 the ceiling is 10,000 and the window is
-//! still 20, so the claim is a fact about the code — a store at position
+//! **They do not coincide, and that is the point.** The ceiling is 10,000
+//! and the window is 20, so that they are two quantities rather than one is
+//! a fact about the code and not a claim about it — a store at position
 //! 9,000 is restorable and a disagreement of 30 positions is still outside
 //! the window. The two numbers are argued at their own constants. For a time
 //! one constant served both and the diagnostic walked `0..20` *absolute*, so
@@ -107,9 +104,8 @@
 //! signed is this wallet's own change convention (`spend_addresses` names the
 //! next position as `chg_addr`), which the reference does not enforce: `tx_val`
 //! constrains `chg_addr` only against the source's hash and tag
-//! (`reference/mochimo-core/src/tx.c`, `EMCM_TXCHG`, `EMCM_XTXTAGMISMATCH`),
-//! and the ledger copies whatever hash the transaction named (`ledger.c`, the
-//! `'H'` arm). Every acknowledged advance in this module has always rested on
+//! (`EMCM_TXCHG`, `EMCM_XTXTAGMISMATCH`), and the ledger copies whatever hash
+//! the transaction named. Every acknowledged advance in this module rests on
 //! that convention, whether the position was found in the window or under a
 //! ceiling the operator raised.
 
@@ -130,7 +126,6 @@ use crate::secret::Secret;
 ///
 /// # 10,000 is not another borrowing, and that is the whole reason
 ///
-/// It was BIP-44's 20 until S15, inherited alongside [`DIVERGENCE_WINDOW`].
 /// BIP-44's 20 is a gap limit over **unused addresses**: how many empty
 /// addresses to look past before concluding a branch has ended. This number
 /// bounds something else entirely — **how many spends an account has already
@@ -147,8 +142,8 @@ use crate::secret::Secret;
 /// shipped browser extension bounds the same quantity at 10,000, in
 /// `MasterSeed.deriveWotsIndexFromWotsAddrHash(accountSeed, wotsAddrHash,
 /// firstWotsAddress, startIndex = 0, endIndex = 10000)`
-/// (`MasterSeed.ts:161-187` in `mochimo-wallet` at the commit AGENT.md pins
-/// for the extension), which iterates `deriveSeed(accountSeed, i)` — position
+/// in the extension at the commit AGENT.md pins,
+/// which iterates `deriveSeed(accountSeed, i)` — position
 /// by position, the same walk this constant bounds. That program creates five
 /// accounts on a phrase restore from a hard-coded `i < 5` and sweeps no
 /// account indices at all (`ImportWallet.tsx:53-58`), so the 10,000 is its
@@ -160,8 +155,8 @@ use crate::secret::Secret;
 /// It is a limit on **failure**: [`scan_for_address`] returns as soon as a
 /// derived address matches, so a wallet inside the bound is found exactly and
 /// the constant never enters the ordinary case. Only an exhausted search pays
-/// for it — about 15.8 s of derivation in a release build on the machine S15
-/// measured, once, on a recovery a human is already waiting for. In a debug
+/// for it — about 15.8 s of derivation in a release build on this machine,
+/// once, on a recovery a human is already waiting for. In a debug
 /// build the same walk is about 7 m 24 s, which is why no test in this tree
 /// walks the default and why the tests that pin it say so at the site.
 ///
@@ -185,9 +180,9 @@ pub const RECOVERY_CEILING: u32 = 10_000;
 /// sits — a gap of two is found at position 22 as it is at position 2, and at
 /// position 9,000,000, which no ceiling reaches.
 ///
-/// It was "the same 20 as [`RECOVERY_CEILING`]" until S15 raised that one.
-/// The value did not move: a disagreement of more than 20 positions between
-/// a store and the chain is not a near miss, and widening the window would
+/// It is deliberately not [`RECOVERY_CEILING`]: a disagreement of more than
+/// 20 positions between a store and the chain is not a near miss, and
+/// widening the window would
 /// only make the diagnostic's *cheap* half expensive for every account at
 /// every startup, which is exactly what a window exists to avoid. The
 /// diagnostic's reach past the window is the ceiling's, not this constant's.
@@ -369,7 +364,7 @@ pub enum Expiry {
     /// The tip is below the block-to-live: still landable.
     Below { tip: u64 },
     /// The tip has REACHED the block-to-live. Block N is the last block that
-    /// can carry btl N (`tx.c:731` under `bval.c:309`'s own number) and
+    /// can carry btl N, and
     /// `txclean` drops it against `Cblocknum + 1`, so the
     /// artifact can never be included: dead at `tip >= blk_to_live`, the
     /// boundary the rule draws. (At `tip == blk_to_live` a node still

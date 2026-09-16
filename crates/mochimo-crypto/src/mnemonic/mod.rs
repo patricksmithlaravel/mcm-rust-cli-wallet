@@ -1,12 +1,12 @@
 //! BIP39, as the shipped extension's restore path uses it
-//! (`reference/mochimo-wallet/src/core/MasterSeed.ts:43-67` over
+//! (the extension's `MasterSeed` over
 //! `@scure/bip39` 1.5.0, read on disk).
 //!
 //! # Which value is the master seed
 //!
 //! `fromPhrase` runs `mnemonicToSeed` — PBKDF2-HMAC-SHA512 over the NFKD
 //! phrase with salt `"mnemonic" ‖ passphrase`, 2048 rounds, 64 bytes
-//! (`@scure/bip39/index.js:116` for the salt for the call) — and
+//! (`@scure/bip39` supplies the salt for the call) — and
 //! keeps **the first 32 bytes** as the
 //! master seed. It stores the mnemonic's entropy
 //! separately. The two are different values and only the first is
@@ -60,12 +60,12 @@ use crate::consts::SEED_LEN;
 use crate::error::{Error, Result};
 use crate::secret::Secret;
 
-/// `mnemonicToSeed`'s round count (`@scure/bip39/index.js:128`, `c: 2048`).
+/// `mnemonicToSeed`'s round count (`c: 2048`).
 pub const PBKDF2_ROUNDS: u32 = 2048;
 /// `mnemonicToSeed`'s output width (`dkLen: 64`); the master seed is the
 /// first [`SEED_LEN`] bytes of it.
 pub const BIP39_SEED_LEN: usize = 64;
-/// The salt prefix (`@scure/bip39/index.js:116`).
+/// The salt prefix.
 const SALT_PREFIX: &str = "mnemonic";
 
 /// A phrase, zeroized on drop: it names the master seed as surely as the

@@ -1,6 +1,6 @@
 //! The Mesh API's request bodies and response bodies, as bytes: pure
-//! functions with no transport, so every one is a KAT against the bodies
-//! `reference/gen-fixtures/net/group_n_mesh_live.py` sent and the replies
+//! functions with no transport, so every one is a KAT against the bodies the
+//! capture sent and the replies
 //! `api.mochimo.org` returned (`fixtures/group_n_mesh_live.json`, a
 //! specification capture — one server at one block, not an oracle).
 //!
@@ -80,9 +80,9 @@ pub fn request_network_status() -> Vec<u8> {
     body(&json!({ "network_identifier": network_identifier() }))
 }
 
-/// `POST /call` with `method: "tag_resolve"` (`callHandler`,
-/// `call_handler.go:26`): the tag as `0x` + 40 hex, which the handler
-/// requires to the character (`len == 2 + TXTAGLEN*2` and the prefix).
+/// `POST /call` with `method: "tag_resolve"` (`callHandler`): the tag as
+/// `0x` + 40 hex, which the handler requires to the character
+/// (`len == 2 + TXTAGLEN*2` and the prefix).
 pub fn request_tag_resolve(tag: &Tag) -> Vec<u8> {
     body(&json!({
         "method": TAG_RESOLVE_METHOD,
@@ -91,8 +91,8 @@ pub fn request_tag_resolve(tag: &Tag) -> Vec<u8> {
     }))
 }
 
-/// `POST /account/balance` (`accountBalanceHandler`,
-/// `account_handler.go:23`) for a tag: the 42-character form, which the
+/// `POST /account/balance` (`accountBalanceHandler`) for a tag: the
+/// 42-character form, which the
 /// handler routes to the same tag resolution `/call` uses.
 pub fn request_account_balance(tag: &Tag) -> Vec<u8> {
     body(&json!({

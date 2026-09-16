@@ -58,7 +58,7 @@ pub fn decode_probe_len(s: &str) -> Result<usize> {
 ///
 /// With the foreign-function backend selected this once called the
 /// reference decoder directly, which **ends the process** on an all-`'1'`
-/// string: it reaches `base58.c:144` with `size = 1` and `low = 2` and calls
+/// string: it reaches the encoder with `size = 1` and `low = 2` and calls
 /// `memcpy` with a length of `(size_t)(-1)`. No buffer size prevents it — and
 /// the input is a string, the exact shape a wallet is handed from outside.
 /// That decoder was given the class as an `unsafe` contract and this wrapper

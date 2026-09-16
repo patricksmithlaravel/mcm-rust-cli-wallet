@@ -32,7 +32,7 @@ impl Adrs {
     /// (`docs/specification.md`, *Big-endian serialization versus the
     /// little-endian image*): the form the reference's own `rndbytes((word8 *)addr, 32)`
     /// leaves in a `word32[8]` and the form the TypeScript's `addr:
-    /// ByteArray` parameter takes (`wots.ts:131-132` wraps it
+    /// ByteArray` parameter takes (the TypeScript wraps it
     /// `LITTLE_ENDIAN`; `kat.rs::ts_pkgen_to_addr` is the executed second
     /// implementation agreeing). **Not** [`Adrs::to_bytes`], which is the
     /// big-endian serialization `addr_to_bytes` feeds to `prf`; the two are

@@ -23,7 +23,7 @@ use crate::consts::ADDR_LEN;
 pub const DAT_MDST: u8 = crate::consts::TXDAT_MDST;
 
 /// `TXDSA_WOTS` — the one signature-algorithm type `tx__init`
-/// accepts. `types.h:514-516` lists three more commented out; none is live, and
+/// accepts. The reference lists three more commented out; none is live, and
 /// the `default:` arm rejects them.
 pub const DSA_WOTS: u8 = crate::consts::TXDSA_WOTS;
 
@@ -36,8 +36,8 @@ pub const ID_LEN: usize = crate::consts::HASHLEN;
 /// The largest destination count an options byte can encode.
 ///
 /// `MDST_COUNT(options)` is `options[2] + 1`, so a `word8` of
-/// `0xFF` yields 256 — not zero, and not 255. `tx.c:130-140` leans on exactly
-/// this bound to argue that no offset it computes can leave the buffer.
+/// `0xFF` yields 256 — not zero, and not 255. The node leans on exactly this
+/// bound to argue that no offset it computes can leave the buffer.
 pub const MAX_DESTINATIONS: u16 = 256;
 
 /// The native construction path: owned transaction types and the wire codec.
@@ -106,7 +106,7 @@ pub fn tag_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
 /// `ADDR_HASH_PTR(ptr)`. See [`tag_ptr`] on why
 /// `addr::hash_of` is not a substitute -- and note that `hash_of` slices at
 /// `ADDR_TAG_LEN`, which infers that the halves abut, where the native backend
-/// reads the offset `types.h:124` states.
+/// reads the offset the layout states.
 #[must_use]
 pub fn hash_ptr(addr: &[u8; ADDR_LEN]) -> &[u8] {
     selected::hash_ptr(addr)

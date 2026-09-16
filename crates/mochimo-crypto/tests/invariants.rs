@@ -6148,14 +6148,6 @@ const DECLARED_UNRESOLVED_SRC_NAMES: &[(&str, &str)] = &[
         "a trybuild compile-fail case, as above.",
     ),
     (
-        "mesh_submission_is_unconfirmed_without_a_funded_account",
-        "CORRECT HISTORY, an audit's own. `mesh/mod.rs` said the ledger arms were unexercised \
-         \"until this clears\", which was stale three ways: the name had retired, its \
-         successor `mesh_submission_authorship_is_unrecorded_without_a_capture_at_submit_time` \
-         is about authorship rather than the arms, and a live run exercised two of the three arms on a \
-         live node. The retired name stays in the sentence that retires it.",
-    ),
-    (
         "signing_raw_signer_is_not_reachable",
         "a trybuild compile-fail case, as above -- and the one `wots.rs` cites as the redundant \
          proof that the raw signer is crate-private.",
@@ -11392,9 +11384,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // Session labels. Every one of these passed the ban until the `S` arm
     // existed to read them.
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/backend/native.rs", 5, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/mesh/spend.rs", 1, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/recon.rs", 4, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/tx/wire.rs", 1, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/cli.rs", 18, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/invariants.rs", 46, SWEEP_TESTS),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/tests/kat.rs", 3, SWEEP_TESTS),
@@ -11420,7 +11409,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // number of `src/` files carrying such a sentence, so the count falls
     // to zero as the sentences go and the permit can then be deleted with
     // them.
-    (MarkerClass::DeclaredName, "mesh_submission_is_unconfirmed_without_a_funded_account", 1, SWEEP_NAMES),
 ];
 
 /// The rows declared for one class, with the duplicate refused.

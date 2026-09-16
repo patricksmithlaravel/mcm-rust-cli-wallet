@@ -400,7 +400,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     /// unspendable, reconciliation reports a `Behind` divergence for which no
     /// acknowledgement exists, `Wallet::open` refuses forever, and later
     /// deposits credit the same unreachable address (`'A'` does not rehash,
-    /// `reference/mochimo-core/src/ledger.c:640-646`). **It bricked the
+    /// the ledger's own arm). **It bricked the
     /// account.** It was removed rather than documented: a function with no
     /// safe use is worse than an absent one, and through this type every
     /// reservation has a non-zero balance behind it — `plan` refuses

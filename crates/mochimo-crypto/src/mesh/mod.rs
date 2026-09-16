@@ -1,7 +1,7 @@
 //! The Mesh API client: what the wallet asks the network and what it
 //! sends it. Three reads and one write over the middleware in
-//! `reference/mochimo-mesh` (a recon source, never an oracle),
-//! which delegates its wire work to `reference/go_mcminterface`; both are
+//! the Mesh middleware (a recon source, never an oracle),
+//! which delegates its wire work to its own interface library; both are
 //! pinned, and every behaviour cited below was read at those pins and
 //! captured live from `api.mochimo.org` into `fixtures/group_n_mesh_live.json`
 //! (a specification capture of one server at one block).
@@ -49,23 +49,20 @@
 //! suite.** One live run submitted a transaction this crate built and the chain carried
 //! it in block 1078535: `send + change + fee` equalled the ledger
 //! balance exactly, and `src_addr`/`chg_addr` carried one tag over two hash
-//! halves — the relation `tx.c:739` enforces, which no group D wire image
+//! halves — the relation the node enforces, which no group D wire image
 //! carries (all 43 were measured). The block-to-live window was **not**
-//! exercised: `blk_to_live` was 0 and `tx.c:723` checks only non-zero values.
+//! exercised: `blk_to_live` was 0 and the node checks only non-zero values.
 //! Acceptance there was inferred from the ledger moving, not read off a
 //! verdict — `/construction/submit` returns before any reply.
 //!
 //! So a transaction these types build can still satisfy every check this crate
 //! runs and be rejected on a ledger reason, for every shape that run did not have:
 //! multiple destinations, a non-zero `MDST::ref`, a zero change, a live
-//! block-to-live range. **This paragraph said the arms were unexercised "until
-//! `mesh_submission_is_unconfirmed_without_a_funded_account` clears" until
-//! recently**, and that was wrong three ways: the name had already retired, its
-//! successor was about *authorship* — who assembled a submission, which no
-//! read-only capture can establish — and no marker in this tree has "the
-//! ledger arms are exercised" as its clearing condition. That is knowledge,
-//! not debt: it is recorded in `docs/specification.md`'s *Open items* table
-//! (authorship of a submitted transaction), and what would move it is fixture
+//! block-to-live range. No marker in this tree has "the ledger arms are
+//! exercised" as its clearing condition, and none could: that is knowledge
+//! rather than debt. `docs/specification.md`'s *Open items* table records
+//! the neighbouring one — authorship of a submitted transaction, which no
+//! read-only capture can establish — and what would move either is fixture
 //! data from a capture taken at submission time.
 //!
 //! # What this module does not do
@@ -181,7 +178,7 @@ impl<T: Transport> MeshClient<T> {
     /// `POST /block` by index: the block and every transaction in it.
     ///
     /// **Index 0 is the current block, not genesis** (`getBlock`,
-    /// `block_handler.go:56-80`, routes by number only when `Index != 0`).
+    /// routes by number only when `Index != 0`).
     /// Callers that mean a named block refuse 0 before they get here.
     pub fn block_by_index(&self, index: u64) -> Result<codec::MeshBlock> {
         let reply = self.transport.post("/block", &codec::request_block_by_index(index))?;
