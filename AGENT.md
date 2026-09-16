@@ -206,17 +206,17 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `12e2b2b`, cargo's exit read from its own process: exit 0,
-**374 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 4 m 48 s on a warm `target/`. **The commit is named
+The board on commit `9308233`, cargo's exit read from its own process: exit 0,
+**375 passed** -- summed from its own seventeen result lines -- 0 failed, 0
+ignored, 17 result lines, 4 m 46 s on a warm `target/`. **The commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff 12e2b2b` and, if nothing
+false at the next one. A reader runs `git diff 9308233` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. The figure to compare across runs is the per-target
 one: lib 43, cli 105, compile_fail 1,
-derive 10, invariants 65, kat 18, keystore 33, mesh 12, mesh_http 10, miri 2,
+derive 10, invariants 66, kat 18, keystore 33, mesh 12, mesh_http 10, miri 2,
 net 3, recon 29, signing 17, spend 19, txwire 3, wots_internals 4,
 doc-tests 0.
 
