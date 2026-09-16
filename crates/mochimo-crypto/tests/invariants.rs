@@ -6139,16 +6139,6 @@ const DECLARED_UNRESOLVED_SRC_NAMES: &[(&str, &str)] = &[
         "a `ureq` config builder method. Dependency surface.",
     ),
     (
-        "imported_root_is_encrypted_before_it_reaches_the_snapshot",
-        "CORRECT HISTORY, and the one the audit that produced this table nearly corrected. \
-         `keystore/sign.rs` records that its own preceding sentence \"named the pre-v3 marker \
-         `imported_root_is_encrypted_before_it_reaches_the_snapshot` as still-red -- a threat \
-         model the change had already inverted, left behind by a rename.\" It is \
-         the audit's record OF this defect class, so a rule that flagged it would flag the fix for \
-         the bug. The live marker is `imported_roots_and_the_master_seed_are_encrypted_at_rest`, \
-         named in the sentence above it.",
-    ),
-    (
         "mdst_val_rc_name",
         "a fixture field: group D's `mdst_val_rc_name`, quoted in `error.rs` as the reference's \
          own naming of a return code, against which ours is compared. Fixture key, as above.",
@@ -11407,8 +11397,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/cli/mod.rs", 5, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/format.rs", 10, SWEEP_SRC),
-    (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/keystore/mod.rs", 7, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/mesh/spend.rs", 1, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/recon.rs", 4, SWEEP_SRC),
     (MarkerClass::SessionLabel, "crates/mochimo-crypto/src/tx/wire.rs", 1, SWEEP_SRC),
@@ -11427,8 +11415,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/create.rs", 1, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/cli/mod.rs", 6, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/src/error.rs", 1, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/format.rs", 1, SWEEP_SRC),
-    (MarkerClass::BoardItem, "crates/mochimo-crypto/src/keystore/mod.rs", 4, SWEEP_SRC),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/cli.rs", 19, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/invariants.rs", 11, SWEEP_TESTS),
     (MarkerClass::BoardItem, "crates/mochimo-crypto/tests/kat.rs", 2, SWEEP_TESTS),
@@ -11444,7 +11430,6 @@ const DECLARED_HISTORY_MARKER_SITES: &[(MarkerClass, &str, usize, &str)] = &[
     // number of `src/` files carrying such a sentence, so the count falls
     // to zero as the sentences go and the permit can then be deleted with
     // them.
-    (MarkerClass::DeclaredName, "imported_root_is_encrypted_before_it_reaches_the_snapshot", 1, SWEEP_NAMES),
     (MarkerClass::DeclaredName, "mesh_submission_is_unconfirmed_without_a_funded_account", 1, SWEEP_NAMES),
 ];
 

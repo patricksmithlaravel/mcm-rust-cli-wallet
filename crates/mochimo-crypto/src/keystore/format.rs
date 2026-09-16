@@ -1116,7 +1116,7 @@ mod tests {
     use super::*;
     use crate::consts::WOTS_ADDR_LEN;
     // Not under Miri: `PK_LEN`'s two readers are `expected_body` above and
-    // the S11-gated `known_answer_image_for_two_accounts`, so gating them
+    // the gated `known_answer_image_for_two_accounts`, so gating them
     // leaves the import itself with no user.
     #[cfg(not(miri))]
     use crate::consts::PK_LEN;
@@ -1133,7 +1133,7 @@ mod tests {
         0xc4, 0x9a, 0xcf, 0x70,
     ];
     // Not under Miri: read only by `expected_body`, whose one caller
-    // `known_answer_image_for_two_accounts` is gated at S11.
+    // `known_answer_image_for_two_accounts` is gated out under Miri.
     #[cfg(not(miri))]
     const DERIVED_TAG: [u8; ADDR_TAG_LEN] = [
         0x4d, 0x9b, 0x31, 0xe4, 0x78, 0x74, 0x66, 0x8e, 0x45, 0x89, 0x5a, 0x1b, 0x93, 0x38,
@@ -1202,7 +1202,7 @@ mod tests {
     /// reader needs to derive the key has to be in the clear, so this half of
     /// the image is exactly as checkable as the whole of a version-2 image
     /// was.
-    // Not under Miri: built only by the S11-gated
+    // Not under Miri: built only by the gated
     // `known_answer_image_for_two_accounts`.
     #[cfg(not(miri))]
     fn expected_header(nonce: &[u8; crypt::NONCE_LEN]) -> Vec<u8> {
@@ -1241,10 +1241,8 @@ mod tests {
     /// mapping, not the parameter point. Both anchors are read literals
     /// checked against a vendored copy of the standard -- the anchoring floor
     /// with its transcription weakness removed, not the executed second
-    /// implementation the anchoring rule calls the standard. This sentence
-    /// named `argon2id_matches_rfc9106`, a test that did not exist, for three
-    /// sessions (an audit's finding).
-    // Not under Miri: built only by the S11-gated
+    /// implementation the anchoring rule calls the standard.
+    // Not under Miri: built only by the gated
     // `known_answer_image_for_two_accounts`.
     #[cfg(not(miri))]
     fn expected_body(generation: u64) -> Vec<u8> {
@@ -2020,7 +2018,7 @@ mod tests {
 
     /// Not under Miri: its time is `two_accounts()`' four WOTS+ key generations
     /// plus four more inside the `parse_with_key` it checks the image with
-    /// (1,515 s measured at S11). The encode it compares byte for byte is the
+    /// (1,515 s measured). The encode it compares byte for byte is the
     /// same `seal_at` call `good_image()` makes, which
     /// `an_older_format_reports_unsupported_version_before_anything_else` still
     /// pays for and interprets.
@@ -2339,9 +2337,8 @@ mod tests {
     ///
     /// Not a micro-optimisation: `two_accounts()` runs four WOTS+ generations
     /// (`Account::import` and `Account::derive`, two each), and this module is
-    /// interpreted under Miri, where one costs minutes (measured in the old
-    /// repository, and re-derived at S9: about three minutes each on this
-    /// machine).
+    /// interpreted under Miri, where one costs about three minutes on this
+    /// machine.
     /// Building it twice bought nothing — the KAT above already
     /// asserts what `encode` produces — so it is built once and the
     /// malformation rows mutate copies. No claim moves: every row below still
@@ -2380,9 +2377,8 @@ mod tests {
     /// damaged. Version 3 tells them the password might be wrong, and they
     /// will retype it several times before they consider the alternative. That
     /// is the price of not building a decryption oracle, and it is the right
-    /// trade, but it is a price. Recorded as AGENT.md's Known-open 19 rather than left here,
-    /// because the thing that would fix it is a decision about the CLI's
-    /// wording and not a change to this table.
+    /// trade, but it is a price. What would fix it is a decision about the
+    /// CLI's wording, not a change to this table.
     #[test]
     fn parser_refuses_each_malformation_with_the_right_variant() {
         let good = good_image();
@@ -2749,7 +2745,7 @@ mod tests {
     /// edited plaintext AROUND this function; deleting either check reds
     /// exactly one test.
     /// Not under Miri: its time is a second `two_accounts()` and the parses it
-    /// checks against -- 1,906 s measured at S11, the most expensive test in
+    /// checks against -- 1,906 s measured, the most expensive test in
     /// this module. Both refusals are reached before a byte is written, and the
     /// encoder they guard is interpreted through `good_image()` on the ungated
     /// side.
@@ -2880,13 +2876,12 @@ mod tests {
 
     /// One derived account, built once for the tests that need a record and
     /// nothing about its contents: `Account::derive` is two WOTS+
-    /// generations, each minutes under Miri (the old repository measured the
-    /// pair at about 1,429 s; re-derived at S9 at about three minutes each
-    /// on this machine), so it is cached the way `good_image` is rather than
+    /// generations, each about three minutes under Miri on this machine, so
+    /// it is cached the way `good_image` is rather than
     /// paid per test.
     // Not under Miri: its one caller,
     // `encode_refuses_both_an_open_and_a_settled_block_in_one_record`, is
-    // gated at S11 for the two WOTS+ generations this cache pays.
+    // gated out under Miri for the two WOTS+ generations this cache pays.
     #[cfg(not(miri))]
     fn one_account() -> &'static (Tag, Account) {
         static ACCOUNT: std::sync::OnceLock<(Tag, Account)> = std::sync::OnceLock::new();
@@ -2911,7 +2906,7 @@ mod tests {
     /// the block the reverted-settle report exists to read. The controls:
     /// each half alone seals.
     /// Not under Miri: its time is `one_account()`'s two WOTS+ key generations
-    /// (385 s measured at S11) and what it pins is one early return. The
+    /// (385 s measured) and what it pins is one early return. The
     /// encoder's own path is walked by `good_image()`, which the ungated
     /// `an_older_format_reports_unsupported_version_before_anything_else` pays
     /// for.

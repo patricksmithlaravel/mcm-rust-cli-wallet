@@ -478,7 +478,7 @@ impl<M: Medium> Keystore<M> {
         };
         // The same range `format::read_header` names for the same
         // refusal: one `what`, one minimum (the empty store's image), one
-        // maximum. This gate said `min: 0` for a time (Known-open 12).
+        // maximum.
         let len = usize::try_from(meta.len()).map_err(|_| Error::Range {
             what: "keystore image length",
             min: format::MIN_IMAGE_LEN as u64,
@@ -773,8 +773,7 @@ impl<M: Medium> Keystore<M> {
     ///   refused at the door, by the names `sign_spend` uses. Only a store
     ///   holding no master takes a derived account's identity as carried,
     ///   because there nothing can recompute it and nothing can sign for it
-    ///   either; `sign_spend` re-derives it the day a master is in hand
-    ///   (AGENT.md, Known-open 11, closed at S6).
+    ///   either; `sign_spend` re-derives it the day a master is in hand.
     ///
     /// No receipt: receipts attest advances.
     pub fn add(&mut self, account: Account) -> Result<()> {
@@ -946,8 +945,8 @@ impl<M: Medium> Keystore<M> {
         let durable = self.commit(&image)?;
         // Durable in hand: apply in memory exactly what disk now holds. An
         // error past this point would leave disk ahead of memory with the
-        // handle live -- the one gap in the commit sequence (Known-open 14,
-        // closed at S6) -- so it poisons the handle before it returns, the
+        // handle live -- the one gap in the commit sequence -- so it
+        // poisons the handle before it returns, the
         // way `commit` poisons on its own errors. Unreachable from today's
         // callers, every argument having been checked before the seal; the
         // module's unit test drives it directly.
@@ -1046,12 +1045,12 @@ mod tests {
     //! What only this module can drive: `advance_committed` is private, and
     //! every public caller checks its arguments before the seal, so the
     //! application half's failure has no public route.
-    // Not under Miri: this module is one S9-gated test and the three helpers
+    // Not under Miri: this module is one gated test and the three helpers
     // it alone uses, so under that cfg the glob brings in nothing.
     #[cfg(not(miri))]
     use super::*;
 
-    // Not under Miri: its one caller is the test S9 gated, and the wall
+    // Not under Miri: its one caller is the gated test, and the wall
     // clock it reads is what Miri's isolation refuses first.
     #[cfg(not(miri))]
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -1062,14 +1061,14 @@ mod tests {
         std::env::temp_dir().join(format!("mcm-keystore-unit-{name}-{}-{nanos}", std::process::id()))
     }
 
-    // Not under Miri: read only by the S9-gated poisoning test.
+    // Not under Miri: read only by the gated poisoning test.
     #[cfg(not(miri))]
     const PASSWORD: &[u8] = b"unit-test-password-not-for-use";
-    // Not under Miri: read only by the S9-gated poisoning test.
+    // Not under Miri: read only by the gated poisoning test.
     #[cfg(not(miri))]
     const NONCE_SEED: [u8; NONCE_SEED_LEN] = [4u8; NONCE_SEED_LEN];
 
-    /// Disk ahead of memory poisons the handle (AGENT.md, Known-open 14).
+    /// Disk ahead of memory poisons the handle.
     ///
     /// `advance_committed` with a `next` equal to the current position and
     /// no blocks: the encoder accepts that image (position 0, nothing
@@ -1081,8 +1080,8 @@ mod tests {
     ///
     /// Not under Miri: this test reads the wall clock for its scratch
     /// directory and then writes a real store, and Miri's isolation refuses
-    /// the first of those (`clock_gettime` with a realtime clock, measured
-    /// at S9) before the first `mkdir`; the poisoning path it drives is safe
+    /// the first of those (`clock_gettime` with a realtime clock) before
+    /// the first `mkdir`; the poisoning path it drives is safe
     /// Rust over syscalls, with nothing for an interpreter to check.
     #[cfg(not(miri))]
     #[test]

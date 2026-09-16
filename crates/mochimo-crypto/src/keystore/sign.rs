@@ -49,14 +49,9 @@
 //! (`DerivedAccount`, `WotsKey`) holds a `Secret` and is dropped before this
 //! module returns. `KeyAccess::StoredRoot` means possession of the keystore
 //! directory *plus the password* is signing power for imported accounts.
-//! **The "plus the password" came with encryption at rest** and this
-//! sentence said the opposite for a session after it: under format v3 the record body is sealed under an
-//! Argon2id key,
-//! so a stolen directory alone yields nothing and
-//! `imported_roots_and_the_master_seed_are_encrypted_at_rest` is green. It
-//! named the pre-v3 marker `imported_root_is_encrypted_before_it_reaches_the_snapshot`
-//! as "still-red" -- a threat model the change had already inverted, left
-//! behind by a rename.
+//! Since format v3 the record body is sealed under an Argon2id key, so a
+//! stolen directory alone yields nothing and
+//! `imported_roots_and_the_master_seed_are_encrypted_at_rest` is green.
 //!
 //! # The imported first key
 //!
