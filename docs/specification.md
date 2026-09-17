@@ -746,7 +746,7 @@ A phrase is held zeroized in memory and its debug rendering is redacted, as are 
 
 ### Exporting a phrase is not the inverse of restoring from one
 
-Exporting a phrase from a seed that was **constructed directly**, with no mnemonic behind it, uses the seed's 32 bytes *as entropy*. Restoring from that phrase runs PBKDF2 over the words and keeps the first 32 bytes. Those are different values, so the round trip does not return the seed:
+The export is the **browser extension's**, not this wallet's. Its `toPhrase` has two branches: over the entropy it stored beside the seed when a phrase produced that seed, and — for a seed that was **constructed directly**, with no mnemonic behind it and so no entropy to store — over the seed's own 32 bytes *as entropy*. Restoring from a phrase made by that second branch runs PBKDF2 over the words and keeps the first 32 bytes. Those are different values, so the round trip does not return the seed:
 
 | step | value |
 | --- | --- |
@@ -755,7 +755,9 @@ Exporting a phrase from a seed that was **constructed directly**, with no mnemon
 | seed restored from that phrase | `3ba5cf5dc97eaa0d771760749791e929e7f93b4f4d0249eeaf1152c957c9966e` |
 | entropy restored from that phrase | `404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f` |
 
-The *entropy* round trips; the *seed* does not (group F). A seed that came from a phrase in the first place is unaffected: the wallet stores the phrase's entropy and exports from that.
+The *entropy* round trips; the *seed* does not (group F).
+
+**This wallet has no export, and keeps nothing a phrase could be rebuilt from.** The store holds the 32-byte master seed and the per-account records tabulated in [The keystore file](#the-keystore-file-format-version-4); there is no entropy field in the body header or in a record, and `create` uses the entropy it draws only to make the words, derives the seed from the phrase itself, and passes the entropy on to nothing — it lives in a `ZeroizeOnDrop` value that is overwritten when the command returns. No verb exports a phrase — the fifteen in [The command line](#the-command-line) are the whole surface, and none of them reads a phrase out. `mnemonic::phrase_from_seed_as_entropy` is on the library surface, because `F-create-not-inverse` pins that it and `master_seed_from_phrase` are not inverses, and the only caller anywhere in this repository is the harness that replays that vector. So the branch above cannot be reached from a store at all: **the twenty-four words are the operator's own copy, and the store cannot reproduce them**, which is what `create` tells the operator at the moment it shows them.
 
 ### Pinned values (group F)
 
