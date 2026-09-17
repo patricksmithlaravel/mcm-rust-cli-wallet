@@ -1448,13 +1448,6 @@ fn cmd_send<M: Medium, T: Transport>(
         Ok(p) => p,
         Err(e) => return Report::refused(format!("{e}")),
     };
-    let signed = match key_access(w.store(), &s.tag, master) {
-        Ok(access) => match w.reserve_and_sign(&plan, access) {
-            Ok(t) => t,
-            Err(e) => return Report::refused(format!("{e}")),
-        },
-        Err(e) => return Report::refused(format!("{e}")),
-    };
     let settle_arg = match destination(&s.tag) {
         Ok(d) => d,
         Err(e) => return cannot_render(&s.tag, &e),
@@ -1476,6 +1469,20 @@ fn cmd_send<M: Medium, T: Transport>(
         Ok(l) => l,
         Err((tag, e)) => return cannot_render(&tag, &e),
     };
+    // **Everything that can refuse has refused by this line.** What follows is
+    // one reservation and then formatting, so the account is not emptied by a
+    // run that then fails to render its own page. The emptying notice in
+    // particular is read off the plan, which knows the change is zero before
+    // any key is spent: a warning computed after the irreversible step is a
+    // warning about something the operator can no longer decide.
+    let emptying = emptying_notice(&plan, &settle_arg);
+    let signed = match key_access(w.store(), &s.tag, master) {
+        Ok(access) => match w.reserve_and_sign(&plan, access) {
+            Ok(t) => t,
+            Err(e) => return Report::refused(format!("{e}")),
+        },
+        Err(e) => return Report::refused(format!("{e}")),
+    };
     let wire_hex = hex_bytes(&signed.wire());
     // The block-to-live beside the other three values `resign` will demand,
     // and the crossing line when this reservation is the first write over a
@@ -1495,7 +1502,7 @@ fn cmd_send<M: Medium, T: Transport>(
         MFEE.saturating_mul(u64::try_from(plan.dsts().len()).unwrap_or(u64::MAX)),
         plan.change_total(),
         block_to_live_line(plan.blk_to_live()),
-        emptying_notice(&plan, &settle_arg),
+        emptying,
         artifact_notices(&wire_hex),
         upgrade_line(w.store())
     );
