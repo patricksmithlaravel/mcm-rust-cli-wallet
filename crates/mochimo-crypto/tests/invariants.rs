@@ -239,19 +239,20 @@ enum RawString {
 /// is one of the three defect classes this repair closes and the only one whose
 /// cause is the escape rule rather than the hash count.
 ///
-/// # This repair is prophylactic
+/// # What it runs over
 ///
-/// **Measured at `bcb1a85`: the tree contains zero raw strings**, in any
-/// spelling, across every input `code_only` is pointed at. So this function is
-/// dead on today's corpus and the repair moves it by zero bytes. That is the
-/// point rather than an embarrassment: the defect is latent, and its value is
-/// that the *first* raw string somebody writes does not silently delete the
-/// code after it. A future reader finding a repair that moved nothing deserves
-/// to know it was aimed at an input that does not exist yet.
+/// **Measured on this tree: 39 raw strings across the inputs `code_only` is
+/// pointed at**, in the `r"..."` and `r#"..."#` spellings. The agreement arm
+/// below compares this reader's extent against `code_only`'s on every one of
+/// them, so the corpus is live evidence rather than a population waiting to
+/// exist.
 ///
-/// Which is also why the constructed unit tests below are the enforcement here
-/// and the corpus scan is not: a corpus scan can only find what today's corpus
-/// happens to contain, and today's contains none of this.
+/// The constructed unit tests below are still the enforcement rather than the
+/// corpus scan, and the reason is unchanged by the count: a corpus scan finds
+/// only the spellings today's corpus happens to contain, and the escape-rule
+/// defect is reached by `r"a\"`, which nothing in the tree writes. A count
+/// above zero makes the agreement arm meaningful; it does not make the
+/// constructed cases redundant.
 fn raw_string_len(b: &[u8], i: usize) -> Option<RawString> {
     let mut j = i;
     if matches!(b.get(j), Some(&b'b') | Some(&b'c')) {
@@ -979,7 +980,7 @@ mod census {
             bin: "miri",
             tier: Tier::Executed,
             evidence: "native functions",
-            floor: 20, // measured 32 of 34
+            floor: 26, // two thirds of the 39 of 41 measured on this tree
         },
         // --- the transaction codec, in the binary gated on `native` alone ---
         Row {
@@ -1651,18 +1652,18 @@ fn execution_census_population_is_libtests_run_list() {
         total += n.len();
         per_bin.push((bin.clone(), n.len()));
     }
-    // 250 is two thirds of the 375 this test printed when the floor was last
-    // re-derived, across 16 binaries. Two thirds and not a half: the floor's
+    // 255 is two thirds of the 383 this test prints on this tree, across 16
+    // binaries. Two thirds and not a half: the floor's
     // job is to catch a census reading a truncated population, and the loosest
     // floor in this file is the one that catches the least. A third of the
     // suite disappearing is a larger event than any commit should produce, so
     // a floor that tolerates it tolerates the failure it exists to name --
     // while leaving room for a target to be removed without a false red.
     assert!(
-        total >= 250,
-        "libtest lists {total} tests across {} binaries; it was 375 across 16 \
-         when this floor was last re-derived, and the floor is two thirds of \
-         that. Two-sided in spirit: too few and the census is reading a \
+        total >= 255,
+        "libtest lists {total} tests across {} binaries; it is 383 across 16 \
+         on the tree this floor was derived from, and the floor is two thirds \
+         of that. Two-sided in spirit: too few and the census is reading a \
          truncated population, and the likeliest cause is that it stopped \
          asking libtest. Re-derive by running this test and reading what it \
          printed, not by arithmetic on the old value: the figure in this \
@@ -1718,8 +1719,8 @@ fn censused_rows_are_bound_to_live_guards() {
     let rows = census::ROWS;
     assert!(
         rows.len() >= 25,
-        "the census table holds {} row(s); it was 25 when this floor was \
-         written. A table that shrank is \
+        "the census table holds {} row(s); this tree's table holds 25, over 19 \
+         guards. A table that shrank is \
          guards that stopped being censused.",
         rows.len()
     );
@@ -4770,20 +4771,23 @@ fn no_test_in_the_suite_is_ignored() {
     // is the exact failure mode this check was added to close, applied to
     // itself.
     assert!(
-        files >= 6,
-        "the tests/ walk found only {files} file(s); this check ran over \
-         nothing"
+        files >= 14,
+        "the tests/ walk found only {files} file(s); the tree holds 22 and this \
+         floor is two thirds of that, so the walk has lost a third of the \
+         suite's files and this check is running over what is left"
     );
     // Floor calibrated against the MEASURED population, and against the same
     // population the ban walks -- item-level `#[test]` plus any inside a
-    // macro invocation's body. Measured at 333, with no macro-emitted tests
+    // macro invocation's body. Measured at 340 across 22 files, with no
+    // macro-emitted tests
     // in the tree; the macro arm stays because it is what would see the
     // next one. A substring count drifts as documentation mentioning the
     // attribute is written, which is why this walks tokens.
     assert!(
-        tests >= 200,
+        tests >= 226,
         "found only {tests} #[test] functions across {files} files; the \
-         collector is broken and any result from it is vacuous. Measured at 333."
+         collector is broken and any result from it is vacuous. Measured at 340 \
+         across 22 files, and this floor is two thirds of that."
     );
 
     assert!(
@@ -4973,11 +4977,11 @@ fn group_e_constants_stay_anchored() {
         });
     let checker = &body[..end];
     // Two-sided, and both sides name the measured length so a move says which
-    // direction it went. 3,673 characters when measured.
+    // direction it went. 3,569 characters on this tree.
     assert!(
         (500..8_000).contains(&checker.len()),
         "the {CHECKER} body extracted to {} chars, outside 500..8000; it \
-         measured 3569 when this bound was written. Too short and every name \
+         measures 3,569 on the tree this bound was derived from. Too short and every name \
          reads as missing; too long and the slice has run into neighbouring \
          functions, where a name found is not a name this checker asserts.",
         checker.len()
@@ -5208,16 +5212,16 @@ fn crosscheck_fields_stay_asserted() {
             };
             let span = &support[start..end];
             // Both directions bounded, and both numbers measured rather than
-            // guessed: 74 and 179 characters, five entries each, when measured.
+            // guessed: 74 characters over five entries and 271 over eight.
             // A span that has grown into the surrounding module would find
             // names that are not on the list; one that has collapsed would find
             // nothing and say so by passing.
             assert!(
                 (20..1_000).contains(&span.len()) && span.matches('"').count() >= 2,
                 "the `const {list}` span extracted to {} chars with {} quoted \
-                 entr(y/ies); it measured 74/179 chars and 5 entries when this \
-                 bound was written. Outside that range this arm is reading \
-                 something other than the declaration.",
+                 entr(y/ies); on this tree METADATA_KEYS measures 74 chars over \
+                 5 entries and PROSE_KEYS 271 over 8. Outside that range this \
+                 arm is reading something other than the declaration.",
                 span.len(),
                 span.matches('"').count() / 2
             );
@@ -5689,15 +5693,21 @@ fn documented_counts_match_the_artifacts() {
         lexed += 1;
     }
     // Positive controls: the walk lexed the tree and saw `cfg` attributes at
-    // all. Measured at 84 files and 132 attributes (every
+    // all. Measured at 84 files and 133 attributes (every
     // `#[cfg(feature = "native")]`, `#[cfg(not(miri))]` and `#[cfg(test)]`);
-    // the floor is set well under that, and a floor guessed
-    // "hundreds" and floored at 100 was red on its first run, which is what a
-    // positive control is for.
-    assert!(lexed >= 40, "the cfg walk lexed only {lexed} file(s) under crates/");
+    // both floors are two thirds of that. A floor guessed
+    // "hundreds" and set at 100 was red on its first run, which is what a
+    // positive control is for -- and why these two are derived from what the
+    // walk reports rather than from an estimate of what it should.
     assert!(
-        cfg_attrs >= 50,
-        "the cfg walk saw only {cfg_attrs} `cfg` attribute(s) across {lexed} files; an absence \
+        lexed >= 56,
+        "the cfg walk lexed only {lexed} file(s) under crates/; the tree holds 84 and this floor \
+         is two thirds of that"
+    );
+    assert!(
+        cfg_attrs >= 88,
+        "the cfg walk saw only {cfg_attrs} `cfg` attribute(s) across {lexed} files; the tree \
+         carries 133 and this floor is two thirds of that. An absence \
          reported over a walk that finds nothing is not an absence"
     );
     assert!(
@@ -8272,9 +8282,12 @@ fn memory_safety_is_established_only_for_the_native_paths_miri_walks() {
     assert!(
         surface >= 30,
         "parsed only {surface} public functions out of the native backend \
-         module (41 when this floor was written). The walk that derives this \
-         domain is broken, and every name it failed to see would have read as \
-         declared."
+         module; this tree's `backend/native.rs` declares 41 bare-`pub` \
+         functions at item level, and this floor sits above two thirds of that \
+         rather than at it -- the measurement moved by nothing across this \
+         re-derivation, and a floor is not lowered to meet a rule. The walk \
+         that derives this domain is broken, and every name it failed to see \
+         would have read as declared."
     );
     owed.extend(undeclared);
 
@@ -8488,17 +8501,18 @@ fn no_native_endian_conversions_anywhere_in_the_crate() {
          the census's own question applied per member."
     );
     assert!(
-        per_file.len() >= 10 && examined >= 4_000,
+        per_file.len() >= 25 && examined >= 24_400,
         "the walk saw {} file(s) and compared {examined} identifier(s):\n{breakdown}\n\
          Both are far below the tree's real size, so this is the walk or the \
          lexer failing, not the crate being clean -- and a search over nothing \
          finds nothing, which is also what a compliant crate looks like.\n\
          \n\
-         The floor is 4,000 against a measured 6,757 at `bcb1a85`. It is set \
-         above the largest single file's share so that a walk which found only \
-         one file cannot satisfy it -- `backend/native.rs`, the biggest, is \
-         under a third of the total. Re-derive it if the tree grows; do not \
-         lower it to make a run pass.",
+         This tree measures 36,640 identifiers across 38 files, and both floors \
+         are two thirds of that. Two thirds also settles the single-file \
+         question the old floor argued separately: the largest file here is \
+         `keystore/format.rs` at 4,873 identifiers, an eighth of the total, so \
+         no walk that found one file can reach this floor. Re-derive both if \
+         the tree grows; do not lower either to make a run pass.",
         per_file.len()
     );
 
@@ -8977,11 +8991,14 @@ fn panicking_constructs_are_declared_at_their_sites() {
     }
 
     assert!(
-        files >= 10 && examined >= 4_000,
+        files >= 25 && examined >= 77_200,
         "the walk saw {files} file(s) and {examined} token(s); both are far \
          below the tree's real size, so this is the walk failing, not the \
-         crate being clean. The floors match the endianness scan's, derived \
-         from the same corpus."
+         crate being clean. This tree measures 115,827 tokens across 38 files \
+         and both floors are two thirds of that. The file floor matches the \
+         endianness scan's because the corpus is the same 38 files; the other \
+         one cannot, because that scan counts identifiers and this one counts \
+         every token."
     );
     assert!(
         !DECLARED_PANIC_SITES.is_empty(),
@@ -9703,7 +9720,8 @@ fn no_restricted_visibility_fn_in_the_backend() {
     assert!(
         items >= 30,
         "parsed only {items} item-level functions out of the native backend \
-         module (45 when this floor was written); the walk is broken and any \
+         module; this tree's `backend/native.rs` holds 45 and this floor is two \
+         thirds of that. The walk is broken and any \
          result from it is vacuous"
     );
 
@@ -10079,12 +10097,12 @@ fn code_only_understands_every_construct_its_inputs_contain() {
         joined.len()
     );
     // The population, printed because zero and "the scan never ran" look
-    // identical from a green tick, and because on this tree it IS zero: the
-    // repair moved the corpus by zero bytes because there is nothing here
-    // for it to move. It is prophylactic, and the constructed unit tests
-    // above are its only enforcement until that number is non-zero. A
-    // floor over a population the check does not examine is worse than
-    // no floor, so this is reported rather than asserted.
+    // identical from a green tick. On this tree it is 39, so the agreement arm
+    // above is comparing two readers over real input rather than over an empty
+    // set. The constructed unit tests above remain the enforcement, because
+    // the escape-rule defect is reached by a spelling the corpus does not
+    // contain. A floor over a population the check does not examine is worse
+    // than no floor, so this is reported rather than asserted.
     println!("  code_only: agreement checked on {agree_raw} raw string(s)");
 }
 
@@ -11182,7 +11200,7 @@ fn crate_text_units() -> (usize, Vec<TextUnit>) {
 }
 
 /// The floors the four walks share, derived from the measurement the evidence
-/// lines print: **84 files, 18,978 comment lines in 2,938 runs and 14,464
+/// lines print: **84 files, 19,365 comment lines in 2,990 runs and 14,648
 /// string lines**. The three volume floors sit at roughly two thirds of their
 /// measurement -- well above what a walk that dropped a directory, a kind, or
 /// the strip would report, and far enough below it that ordinary prose churn
@@ -11231,13 +11249,13 @@ fn assert_text_walk_floors(what: &str, files: usize, units: &[TextUnit]) -> (usi
          see. Either a root is missing from the walk or the tree has shrunk by fourteen files."
     );
     assert!(
-        comment_lines >= 12_600,
-        "{what}: examined {comment_lines} comment line(s). The four roots carry 18,978, and this \
+        comment_lines >= 12_900,
+        "{what}: examined {comment_lines} comment line(s). The four roots carry 19,365, and this \
          floor is two thirds of that, so the walk is not seeing comments"
     );
     assert!(
-        string_lines >= 9_600,
-        "{what}: examined {string_lines} string line(s). The four roots carry 14,464, and this \
+        string_lines >= 9_750,
+        "{what}: examined {string_lines} string line(s). The four roots carry 14,648, and this \
          floor is two thirds of that, so the walk is not seeing string literals"
     );
     (comment_lines, string_lines)
@@ -12549,8 +12567,8 @@ fn no_comment_or_string_under_the_crate_carries_a_phase_tag_or_a_row_name() {
         }
     }
     assert!(
-        runs >= 1_950,
-        "the walk formed {runs} comment run(s). The four roots form 2,938, and this floor is two \
+        runs >= 1_990,
+        "the walk formed {runs} comment run(s). The four roots form 2,990, and this floor is two \
          thirds of that -- a walk that lost a root, or one that stopped joining consecutive \
          comment lines into a run, reports well under it"
     );

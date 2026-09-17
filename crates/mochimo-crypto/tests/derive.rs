@@ -201,14 +201,16 @@ fn replay_all(json: &serde_json::Value) -> Totals {
     }
     assert_eq!(t.not_ported, 1, "exactly F-ascii-control is not ported");
     // A floor, not an equality (a number that must be edited on every
-    // unrelated change stops being read). Measured when the port landed:
-    // 79 `eq_*` assertions across the fifteen -- 9 generator, 7 cycle phase,
-    // 9 counters, 9 deriveSeed, 7 validation layer, 9 widths, 9 high-byte,
-    // 2 dead-path control, 6 fromPhrase, 6 toPhrase, 6 deriveAccount. The
-    // handlers' own `assert!`s are not counted.
+    // unrelated change stops being read). This tree measures 528 `eq_*`
+    // assertions over the ninety-six vectors of the fifteen sources, and the
+    // floor is two thirds of that. The handlers' own `assert!`s are not
+    // counted, and the two counts above -- ninety-six vectors, fifteen sources
+    // -- are equalities, so this floor is about the depth of each replay
+    // rather than about how many ran.
     assert!(
-        t.assertions >= 70,
-        "only {} field assertions ran across fifteen vectors (79 measured when the port landed); the walk has come apart",
+        t.assertions >= 352,
+        "only {} field assertions ran across the ninety-six vectors; this tree measures 528 and \
+         the floor is two thirds of that, so the walk has come apart",
         t.assertions
     );
     t
