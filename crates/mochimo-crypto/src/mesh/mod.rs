@@ -49,8 +49,11 @@
 //! suite.** One live run submitted a transaction this crate built and the chain carried
 //! it in block 1078535: `send + change + fee` equalled the ledger
 //! balance exactly, and `src_addr`/`chg_addr` carried one tag over two hash
-//! halves — the relation the node enforces, which no group D wire image
-//! carries (all 43 were measured). The block-to-live window was **not**
+//! halves — the relation the node enforces. One group D image is built to
+//! carry that shape, `D17`, and its own vector records `tx_val` as not
+//! evaluated on it for want of a ledger: the corpus pins a layout two
+//! comparators approve of, and a node accepting the relation is what the live
+//! run adds. The block-to-live window was **not**
 //! exercised: `blk_to_live` was 0 and the node checks only non-zero values.
 //! Acceptance there was inferred from the ledger moving, not read off a
 //! verdict — `/construction/submit` returns before any reply.

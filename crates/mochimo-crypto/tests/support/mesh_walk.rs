@@ -566,8 +566,9 @@ fn on_chain(id: &str, tx: &serde_json::Value) -> OnChain {
 ///   an account that has never spent presents;
 /// * `change_address_hash != from_address_hash` while the change returns to
 ///   the same tag -- `addr_hash_equal` false and `addr_tag_equal` true, the
-///   pair `tx_val` enforces and the shape no group D wire image carries (all
-///   43 were measured).
+///   pair `tx_val` enforces. `D17` is the one group D image built to carry
+///   that shape, and its vector records `tx_val` as not evaluated on it;
+///   here the relation is read off a block the chain carried.
 fn n_block(v: &mut dyn Vector) {
     let id = v.id();
     let x = exchange(v, "/block");

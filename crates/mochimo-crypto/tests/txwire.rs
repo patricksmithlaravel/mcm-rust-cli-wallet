@@ -26,7 +26,7 @@ use mochimo_crypto::tx::wire::{Destination, Transaction};
 /// Every group D wire image, parsed and re-serialized natively, with every
 /// recorded field asserted — in a test binary that links no C.
 ///
-/// The counts are stated, not derived: 49 named images — 45 the
+/// The counts are stated, not derived: 71 named images — 67 the
 /// reference accepted and round-trip byte-identically, 4 it rejected
 /// (`D14`'s one-byte-long form, `D15`'s three unknown-type cases) whose
 /// rejection the native parser reproduces.

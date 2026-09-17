@@ -9542,8 +9542,9 @@ fn every_unimplemented_site_is_knowledge_not_debt() {
 ///
 /// # What the green establishes, and what it cannot
 ///
-/// The codec agrees with the C on **layout and encoding** (49 named wire
-/// images, byte-identical both ways), and the corpus behind it carries the two
+/// The codec agrees with the C on **layout and encoding** (71 named wire
+/// images: 67 byte-identical both ways and 4 rejections the parser
+/// reproduces), and the corpus behind it carries the two
 /// offline validators' verdicts (`mdst_val`, `tx_val__wots`). **`tx_val` was
 /// never run** — it needs an open ledger — so no wire image is a transaction
 /// the C accepted end to end, and a serializer green here can still emit a
@@ -9578,8 +9579,9 @@ fn native_transaction_path_is_checked_on_layout_not_acceptance() {
          \n\
          WHAT THIS TEST HOLDS: tx::wire is the native construction path \
          (ordinary Rust types, serializer at the boundary), and \
-         the proof test keeps the codec checked against group D -- 49 named \
-         wire images, byte-identical both ways, recorded fields asserted.\n\
+         the proof test keeps the codec checked against group D -- 71 named \
+         wire images, 67 byte-identical both ways and 4 rejections reproduced, \
+         recorded fields asserted.\n\
          \n\
          WHAT A GREEN HERE DOES NOT SAY: tx_val needs an open ledger and never \
          ran, so nothing in the corpus is a transaction the C accepted end to \

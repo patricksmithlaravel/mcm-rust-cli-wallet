@@ -13,7 +13,7 @@
 //! `wire_without_trailer_file`, `wire_one_byte_long_file`, plus `D15`'s
 //! per-case `case_wire_file`. It excludes the five `message_hash_input_file`
 //! sidecars (signed *prefixes*, not framed images) and `D_identity_pk.bin` (a
-//! public key). That yields **49 named images: 45 the reference accepts and 4
+//! public key). That yields **71 named images: 67 the reference accepts and 4
 //! it rejects** (`D14`'s one-byte-long form and `D15`'s three unknown-type
 //! cases, every rejection recorded by the generator as a `tx_read` VERROR).
 //!
@@ -21,7 +21,7 @@
 //! deliberate collision groups exist (a quadruple `D1v` = `D9-never` =
 //! `D14_full` = `Ds8_baseline`, a pair `D4` = `Ds6-N256`, a triple
 //! `Ds3`/`Ds4`/`Ds5` baselines; see `superset-check.py`'s self-containment
-//! note), so a content-deduped walk would see 43 and understate coverage.
+//! note), so a content-deduped walk would see 65 and understate coverage.
 //!
 //! # What a pure round trip cannot see, and what closes it
 //!
@@ -78,7 +78,7 @@ pub fn fixture_bytes(name: &str) -> Vec<u8> {
 /// wrong-totals image (`D19-totals`), and a type-byte reject (`D15_case2`).
 /// Miri's job here is UB-checking the codec over real bytes; **corpus
 /// coverage is the non-Miri walk's job**, where the domain is derived from
-/// the artifact and the full 49 are counted. A name outside this set returns
+/// the artifact and the full 71 are counted. A name outside this set returns
 /// `None` under Miri and the walk skips that image.
 #[cfg(miri)]
 fn embedded(name: &str) -> Option<&'static [u8]> {
