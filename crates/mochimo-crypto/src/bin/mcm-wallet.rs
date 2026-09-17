@@ -83,7 +83,46 @@
 //! is where scripting demand appears, and it runs on a
 //! throwaway seed by the ordering condition already recorded.
 
+// `std::process::exit` DOES NOT RUN DESTRUCTORS, and every scrub of key
+// material in this program is a `Drop` -- `Zeroizing`, `Secret`, the keystore
+// handle. A call to it anywhere below is therefore an exit path on which
+// nothing is zeroized, and this program's whole memory-hygiene story is
+// destructors.
+//
+// This file called it twice, in `main`, and was safe only by an ordering
+// nothing stated: `run_from_argv` returned before either call, so everything
+// it held was already dropped. That is a property of the current shape of
+// `main` rather than of anything asserted, and a refactor that held a
+// `Keystore` or a `Secret` across the call would have taken it away silently
+// -- no test would have failed, because no test can observe a destructor that
+// did not run.
+//
+// `main` now returns `ExitCode` instead. Returning from `main` drops
+// everything it owns and then exits with the code, so the hygiene here is
+// structural rather than incidental.
+//
+// THE DENY'S REACH, MEASURED RATHER THAN ASSUMED, because it is narrower than
+// it looks. `clippy::exit` does not fire on a call inside `main` -- exiting
+// from `main` is what the lint considers idiomatic, so it exempts it. Both
+// halves of that were checked here by injecting a call and running the board's
+// own clippy row: one inside `main` passes, one inside `run_from_argv` is an
+// error at this attribute.
+//
+// So the two protections are different in kind and neither covers the other's
+// ground. Every function in this binary but `main` is held by the lint, which
+// is where an exit would do the most damage -- deep in a call stack holding a
+// `Keystore`. `main` itself is held by its return type: it has no reason to
+// call `exit` now that `ExitCode` carries the code out, and what it owns at
+// the end is `argv` and a `Report`, neither of which is key material. That is
+// a weaker guarantee than the lint gives the rest of the file, and it is
+// written down rather than left to be inferred from the deny above it.
+//
+// The lint is a `restriction` one, off by default, which is why it is named
+// explicitly rather than arriving with a group.
+#![deny(clippy::exit)]
+
 use std::io::{BufRead, BufReader, Write};
+use std::process::ExitCode;
 
 use mochimo_crypto::cli::create::{self as create_cmd, Terminal as _, ENTROPY_LEN};
 use mochimo_crypto::cli::{self, args, Code};
@@ -108,13 +147,13 @@ const END_OF_INPUT: &str =
      typed, so nothing was read and nothing was compared. Type the answer and press Enter, or \
      run the command again.";
 
-fn main() {
+fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let report = match run_from_argv(&argv) {
         Ok(r) => r,
         Err(usage) => {
             eprintln!("{usage}");
-            std::process::exit(Code::Usage as i32);
+            return ExitCode::from(Code::Usage as u8);
         }
     };
     if report.code == Code::Ok {
@@ -122,7 +161,9 @@ fn main() {
     } else {
         eprintln!("{}", report.text);
     }
-    std::process::exit(report.code as i32);
+    // `as u8` is exact: `Code` is a four-variant enum over 0..=3, declared in
+    // `cli::mod`, and the exit codes the pty harness pins are those same four.
+    ExitCode::from(report.code as u8)
 }
 
 fn run_from_argv(argv: &[String]) -> Result<cli::Report, args::Usage> {
