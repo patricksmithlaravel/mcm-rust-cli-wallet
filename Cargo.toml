@@ -16,3 +16,51 @@ rust-version = "1.89"
 # root `LICENSE.md`, copied byte for byte from the supplied file, and the
 # crate inherits this declaration from the workspace.
 license-file = "LICENSE.md"
+
+# Both values below are cargo's own defaults for a release build. They are
+# written out because a default is not a decision: with no `[profile.release]`
+# section at all, this wallet got unwinding destructors because that is what
+# cargo happens to do, and nothing in the tree said it mattered. Profiles are
+# only read from the workspace root, which is why they are here and not in
+# `crates/mochimo-crypto/Cargo.toml`.
+[profile.release]
+# PANIC = "UNWIND" IS A SECURITY PROPERTY HERE, not a preference, and it is the
+# one line in this file that must not be traded for binary size.
+#
+# Every scrub of key material in this crate runs through `Drop`: `zeroize`'s
+# derive on the holders, the `Zeroizing` buffers the KDF and the decrypted
+# image live in, and `Secret`'s own impl. Under `panic = "abort"` DESTRUCTORS
+# DO NOT RUN, so every one of those scrubs is skipped on exactly the path
+# where it matters most -- a fault while key material is live.
+#
+# Measured rather than reasoned about. The same program, holding a 32-byte
+# secret across a panic, built both ways:
+#
+#   panic = "unwind"  ->  Drop ran, bytes scrubbed to zero, exit 101
+#   panic = "abort"   ->  no Drop, bytes still intact,      exit 134
+#
+# Two things fail together under `abort`, and the second is the worse one. The
+# secret is never scrubbed, AND 134 is 128 + 6: the process dies by SIGABRT,
+# whose default disposition writes a core file. The seed is then both still in
+# memory and on a path to disk -- in a program whose README already records
+# that memory is not locked and core dumps are not suppressed, so nothing else
+# stops it.
+#
+# The argument for `abort` is a smaller binary and no landing pads. It is
+# refused here, and the trade is why: the saving is measured in bytes and the
+# cost is the master seed.
+panic = "unwind"
+# Defence in depth, aimed at the arithmetic nobody has written yet. A release
+# build turns overflow checks OFF by default, so a bare `+` on a balance wraps
+# silently there while panicking in the debug build every test runs in -- which
+# is precisely the shape of defect that reaches a user and never a test.
+#
+# It changes nothing that exists today, and that is the point rather than an
+# objection. The money path is already explicit: `mesh/spend.rs` reaches for
+# `checked_add`, `checked_mul` and `checked_sub` with `Error::Overflow` at each
+# site, and `account.rs`, `keystore/` and `cli/` do the same. Nor can this
+# disturb the deliberate wrapping in `backend/native.rs`'s WOTS+ chain
+# arithmetic or `derive.rs`'s counters: `wrapping_add` and `wrapping_sub` are
+# explicit calls and this flag does not reach them. It reaches the bare
+# operators alone, which is the whole of what it is for.
+overflow-checks = true
