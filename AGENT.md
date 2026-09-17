@@ -142,8 +142,11 @@ specification.
 - **I2 -- the index is durable before the signature is released.**
 - **I3 -- spend state moves atomically:** index, generation, pending record and
   the retained settled block change in one temp-write, fsync, rename, fsync.
-- **I4 -- startup reconciles against the chain and fails closed.** `Wallet::open`
-  is the only constructor.
+- **I4 -- every account reconciles before that account acts.** `Wallet::open` is
+  the only constructor; it partitions the store into the accounts the chain
+  confirmed and the accounts it could not explain, refuses every operation on
+  the second set by name, and refuses outright a store in which nothing
+  reconciled.
 - **I5 -- restore derives the index from the chain, never from zero.**
 - **I6 -- key material never leaves the process readable:** zeroized on drop,
   redacted `Debug`, encrypted at rest under Argon2id + ChaCha20-Poly1305.

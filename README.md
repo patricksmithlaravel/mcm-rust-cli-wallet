@@ -22,7 +22,7 @@ Each spend uses a **WOTS+ one-time key**. Signing twice with the same key leaks 
 
 That is the reserve → submit → settle dance. Between reserve and settle, the old key is spent and the new position is not yet reconciled as “quiet” in your store.
 
-It is also why the wallet **fails closed** when its stored index and the Mesh disagree (invariant **I4**). Automatic “just catch up to the chain” would be correct after some crashes and catastrophic if a second wallet was spending the same seed. The program will not guess. **Do not delete the store, reinstall, or restore the same seed elsewhere just to get past a refusal** — those are paths back to key reuse.
+It is also why an account **fails closed** when its stored index and the Mesh disagree (invariant **I4**) — that account, not the whole store. Automatic “just catch up to the chain” would be correct after some crashes and catastrophic if a second wallet was spending the same seed. The program will not guess. **Do not delete the store, reinstall, or restore the same seed elsewhere just to get past a refusal** — those are paths back to key reuse.
 
 ---
 
@@ -276,9 +276,14 @@ cargo run --features mesh-https --bin mcm-wallet -- --dir <DIR> --node https://a
 
 ---
 
-## When the wallet will not start (exit code 2)
+## When an account is refused (exit code 3), and when the wallet will not start (exit code 2)
 
-You will often see a long report that begins with **WALLET WILL NOT START** and mentions reconciliation / I4.
+Reconciliation is **per account**. An account whose state the wallet cannot explain is refused by name, with its full report, and that report is printed on every page the wallet produces until it is resolved — so a store that is not whole says so on every run. **Other accounts in the store keep working**: they reconciled, which means the node returned exactly the address this store derived at their stored position, and that confirmation is about their own key stream and nothing else.
+
+Two different outcomes, and the exit code tells you which:
+
+- **Exit 3**, a page that begins with **REFUSED** — the wallet started, and the account you named is one it cannot explain. Everything else in the store still works.
+- **Exit 2**, a page that begins with **WALLET WILL NOT START** — *no* account reconciled, so there is nothing to operate. A store holding one account is in this state whenever that account is.
 
 ### “Account not found” from the Mesh
 
@@ -288,15 +293,18 @@ The Mesh tag-resolve endpoint returns “account not found” in **three** state
 2. The tag is on the ledger at **zero balance** (empty accounts are discarded by Mesh quorum behaviour).
 3. A **transient** lookup failure (timeouts, nodes between blocks, etc.).
 
-So after you **sweep an account to zero**, `balance` and `settle` can refuse even though the send succeeded. Local index may already have advanced (e.g. to `1` after the first spend). That is expected.
+So after you **sweep an account to zero**, that account is refused even though the send succeeded. Its local index may already have advanced (e.g. to `1` after the first spend). That is expected, and it does not touch your other accounts.
+
+The ledger has not lost the account. It keeps a zero-balance entry and keeps rehashing it, so paying the tag makes it visible again **at exactly the address this wallet expects** — the change key of the spend that emptied it — and `settle` then works normally.
 
 **What to do:**
 
-1. Run `status <tag>` (reports without the same hard gate as `balance` / `settle`).
-2. If you emptied the account on purpose: send a **small** amount back to the same destination so the Mesh can see the tag again, then `settle` if a reservation is still open.
-3. If the account was never funded: fund it, or do not expect gated commands to work yet. `create` and `address` still work without a node.
-4. Retry once if you suspect a transient Mesh failure.
-5. **Do not** delete the store or restore the seed into a second live wallet to “force” progress.
+1. Run `status <tag>` (reports without refusing).
+2. If you emptied the account on purpose: send a **small** amount to it. **If you have another account in this store with funds, send it from there** — that account is not refused, and this is the whole reason the refusal is per account. Then `settle` if a reservation is still open.
+3. If the emptied account is the **only** account in this store, the wallet will not start at all and the payment has to come from somewhere else — another wallet, an exchange, anyone. Nothing local can fix it: the Mesh will not show a zero-balance entry, and querying the full 40-byte address instead of the tag does not get around it either. Both were measured.
+4. If the account was never funded: fund it, or do not expect its commands to work yet. `create` and `address` still work without a node.
+5. Retry once if you suspect a transient Mesh failure.
+6. **Do not** delete the store or restore the seed into a second live wallet to force progress.
 
 ### Other divergences
 
@@ -324,6 +332,7 @@ These are present-tense limits of this binary:
 - **No default `--dir` / `--node`** — you must pass them.
 - **Accounts past 0 enter the store only once funded** — `create` makes account 0; `address --account N` prints account N's destination without storing it; fund that destination, then `restore --account N` adds the account. An unfunded account cannot be stored, because the Mesh cannot tell never-funded from emptied. `discover` will tell you which indices the node *does* resolve, without storing anything — but it cannot tell you that an index has no account, for the same reason.
 - **History comes from the Mesh's indexer, and not every deployment runs one** — `transaction` and `recent-transactions` read `/search/transactions`, which a node serves only if it was configured to index. Where it was not, the endpoint answers an internal error and those two verbs report that rather than an empty list; `block` and `blocks` do not depend on it. History is also rendered *gross* there — a spend's source shows its whole balance leaving and the change coming back as a separate credit — while `block` shows the same spend *net*. Both are correct; each page says which it is showing.
+- **An emptied account needs an incoming payment to come back** — the Mesh will not show a tag it holds at zero balance, so that account is refused until someone pays it. Another account in the same store can, which is why only that account is refused. If it is the **only** account in the store, the wallet does not start and the payment has to come from outside. Nothing local fixes it: querying the full 40-byte address instead of the tag was measured and does not get around the quorum's zero-discard.
 - **Dead reservation** — if signed bytes can no longer be accepted (e.g. balance moved another way, or `--btl` expired), the wallet explains the cost but has no dedicated “clear dead reservation” command.
 - **Seed derivation** — several schemes exist across Mochimo clients and they do not agree. This wallet matches the **browser extension** scheme (fixture group F). A phrase from another scheme is not refused: it derives a working store whose accounts are empty, which looks exactly like a wallet nobody has paid. `create --from-phrase` says so before it reads anything, and nothing detects the case afterwards, so an empty balance on a phrase from elsewhere is not evidence the funds are gone.
 - **Password prompt** — needs a real terminal; cannot be driven from a plain pipe.
@@ -371,7 +380,7 @@ Features of note:
   - If you lose both the phrase and the encrypted store (or forget the store password and lose the phrase), the funds are unrecoverable.
 - Treat the **password** as the unlock for the encrypted store file on disk. It is not a substitute for the phrase.
 - Keep **`send` artifacts** until `settle` succeeds.
-- When the wallet refuses to open, read `status` and the report — **do not** wipe local state to silence I4.
+- When an account is refused, read `status` and the report — **do not** wipe local state to silence I4.
 - Prefer **Base58** for tags and payees; use `0x`+hex only for Mesh-style values when you must.
 
 ---

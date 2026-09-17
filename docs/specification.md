@@ -1321,9 +1321,9 @@ The `Behind` report then adds, to the causes it already names, that this store r
 
 #### The wallet gate
 
-`Wallet::open(store, client, master)` is the only constructor. It reconciles every account in the store, collects every failure rather than stopping at the first, and returns `StartupRefusal { diverged: Vec<Divergence>, accounts: usize }` when any account failed. A derived account needs the master seed and an imported account needs nothing beyond its stored root; a derived account with no master is a refusal, not a skip. A wallet that exists is a wallet that reconciled.
+`Wallet::open(store, client, master)` is the only constructor. It reconciles every account in the store, collects every failure rather than stopping at the first, and **partitions**: the wallet it returns carries the accounts the chain confirmed with their status, and the accounts it could not explain with their `Divergence`. Every operation on an account in the second set is refused by name and renders that account's whole report. `StartupRefusal { diverged: Vec<Divergence>, accounts: usize }` is returned when **no** account reconciled, which is a store offering no action at all; a store holding no accounts opens. A derived account needs the master seed and an imported account needs nothing beyond its stored root; a derived account with no master is a refusal, not a skip. A wallet that exists is a wallet that reconciled.
 
-A never-funded account blocks startup: the node's code 4 cannot separate never funded from emptied, from a failed lookup, from the wrong chain, and from the wrong seed, so it is refused. Those five are readings an operator has to rule out, not five answers the endpoint has: it has the three states [The emptied-account window](#the-emptied-account-window) enumerates, and never funded, the wrong chain and the wrong seed are three ways into the first of them.
+A never-funded account is refused: the node's code 4 cannot separate never funded from emptied, from a failed lookup, from the wrong chain, and from the wrong seed, so nothing acts on it. Sibling accounts are unaffected, and a store whose only account is in this state does not open. Those five are readings an operator has to rule out, not five answers the endpoint has: it has the three states [The emptied-account window](#the-emptied-account-window) enumerates, and never funded, the wrong chain and the wrong seed are three ways into the first of them.
 
 ---
 
@@ -1457,12 +1457,16 @@ The Mesh answers code 4, *Account not found*, in three states it does not distin
 
 The wallet never picks a reading. It fails closed:
 
-- `Wallet::open` reconciles every account and refuses the whole wallet on an unresolved tag, so `balance`, `send`, `settle` and `resign` exit 2 with a report that names all three readings and prefers none.
+- `Wallet::open` reconciles every account and refuses **that account** on an unresolved tag, so `send`, `settle` and `resign` naming it exit 3 with a report that names all three readings and prefers none. `balance` reports the accounts that reconciled and lists the ones that did not, with the same report. Every page a started wallet produces carries every diverged account's report, whatever the command was. When *no* account reconciled there is nothing to operate and the wallet exits 2.
 - `status` reports the same condition without refusing and exits 0.
 - `restore` refuses and exits 3, and does **not** fall back to position 0.
 - `submit` opens no store and sits behind no gate: an artifact already signed for the account can still reach the socket.
 
-The consequence is a present-tense limit: **an account with a zero balance cannot be reconciled through this endpoint, and a never-funded account in the store blocks every gated command until it is funded or removed.** `create` and `address` are outside that gate, as are `status`, `reconcile` and `restore` — which is why the fund-me address is obtainable before the account has ever been paid.
+The consequence is a present-tense limit: **an account with a zero balance cannot be reconciled through this endpoint, and every operation on it is refused until it is paid again.**
+
+The ledger has not lost it. The entry survives at the change address and keeps being rehashed, so a tag that is paid reappears at exactly the address the store derived for it — the change key of the spend that emptied it — and `settle` then resolves the reservation normally. What is missing is visibility, not state.
+
+Nothing local recovers it, and that is measured rather than assumed. Querying `/account/balance` at the full 40-byte address does not get around the quorum's zero-discard: the same reconstruction against the same endpoint serves a non-zero balance and answers code 4 for a zero one. **So the recovery is an incoming payment, and where it comes from is the limit that remains.** Another account in the same store can pay it, which is why the refusal is per account and not per store. If the emptied account is the *only* account in the store, the wallet has nothing operable, does not start, and the payment has to come from outside it — another wallet, an exchange, any sender. No change to this program can remove that. `create` and `address` are outside that gate, as are `status`, `reconcile` and `restore` — which is why the fund-me address is obtainable before the account has ever been paid.
 
 ### The command line
 
@@ -1545,7 +1549,7 @@ The crate holds eight numbered invariants. Each exists because violating it dest
 | I1 | a WOTS+ secret key signs at most once, per keystore | the raw signer is crate-private; two public routes to a signature, one gated by a receipt consumed by value, one with no digest to pass |
 | I2 | the advanced position is durable before a signature is released | a witness token, produced only by a completed four-step commit, required to mint the receipt the signer consumes |
 | I3 | spend-related state advances atomically | one image write per transition, through a sealed four-step typestate |
-| I4 | startup reconciles against the chain and fails closed | the wallet's only constructor reconciles every account or refuses |
+| I4 | every account reconciles before that account acts | the wallet's only constructor reconciles every account, refuses every operation on the ones it cannot explain, and refuses outright a store in which none reconciled |
 | I5 | restore derives the position from the chain, never from zero | a target-directed scan that stops on the match, with no fallback outcome |
 | I6 | key material does not leave the process in readable form | zeroizing storage, hand-written redacting `Debug`, an AEAD at rest |
 | I7 | no self-referential transaction struct is ever a Rust value | the transaction is plain Rust with a serializer at the boundary; the C layout is a wire format only |
@@ -1579,9 +1583,13 @@ The account's key position, the store generation, the open reservation and the r
 
 **Limit.** The same crash model as I2. Nothing mechanical fixes the membership of "spend-related state": a fifth member added later is covered by this invariant's prose and by no check here.
 
-### I4 — startup reconciles local state against the chain, and fails closed
+### I4 — every account reconciles before that account acts
 
-When the local key position and chain state disagree, the wallet does not run. The wallet type has one constructor: it reconciles every account against the chain and returns a startup refusal if any account diverges, so a wallet that exists is one that was reconciled — reconciliation before any signing operation as a type rather than a convention. The wallet hands out a read-only view of its store and has no mutable counterpart. The divergence report names four things in every arm: what diverged, both positions (or why there is no second one), the size of the gap, and the action to take. Where a bounded search cannot distinguish causes, the report names every cause that fits what was observed and prefers none.
+When an account's local key position and the chain disagree, that account does not act. The wallet type has one constructor and it reconciles every account against the chain, partitioning them: the accounts the node confirmed, and the accounts it could not explain. Every operation on an account in the second set is refused by name and carries that account's whole report. A store in which *no* account reconciled offers no action at all and is refused outright, which is what the startup refusal is for. The wallet hands out a read-only view of its store and has no mutable counterpart.
+
+**Why the property is per account.** The hazard is key reuse, and a key signs twice or it does not — that is a fact about one key stream, and two accounts share none. Reconciling an account means the node returned *exactly* the address this store derived at its stored position. That is a positive confirmation, not an absence of bad news: a wrong seed does not derive it, a wrong chain does not hold it, and a lying node cannot fabricate a match at an address only the chain can produce. Index confirmed, so the next key is provably unused, so signing it is not reuse. None of the machinery that enforces this — the receipt minted only after the advanced index is durable, the signature released only against that receipt, the refusal to roll a position back — reads another account.
+
+**What changed and what did not.** The wallet still never acts on an account whose state it cannot explain. It no longer refuses to act on accounts whose state it can. The motivating case is an account emptied by a supported command: the Mesh answers *account not found* for a tag it holds at zero balance, so the account cannot be reconciled, and refusing the whole store on it stranded every sibling — including the sibling whose payment is the only way back. The divergence report names four things in every arm: what diverged, both positions (or why there is no second one), the size of the gap, and the action to take. Where a bounded search cannot distinguish causes, the report names every cause that fits what was observed and prefers none.
 
 Advancing is never automatic. The operator acknowledgement is constructible only from a divergence, and only for the one shape advancing is a remedy for — the chain found ahead of the local position — so advancing without having read a report is unrepresentable. The advance path re-runs the comparison at the moment of the write and refuses unless the live divergence names the same tag and the same target; the store then refuses any target not strictly ahead of its stored position on its own account, so backwards is unrepresentable whatever the caller. The diagnostic walks 20 positions either side of the local position first and then the recovery range, so a gap of two is found at position 22 exactly as at position 2. A position the operator names only raises the walk's ceiling; the advance lands only at a position the walk actually matched to the chain, which may be below the one named, and an acknowledgement naming any other position is refused — a number typed at the command line never becomes the answer by being typed.
 
