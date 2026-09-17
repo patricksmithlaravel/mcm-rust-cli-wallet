@@ -15,7 +15,6 @@ use crate::error::{Error, Result};
 /// is variable-time and short-circuits on the first differing byte. If
 /// comparing secrets ever becomes necessary it goes through
 /// `subtle::ConstantTimeEq`, never `==`.
-#[derive(Clone)]
 pub struct Secret<const N: usize>(Zeroizing<[u8; N]>);
 
 impl<const N: usize> Secret<N> {
@@ -35,6 +34,25 @@ impl<const N: usize> Secret<N> {
     /// Borrow the raw bytes. Named to be conspicuous at the call site.
     pub fn expose(&self) -> &[u8; N] {
         &self.0
+    }
+
+    /// A second `Secret` holding the same bytes. Named, for the reason
+    /// `expose` is named.
+    ///
+    /// `Clone` is deliberately absent, and this method is what replaced it.
+    /// The type's whole convention is that reaching key material should be
+    /// conspicuous in review -- no `Display`, no `AsRef`, and the one way to
+    /// the bytes spelled out as `expose`. A derived `Clone` undid that at the
+    /// only point where it matters: `s.clone()` reads exactly like
+    /// `name.clone()`, so duplicating a seed looked like duplicating a
+    /// string, and the grep that would find every duplication of key material
+    /// returned every duplication of anything.
+    ///
+    /// The duplicate is a real one -- both copies zeroize on drop, and a
+    /// duplicated secret is a second live copy of key material for as long as
+    /// it is held. That is the cost the name is meant to make you weigh.
+    pub fn duplicate(&self) -> Secret<N> {
+        Secret::new(*self.0)
     }
 
     pub const fn len(&self) -> usize {

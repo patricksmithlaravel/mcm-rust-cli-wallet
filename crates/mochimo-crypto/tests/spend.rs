@@ -204,7 +204,7 @@ fn spend_addresses_follow_the_recorded_positions_for_both_kinds() {
     assert_eq!(
         imp0.source,
         derive::first_key_from_components(
-            root.clone(),
+            root.duplicate(),
             keystore_harness::IMPORTED_FIRST_ADDRESS[PK_LEN..PK_LEN + SEED_LEN]
                 .try_into()
                 .unwrap_or_else(|_| panic!("pub_seed width")),

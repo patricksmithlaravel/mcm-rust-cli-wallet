@@ -99,9 +99,10 @@ fn every_ui_case_compiles_or_fails_for_its_pinned_reason() {
         .filter(|p| stem(p).starts_with("terminal_"))
         .count();
     assert!(
-        secret_cases >= 2,
+        secret_cases >= 3,
         "ui/fail holds {secret_cases} `secret_*` case(s); expected the two \
-         comparison families (PartialEq, PartialOrd). \
+         comparison families (PartialEq, PartialOrd) and the duplication one \
+         (Clone, whose named replacement is `Secret::duplicate`). \
          `secret_has_no_equality_and_nothing_enforces_it` in tests/invariants.rs \
          reports itself cleared when ui/fail/secret_is_not_partial_eq.rs exists \
          with a .stderr beside it; if a case was deleted, that marker is green \
@@ -115,9 +116,14 @@ fn every_ui_case_compiles_or_fails_for_its_pinned_reason() {
     // NOT cased, argued here where the siblings are asserted:
     // `account_is_not_copy` -- Copy: Clone is a supertrait, so adding Copy
     // dies at the Clone case first; `imported_root_is_not_extractable` --
-    // it would pin a falsehood, since Secret is Clone by design and the
-    // restore path must hand the root back; the mitigation for exposure is
-    // the Debug-holder scan and each impl's pinned rendering, not trybuild.
+    // it would pin a falsehood, since the restore path must hand the root
+    // back and `Secret::duplicate` is how it does so. Note what changed and
+    // what did not: `Secret` no longer derives `Clone`, and
+    // `secret_is_not_clone.rs` pins that, but duplication itself is still
+    // there under a name that greps. The root is as extractable as it ever
+    // was, so a case claiming otherwise would pin a falsehood today for the
+    // same reason it would have before. The mitigation for exposure is the
+    // Debug-holder scan and each impl's pinned rendering, not trybuild.
     // Format v2 added two, and the floor moves with them or deleting them is
     // invisible: the removed `import_with_unverified_tag` (a forged imported
     // tag must be unconstructible, not merely discouraged) and the

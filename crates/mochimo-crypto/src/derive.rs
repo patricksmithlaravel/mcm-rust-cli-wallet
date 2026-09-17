@@ -568,7 +568,7 @@ impl fmt::Debug for DerivedAccount {
 #[must_use]
 pub fn derive_account(master: &Secret<SEED_LEN>, account_index: u32) -> DerivedAccount {
     let derived = derive_seed(master.expose(), account_index);
-    let seed = derived.secret().clone();
+    let seed = derived.secret().duplicate();
     let first = first_key(derived);
     DerivedAccount {
         tag: first.tag(),

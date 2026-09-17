@@ -657,7 +657,7 @@ impl<M: Medium> Keystore<M> {
             &nonce,
         )?;
         let durable = self.commit(&image)?;
-        self.master = Some(master.clone());
+        self.master = Some(master.duplicate());
         if let State::Live { generation, .. } = &mut self.state {
             *generation = next_gen;
         }

@@ -331,7 +331,7 @@ impl<M: Medium> Keystore<M> {
                     // components would sign under an address nobody funded,
                     // which is why the record carries them.
                     None => derive::first_key_from_components(
-                        root.secret().clone(),
+                        root.secret().duplicate(),
                         first.pub_seed(),
                         first.adrs(),
                     ),

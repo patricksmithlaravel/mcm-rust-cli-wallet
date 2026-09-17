@@ -1039,7 +1039,7 @@ mod tests {
         assert_eq!(
             Account::restore_from_record(AccountRecord::Imported {
                 tag: wrong_tag,
-                root: root.clone(),
+                root: root.duplicate(),
                 first_key,
                 stream_id,
                 wots_index,
@@ -1053,7 +1053,7 @@ mod tests {
         assert_eq!(
             Account::restore_from_record(AccountRecord::Imported {
                 tag,
-                root: root.clone(),
+                root: root.duplicate(),
                 first_key,
                 stream_id: StreamId::from_bytes(wrong_stream),
                 wots_index,

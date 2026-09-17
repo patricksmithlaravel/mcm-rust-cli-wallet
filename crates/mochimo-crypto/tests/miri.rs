@@ -289,10 +289,12 @@ fn walk_selected_routing() -> usize {
     let _ = addr::from_implicit(&[9u8; 20]);
     let _ = crc16::crc16(b"x");
 
-    // `Secret`'s own path: a clone, a borrow, and a drop that must scrub.
-    let clone = seed.clone();
-    assert_eq!(clone.expose().len(), SEED_LEN);
-    drop(clone);
+    // `Secret`'s own path: a duplicate, a borrow, and a drop that must scrub.
+    // Still one duplication, one borrow and one drop, so the count this
+    // function returns is unchanged -- the operation was renamed, not removed.
+    let duplicate = seed.duplicate();
+    assert_eq!(duplicate.expose().len(), SEED_LEN);
+    drop(duplicate);
 
     14
 }

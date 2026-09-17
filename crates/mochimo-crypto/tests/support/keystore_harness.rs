@@ -364,7 +364,7 @@ pub fn synthetic_first_address(root: &Secret<SEED_LEN>, salt: u8) -> Box<[u8; WO
     let pub_seed = [salt; SEED_LEN];
     let image = [salt ^ 0xFF; 32];
     let key = mochimo_crypto::derive::first_key_from_components(
-        root.clone(),
+        root.duplicate(),
         &pub_seed,
         mochimo_crypto::wots::Adrs::from_le_image(&image),
     );

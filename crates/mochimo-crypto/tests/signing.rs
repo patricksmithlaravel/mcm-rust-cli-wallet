@@ -244,7 +244,7 @@ fn each_wots_key_signs_once_through_the_receipt_gate() {
         .as_slice()
         .try_into()
         .unwrap_or_else(|_| panic!("the sidecar is not {WOTS_ADDR_LEN} bytes"));
-    let twin = Account::import(a.seed.clone(), &faddress).unwrap_or_else(|e| panic!("import: {e}"));
+    let twin = Account::import(a.seed.duplicate(), &faddress).unwrap_or_else(|e| panic!("import: {e}"));
     assert_eq!(twin.tag(), a.tag, "the import of an account's own recorded pair is that account");
     ks2.add(twin).unwrap_or_else(|e| panic!("{e}"));
     // Position 0 signs from the STORED components since format v2. Without
@@ -484,12 +484,12 @@ fn refuses_a_master_that_does_not_derive_the_stored_tag() {
 #[test]
 fn add_refuses_one_key_stream_under_two_tags_in_either_order() {
     let master = Secret::new(DERIVED_MASTER);
-    let seed = derive::derive_account(&master, DERIVED_POSITION).seed().clone();
+    let seed = derive::derive_account(&master, DERIVED_POSITION).seed().duplicate();
 
     // imported first, then the derived account over the same seed
     let dir = ScratchDir::new("refuse-stream-a");
     let mut ks = instrumented(&dir);
-    ks.add(keystore_harness::synthetic_imported_account(seed.clone(), 0x77))
+    ks.add(keystore_harness::synthetic_imported_account(seed.duplicate(), 0x77))
         .unwrap_or_else(|e| panic!("{e}"));
     let before = dir.snapshot_bytes();
     ks.medium_mut().reset_calls();
@@ -603,7 +603,7 @@ fn duplicate_key_streams_are_refused_across_kinds_after_reopen() {
     // (1) derived first: spend from it, drop, reopen, then import its seed.
     let dir = ScratchDir::new("stream-derived-then-imported");
     let master = Secret::new(DERIVED_MASTER);
-    let seed = derive::derive_account(&master, DERIVED_POSITION).seed().clone();
+    let seed = derive::derive_account(&master, DERIVED_POSITION).seed().duplicate();
     {
         let mut ks = Keystore::create(dir.path(), &keystore_harness::init()).unwrap_or_else(|e| panic!("{e}"));
         ks.add(derived_account()).unwrap_or_else(|e| panic!("{e}"));
@@ -617,7 +617,7 @@ fn duplicate_key_streams_are_refused_across_kinds_after_reopen() {
     let mut ks = keystore_harness::reopen("I1 stream identity (derived first)", dir.path())
         .result
         .unwrap_or_else(|e| panic!("reopen: {e}"));
-    let alias = keystore_harness::synthetic_imported_account(seed.clone(), 0xA1);
+    let alias = keystore_harness::synthetic_imported_account(seed.duplicate(), 0xA1);
     assert_ne!(alias.tag(), DERIVED_TAG, "the alias must arrive under another tag");
     assert!(
         matches!(ks.add(alias), Err(Error::Exists { what: "key stream" })),

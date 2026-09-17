@@ -218,7 +218,7 @@ pub fn run<M: Medium, T: Transport>(
     // has to outlive that move; `Secret` zeroizes, and both copies go when this
     // function returns.
     let master = match store.master() {
-        Ok(m) => m.cloned(),
+        Ok(m) => m.map(Secret::duplicate),
         Err(e) => {
             return Report {
                 text: format!("{e}"),
