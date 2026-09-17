@@ -231,19 +231,19 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `54b18db`, cargo's exit read from its own process: exit 0,
-**383 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 4 m 59 s on a warm `target/`, measured with `time(1)`
-around the run being reported rather than estimated from a previous one. **The
-commit is named
+The board on commit `5e0726b`, cargo's exit read from its own process: exit 0,
+**385 passed** -- summed from its own seventeen result lines -- 0 failed, 0
+ignored, 17 result lines, 5 m 05 s on a warm `target/`, read from `./board`'s
+own total -- it brackets the run with `date`, so the figure is wall clock
+around the run being reported rather than estimated from a previous one. **The commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff 54b18db` and, if nothing
+false at the next one. A reader runs `git diff 5e0726b` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. The figure to compare across runs is the per-target
 one: lib 44, cli 111, compile_fail 1,
-derive 10, invariants 66, kat 18, keystore 33, mesh 13, mesh_http 10, miri 2,
+derive 10, invariants 68, kat 18, keystore 33, mesh 13, mesh_http 10, miri 2,
 net 3, recon 29, signing 17, spend 19, txwire 3, wots_internals 4,
 doc-tests 0.
 
