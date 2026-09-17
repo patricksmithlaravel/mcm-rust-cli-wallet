@@ -1,0 +1,198 @@
+# Licence and advisory policy for this workspace.
+#
+#   cargo deny check
+#
+# `./board verify` runs it before a tag. It is not in `./board check`: it
+# reaches the network for the advisory database, and a pre-commit gate that
+# needs the network is a gate that fails on a train.
+#
+# WHAT THIS FILE IS. The policy below was already written down -- as prose, in
+# the dependency comments of `crates/mochimo-crypto/Cargo.toml`. Every rule
+# here cites the comment it comes from. Those comments remain the argument;
+# this file is only the part a machine can check, and where the two disagree
+# the comment is the one that was reasoned about.
+#
+# WHAT THIS CANNOT DO, stated plainly because the gap is easy to mistake for
+# coverage. Run by hand, this catches a policy violation introduced BY A
+# CHANGE: a dependency added, a version moved, a feature switched on. It
+# cannot catch a new advisory filed against a dependency whose version did not
+# move. Nothing about that dependency changes, so no commit prompts a run, and
+# the advisory sits unreported until someone happens to type the command. The
+# database is fetched fresh on every run, so the information is there -- what
+# is missing is the thing that would make someone look. A schedule would look
+# on a calendar; this looks when a person does. Reading the RustSec feed, or
+# running this on a quiet week with no change to answer for, is the cover.
+
+[graph]
+# The shipped binary is built with `--features mesh-https`, which is the one
+# configuration that pulls rustls, ring and the webpki root store -- and those
+# are exactly the dependencies whose licences are not the ecosystem's usual
+# dual MIT/Apache. A policy resolved at default features would never see them,
+# so it would pass while saying nothing about what the wallet actually links.
+all-features = true
+
+# `targets` is deliberately left unset, so every target triplet is considered.
+# The lockfile carries the `windows-sys` family and `wasi`, which no build on
+# the two platforms RELEASE.md names will ever compile. Narrowing to those two
+# would drop them from the walk, and a licence question is about what this
+# lockfile can pull in, not about what one host happened to build.
+
+# `crates/mochimo-crypto/ui/downstream` is NOT covered here. It is its own
+# workspace, by the design its manifest states, and its lockfile is copied in
+# from this one at test time and is gitignored. Its only dependency is this
+# crate by path, so it adds no third-party graph of its own; there is nothing
+# here for a licence or advisory policy to reach.
+
+[advisories]
+# No ignored advisories. An entry here is a decision to ship a known finding,
+# which is a decision that belongs in a commit message with a reason, not in a
+# list that accumulates quietly.
+ignore = []
+# Unmaintained crates anywhere in the graph, not just the ones this workspace
+# names directly. A wallet inherits the maintenance status of everything it
+# links, and "we did not choose it directly" does not make it someone else's.
+unmaintained = "all"
+# A yanked version is denied rather than warned. `cargo deny check` exits 0 on
+# a warning, so a warn-level rule would leave this file describing a policy
+# that the gate it runs in does not enforce -- which is worse than no rule.
+# This is a release gate: a yanked dependency is a reason not to tag.
+yanked = "deny"
+
+[licenses]
+# Every identifier below is here because a crate in this graph carries it.
+# The list is not a template and is not aspirational: an entry no crate needs
+# is an allowance nobody argued for, and cargo-deny reports unused entries.
+allow = [
+    # The ecosystem's dual licence, and the bulk of this graph -- every
+    # RustCrypto crate the wallet's primitives come from among them. No count
+    # is written here: nothing checks a figure in this file, and an unchecked
+    # count is the drift class this project already refuses elsewhere.
+    "MIT",
+    "Apache-2.0",
+    # `ring`, `rustls-webpki` and `untrusted`, all three under `mesh-https`.
+    # `ring`'s expression is `Apache-2.0 AND ISC` -- an AND, so allowing
+    # Apache-2.0 alone does not admit it and the TLS build cannot pass this
+    # check without this entry. `ring` is also the one dependency in the graph
+    # that compiles C and assembly, which its feature's own comment in
+    # `Cargo.toml` gives as the reason `mesh-https` is a separate feature.
+    "ISC",
+    # `subtle`, alone in the graph on this licence. The crate is not
+    # incidental: its comment in `Cargo.toml` names it as the route for the
+    # one comparison of key material this crate makes, `Secret::ct_eq`, and
+    # `secret.rs` makes constant-time comparison the rule rather than `==`.
+    "BSD-3-Clause",
+    # `unicode-ident`, whose expression is `(MIT OR Apache-2.0) AND
+    # Unicode-3.0` -- an AND, so the dual half does not satisfy it and this
+    # identifier has to be allowed on its own. It arrives under `proc-macro2`,
+    # `syn` and `quote`, which `Cargo.toml` argues are present to make the
+    # source-scanning CHECKS correct rather than to make the crate work.
+    "Unicode-3.0",
+    # `webpki-roots`, and the only entry here that licenses DATA rather than
+    # code: it is Mozilla's root certificate store repackaged, and CDLA is a
+    # data licence. It enters only with `mesh-https`, which is the feature the
+    # shipped binary is built with, so it is squarely in what ships.
+    "CDLA-Permissive-2.0",
+]
+
+# `Apache-2.0 WITH LLVM-exception` is not listed. `wasi`'s expression is an OR
+# and its `MIT` arm is already allowed, so listing the exception would be an
+# allowance nothing uses.
+
+[licenses.private]
+# THE HANDLE FOR THIS WORKSPACE'S OWN LICENCE, and the reason it is needed.
+# `mochimo-crypto` is licensed under the Mochimo Cryptocurrency Engine License
+# Agreement version 1.0 -- the root `LICENSE.md`, declared in the workspace
+# manifest as `license-file` because the agreement HAS NO SPDX IDENTIFIER.
+# cargo-deny reads a crate with no SPDX expression as unlicensed and fails it,
+# so without this the check would be red on the one crate whose licence is not
+# in question. The crate is `publish = false`; it is never going to crates.io,
+# and the licence a consumer would need to read is the one in the repository
+# root, not a short identifier.
+#
+# The alternative was a `[[licenses.clarify]]` entry giving the crate an
+# invented `LicenseRef-` expression and pinning a hash of `LICENSE.md`. It is
+# rejected on two counts: it would assert an SPDX-shaped fact about an
+# agreement that has no SPDX identity, and the hash would have to be
+# recomputed for any edit to a 26 KB legal text -- a maintenance burden whose
+# only failure mode is a red gate that means nothing about licensing.
+ignore = true
+
+[bans]
+# DUPLICATE VERSIONS ARE ALLOWED, and this is a measurement rather than a
+# shrug. The duplicates in this graph -- `syn` 2 and 3, `toml` 0.8 and 1.1,
+# `winnow` 0.7 and 1.0, `serde_spanned`, `toml_datetime`, `windows-sys` 0.52
+# and 0.61 -- are every one of them on the dev-dependency side, under
+# `trybuild` and `toml`. None is in a wallet build: `cargo build` and any
+# dependent see none of them. Denying duplicates outright would make this gate
+# red for a condition the manifest already accepts in writing, and a gate that
+# is expected to be red is a gate nobody reads.
+#
+# The duplicate that would actually matter is denied by name below.
+multiple-versions = "allow"
+# A `*` version requirement would mean a dependency whose version this
+# lockfile does not choose. Nothing here has one.
+wildcards = "deny"
+
+# THE DUPLICATE THAT MATTERS. From the `sha3` comment in `Cargo.toml`: the
+# hashes are pinned to the 0.10/0.1 line rather than 0.12/0.2 "because those
+# track `digest` 0.11 and `sha2` here is 0.10. Mixing them would link two
+# incompatible `Digest` traits into one crate." `sha2`, `sha3`, `ripemd`,
+# `pbkdf2`, `hmac` and `blake2` are all on `digest` 0.10 today. A crate
+# arriving on 0.11 is the specific breakage that comment predicts, and it
+# would arrive quietly -- both lines compile.
+[[bans.deny]]
+crate = "digest:>=0.11"
+reason = "the hash crates are pinned to the digest 0.10 line; see the sha3 comment in crates/mochimo-crypto/Cargo.toml"
+
+# The transport's features, from the `ureq` comment: "Every default feature is
+# off: no `gzip` (the Go server does not compress, and a decompressor over
+# untrusted input is a bomb surface with nothing to buy), no `json` (it would
+# pull `serde` back in through the transport; the codec parses by hand), no
+# cookies, no proxies."
+#
+# `brotli` is denied under the gzip argument rather than as a new one: it is
+# the same decompressor-over-untrusted-input surface by another name.
+# `native-tls` is denied because `mesh-https` is defined as rustls, and the
+# crate's standing claim is that every configuration but that one is pure
+# Rust -- native-tls would swap ring's C for the platform's and move the TLS
+# stack without moving the feature that is supposed to name it.
+[[bans.features]]
+crate = "ureq"
+deny = ["gzip", "brotli", "json", "cookies", "socks-proxy", "win-system-proxy", "native-tls"]
+
+# From the `argon2` comment: "NO DEFAULT FEATURES, and `alloc` deliberately
+# off: `alloc` is defined as `password-hash/alloc`, so asking for it drags in
+# `password-hash` and `base64ct`'s PHC-string machinery this crate never
+# uses." Verified against argon2 0.5.3's own manifest, where `alloc` is
+# exactly `["password-hash/alloc"]`.
+#
+# Turning it on would also cost the reason the comment gives for preferring
+# the feature off: without `alloc` the only entry point is
+# `hash_password_into_with_memory`, which takes the block buffer from the
+# caller, so the KDF's working memory is this crate's and lives in a
+# `Zeroizing<Vec<Block>>` instead of being returned to the allocator warm.
+[[bans.features]]
+crate = "argon2"
+deny = ["alloc", "std", "password-hash"]
+
+# From the `serde_json` comment: "`preserve_order` must never be unified in".
+#
+# THE REAL GUARD FOR THIS IS A TEST, not this entry.
+# `mesh::request_bodies_serialise_with_sorted_keys` compares actual request
+# bytes against what group N's capture sent, so it holds the property --
+# sorted keys on the wire -- rather than the feature flag that would break it.
+# This entry is strictly weaker and is here only because it is earlier: it
+# names the cause at resolve time, before a test has to report the effect.
+[[bans.features]]
+crate = "serde_json"
+deny = ["preserve_order"]
+
+[sources]
+# Nothing here is vendored and nothing comes from a git URL; every dependency
+# is a crates.io release that `Cargo.lock` pins. A git dependency would be a
+# source with no release process behind it and no version this policy could
+# reason about, so it is refused rather than warned about.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
