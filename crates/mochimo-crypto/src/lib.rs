@@ -5,6 +5,31 @@
 //! no linked library -- and what holds it to the protocol is the fixture
 //! corpus under `fixtures/`, replayed by `tests/kat.rs`. `docs/specification.md`
 //! says what each group establishes and what it does not.
+//!
+//! # What `mesh-https` adds, since the claim above is about the backend alone
+//!
+//! That sentence is true of `backend::selected` and of nothing wider. The
+//! shipped binary is built with `mesh-https` for TLS, and the feature puts a
+//! second trusted computing base under the wallet: eight crates no test target
+//! ever compiles -- `ring`, `rustls`, `rustls-webpki`, `rustls-pki-types`,
+//! `webpki-roots`, `untrusted`, `once_cell` and `getrandom`. Against the
+//! current lockfile they carry 348 `unsafe` occurrences between them (`ring`
+//! 230, `getrandom` 59, `once_cell` 53, `rustls` 5, `rustls-pki-types` 1), and
+//! `ring`'s build compiles 24 non-Rust objects, 13 from C and 11 from
+//! assembly. Those are figures read off one lockfile rather than constants;
+//! re-measure them rather than carrying them forward.
+//!
+//! **Where that `unsafe` is NOT is what makes the trade defensible.** The
+//! layer that parses hostile input -- `rustls-webpki`, for X.509 and its
+//! ASN.1, and `untrusted` beneath it -- has none of it and is pure Rust.
+//! `ring`'s C is fixed-size constant-time arithmetic over values already
+//! validated by that layer. TLS failures are historically parser failures, and
+//! this arrangement puts the parser in safe Rust with the C behind it.
+//!
+//! **What no test establishes.** The board builds this binary and drives it --
+//! `tests/cli.rs` runs it under a pseudo-terminal -- so everything above is
+//! linked and loaded on every board run. But no test completes a handshake,
+//! so nothing here exercises that stack against a peer.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
