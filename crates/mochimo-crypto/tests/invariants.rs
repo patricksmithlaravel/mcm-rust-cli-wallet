@@ -1304,7 +1304,9 @@ mod census {
                  configuration from the one running. The sibling paths it \
                  reports would be that other build's, and every census verdict \
                  would be about a tree nobody ran. Re-run the board with the \
-                 same features and profile.",
+                 same features and profile. `./board check` is that board; \
+                 `cargo test --all-features` is the usual way to arrive here, \
+                 because the nested resolution above does not carry that flag.",
                 theirs.exe.display(),
                 me.display()
             );
