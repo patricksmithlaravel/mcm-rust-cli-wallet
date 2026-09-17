@@ -24,6 +24,17 @@ run, on both platforms, at the commit being tagged.
 - [ ] `AGENT.md`'s board section names the commit being tagged.
 - [ ] The version in `crates/mochimo-crypto/Cargo.toml` is the version being
       tagged.
+- [ ] **The declared MSRV still builds.** `rust-toolchain.toml` pins the board
+      to one compiler, so no board row ever compiles this tree on the
+      `rust-version` the workspace declares. This is the only thing that
+      checks it, and both must exit 0:
+
+          cargo +1.89.0 check --workspace
+          cargo +1.89.0 check -p mochimo-crypto --features mesh-https
+
+      The version is written out twice here and once in `Cargo.toml`. If
+      either moves, this line moves with it -- a version number in a checklist
+      is a value that drifts, and nothing holds this one to the manifest.
 
 `./board verify` is `./board check` -- the eight commands under *Build and
 test* in `AGENT.md` -- followed by `cargo deny check` and the Miri run. It
@@ -97,7 +108,9 @@ red, the row says red and a later row says green.
 `platform` is `linux` or `macos`. `toolchain` is the stable version the board
 ran on and the nightly Miri ran on, since the `compile_fail` target pins
 rustc's exact diagnostic wording and a toolchain bump can turn it red with no
-change to the property it checks.
+change to the property it checks. The stable half should now equal the channel
+in `rust-toolchain.toml`; recording it anyway is what would show that someone
+had overridden the pin, which a row reading only "pinned" never could.
 
 A tag needs one green `linux` row and one green `macos` row at the commit
 being tagged. Two rows at different commits are two half-verifications.

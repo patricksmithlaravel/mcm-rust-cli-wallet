@@ -1,0 +1,52 @@
+# ONE COMPILER FOR THE BOARD, and the reason is `tests/compile_fail.rs`.
+#
+# The trybuild suite pins rustc's exact diagnostic wording -- a `.stderr` file
+# checked in beside each case -- and the crate's own manifest already states
+# what that costs: "the .stderr files pin rustc's exact wording, so a toolchain
+# bump can turn them red without any change to the property. They are generated
+# on rustc 1.98.0." The hazard was identified there; this file is the missing
+# mechanism. Unpinned, the cost is paid at an arbitrary moment by whoever
+# happens to update rustup first, and it arrives looking like a real failure.
+#
+# RELEASE.md raised what this is worth. It asks for `./board verify` green on
+# Linux AND macOS at the same commit, and two runs on two different compilers
+# are not two runs of the same thing: the comparison it asks a reader to make
+# only carries weight if the compiler is held still across it.
+#
+# `components` names clippy because four of the eight board rows are clippy
+# invocations and a `minimal` rustup profile does not carry it. rustdoc is
+# deliberately NOT named -- it ships inside the `rustc` component, so
+# `cargo doc` works on a minimal install. Checked rather than assumed: the
+# 1.89.0 toolchain installed here with `--profile minimal` reports its
+# components as cargo, rust-std and rustc alone, and its `bin/` holds rustdoc.
+#
+# AN EXPLICIT `+toolchain` OVERRIDES THIS FILE. That is what keeps the Miri row
+# honest: `./board verify` runs `cargo +nightly miri test -p mochimo-crypto`,
+# and `+nightly` wins over the channel below, so pinning the board does not
+# quietly point Miri at a compiler that has no Miri.
+#
+# THE MSRV TENSION, stated here because pinning is what creates it.
+#
+# The workspace declares `rust-version = "1.89"` with a real argument behind it
+# (`std::fs::File::try_lock`, stable in 1.89.0). Pinning the board to 1.98.0
+# means NO ROW OF THE BOARD EVER COMPILES THIS TREE ON 1.89: the declared
+# minimum becomes a claim nothing exercises, which is the class of unchecked
+# assertion this repository refuses everywhere else.
+#
+# It is not left standing as a contradiction. The claim was checked at the
+# commit that introduced this file, on a 1.89.0 toolchain installed alongside
+# the pin:
+#
+#   cargo +1.89.0 check --workspace                               -> exit 0
+#   cargo +1.89.0 check -p mochimo-crypto --features mesh-https    -> exit 0
+#
+# both clean, no errors and no warnings. RELEASE.md carries that command as a
+# pre-tag item, so the claim is re-checked while it can still be corrected
+# rather than discovered by a dependent. That is a manual answer to a manual
+# problem and it is weaker than a board row would be; it is written down
+# instead of automated because this project's verification is written down
+# instead of automated.
+
+[toolchain]
+channel = "1.98.0"
+components = ["clippy"]
