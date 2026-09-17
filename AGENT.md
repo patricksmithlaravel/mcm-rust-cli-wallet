@@ -31,11 +31,22 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace -- -D warnings                                              # what a dependent compiles
 cargo clippy -p mochimo-crypto --features mesh-https --all-targets -- -D warnings    # the binary's graph
 cargo clippy --manifest-path crates/mochimo-crypto/ui/downstream/Cargo.toml --bin pass -- -D warnings
+cargo doc --workspace --no-deps                                                      # zero warnings; see the note below
 cargo build --features mesh-https --bin mcm-wallet                                   # the shipped binary (TLS)
 cargo +nightly miri test -p mochimo-crypto      # not part of the board; MIRIFLAGS unset; hours, not minutes
 ```
 
 `cargo fmt` is not a gate; do not reformat unrelated code.
+
+`cargo doc` is the only command that reads doc links, so it is the only one that
+sees a link to an item that was deleted. `lib.rs` denies
+`rustdoc::broken_intra_doc_links` for that and allows
+`rustdoc::private_intra_doc_links` with the argument written beside it: the
+private links resolve, the deny is what makes them resolve, and unbracketing
+them to satisfy rustdoc would turn the tree's only assertion that those names
+exist into prose nothing checks. `cargo doc --document-private-items` is not a
+gate and does not pass -- four links resolve in every configuration the gates
+use and not in that one.
 
 ### Features
 
@@ -211,12 +222,14 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `2fe3efa`, cargo's exit read from its own process: exit 0,
+The board on commit `f86c9a5`, cargo's exit read from its own process: exit 0,
 **383 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 5 m 3 s on a warm `target/`. **The commit is named
+ignored, 17 result lines, 4 m 46 s on a warm `target/`, measured with `time(1)`
+around the run being reported rather than estimated from a previous one. **The
+commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff 2fe3efa` and, if nothing
+false at the next one. A reader runs `git diff f86c9a5` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. The figure to compare across runs is the per-target
@@ -232,8 +245,9 @@ the shipped binary with `--features mesh-https` and drive it under BSD
 mochimo-crypto --test cli -- --list | grep -c 'pty::'` prints. The
 `invariants` target's census spawns `cargo test --workspace --no-run` and the
 sibling binaries, so it has to be run *by* `cargo test` and never by invoking
-the test binary directly. And `kat.rs` replays all 5,364 vectors twice, about
-110 s of the five minutes in a debug build.
+the test binary directly. And `kat.rs` replays all 5,364 vectors twice, 109 s
+of the run above in a debug build -- over a third of it, and the reason the
+board is minutes rather than seconds.
 
 The shipped binary builds with `--features mesh-https`, and the four clippy
 gates listed under *Build and test* exit 0.
