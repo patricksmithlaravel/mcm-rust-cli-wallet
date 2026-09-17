@@ -273,7 +273,13 @@ trybuild = "1.0.116"
 # `quote` rides with it for `ToTokens`, so a failure message can render the
 # offending return type instead of naming the function and leaving the reader to
 # find it. Both are already in Cargo.lock via zeroize_derive.
-syn = { version = "2", features = ["full", "parsing", "printing"] }
+# `visit` rides with them for the zeroization scan, which has to reach every
+# expression in a function body rather than the item surface. Hand-rolling
+# that walk would re-derive syn's own visitor one `Expr` variant at a time,
+# and a variant missed is a leak the scan reports nothing about -- the same
+# argument this entry already makes against approximating a grammar by hand,
+# aimed one level deeper.
+syn = { version = "2", features = ["full", "parsing", "printing", "visit"] }
 quote = "1"
 # The token-level half of `no_test_in_the_suite_is_ignored`: a macro
 # invocation's body is not parseable as Rust items, so its `#[ignore]`/`#[test]`

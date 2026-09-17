@@ -931,6 +931,14 @@ mod census {
             evidence: "Debug-holder scan:",
             floor: 1,
         },
+        Row {
+            guard: "key_material_copies_are_enforced_by_the_scan",
+            target: "no_key_material_is_copied_into_an_unprotected_buffer",
+            bin: "invariants",
+            tier: Tier::Executed,
+            evidence: "key-material copy scan:",
+            floor: 8, // measured 15 expose() sites the AST walk reaches
+        },
         // --- the oracle-class routing over the corpus --------------------
         Row {
             guard: "group_c_crosscheck_is_an_executed_oracle",
@@ -1721,7 +1729,7 @@ fn censused_rows_are_bound_to_live_guards() {
     let rows = census::ROWS;
     assert!(
         rows.len() >= 25,
-        "the census table holds {} row(s); this tree's table holds 25, over 19 \
+        "the census table holds {} row(s); this tree's table holds 26, over 20 \
          guards. A table that shrank is \
          guards that stopped being censused.",
         rows.len()
@@ -8174,6 +8182,343 @@ fn no_holder_of_key_material_derives_debug() {
          struct(s)), 0 derived Debug",
         holders.len(),
         direct_structs
+    );
+}
+
+/// I6's fourth guarantee, and the last one that was per-site convention:
+/// key material that leaves a `Secret` or a `Zeroizing` does not land in a
+/// buffer nothing scrubs.
+///
+/// # Why a scan and not a type
+///
+/// The other three guarantees are held by something that is not a person.
+/// `Debug` redaction by the holder scan beside this one; the absent
+/// `PartialEq` and `PartialOrd` by `ui/fail` cases the compiler adjudicates;
+/// the clearing itself by a `MaybeUninit` witness read under Miri. The fourth
+/// cannot be spelled as a type, because `[u8; 32]` is the same type whether
+/// the bytes are a seed or a block hash. No signature separates them and no
+/// trait bound refuses the copy, so what is left is to watch the one place
+/// the bytes get out.
+#[test]
+fn key_material_copies_are_enforced_by_the_scan() {
+    // Anchor: the chokepoint the scan reads still exists. `expose` is the only
+    // way to a `Secret`'s bytes, and it is a named method for that reason --
+    // if it were renamed or widened, the scan below would walk a tree with
+    // nothing in it and report coverage.
+    assert!(
+        secret_rs_code().contains("pub fn expose(&self)"),
+        "Secret no longer exposes its bytes through `expose`. The scan below \
+         keys on that name as the one route out of a Secret; if the route was \
+         renamed or a second one was added, the scan is measuring a chokepoint \
+         that is no longer the chokepoint."
+    );
+
+    let mut owed: Vec<String> = Vec::new();
+    const PROOF: &str = "no_key_material_is_copied_into_an_unprotected_buffer";
+    if let Err(why) = census::check("key_material_copies_are_enforced_by_the_scan", PROOF) {
+        owed.push(format!(
+            "\x20 - no test named {PROOF} exists. It must walk every crate's \
+             src/ directory and reject an owning copy taken from a `Secret` \
+             through `expose`, or from a binding known to be `Zeroizing`, \
+             into a buffer that is neither. It must also report how many \
+             `expose` sites it examined: with none it would pass over an \
+             empty set and read as coverage.\n\x20   {why}"
+        ));
+    }
+
+    assert!(
+        owed.is_empty(),
+        "the zeroization scan has REGRESSED. The property it holds is the one \
+         guarantee of the four that no compiler and no interpreter can reach, \
+         so its absence is not a smaller gap than the others -- it is the only \
+         one where nothing else is watching.\n{}",
+        owed.join("\n")
+    );
+}
+
+/// The proof behind the copy marker: no owning copy of key material lands in
+/// an unprotected buffer, and the scan reports the population it examined.
+///
+/// # The two shapes, and why these two
+///
+/// **Out of a `Secret`, through `expose`.** `Secret` has no `Display`, no
+/// `AsRef` and no way to read its bytes but the named method, which is the
+/// type's whole convention. So `s.expose().to_vec()` is the complete
+/// vocabulary for getting an owned copy out of one, and `let b = *s.expose()`
+/// is the same thing spelled as a deref of the fixed-width array.
+///
+/// **Out of a `Zeroizing` binding.** `Zeroizing<T>` derefs to `T`, so a local
+/// annotated or constructed as one hands out `to_vec`, `to_owned`, `clone`
+/// and `to_string` on the inner value without any named step at all. Those
+/// bindings are tracked per function body and the same conversions rejected
+/// on them.
+///
+/// A copy is accepted when it is placed straight into a `Zeroizing` or a
+/// `Secret` -- syntactically inside `Zeroizing::new(..)` or a `Secret::..`
+/// call, or the initializer of a `let` annotated with either. That is the
+/// correct spelling, and it is what the tree already does at every site.
+///
+/// # What this establishes, and what it does not
+///
+/// Stated because a scan that is trusted past its reach is worse than none.
+///
+/// * It reads **`crates/*/src` only**, which is where the wallet lives.
+///   `tests/` is not walked, so a test that copies a seed into a bare `Vec`
+///   is not caught here.
+/// * It is **syntactic, not a dataflow analysis**. Key material passed
+///   through a function and copied on the far side is invisible to it: the
+///   receiver there is a parameter, and nothing in the signature says the
+///   bytes are a secret.
+/// * It knows key material by **`Secret` and `Zeroizing` alone**. A buffer
+///   filled straight from an entropy source without passing through either is
+///   outside its domain -- the tree has no such site today, because
+///   `os_bytes` and `os_create_entropy` both return `Zeroizing`, and that is
+///   a property of those two functions rather than anything asserted here.
+/// * It tracks a `Zeroizing` binding by the **name bound in that function
+///   body**. A secret moved into a field, a tuple or a closure capture and
+///   copied from there is not followed.
+/// * **It does not see inside a macro invocation**, and this one is measured
+///   rather than suspected. `syn` parses a macro body as an opaque token
+///   stream, so nothing within `assert_eq!`, `assert!`, `matches!` or
+///   `format!` is walked. Of the 21 `expose` calls a text search finds under
+///   `crates/*/src`, this walk reaches 15; the six it cannot are in exactly
+///   those four macros. Five are in `cfg(test)` modules and the sixth is
+///   `cli/create.rs`'s deliberate rendering of the phrase to the terminal,
+///   so the blind spot hides nothing today -- but a copy written inside an
+///   `assert_eq!` would not be reported, and that is the shape to watch.
+///
+/// What it does catch is the shape that actually appears when someone reaches
+/// for the bytes: a named `expose`, or a local everybody can see is a
+/// `Zeroizing`, followed by the conversion that copies.
+#[test]
+fn no_key_material_is_copied_into_an_unprotected_buffer() {
+    use syn::spanned::Spanned;
+    use syn::visit::{self, Visit};
+
+    // Functions permitted to take an unprotected copy. Empty, and the
+    // unused-entry direction is enforced below: a row naming a function the
+    // scan finds nothing in is itself a failure, so a stale permission cannot
+    // linger. The first real entry argues here why its copy is not key
+    // material, or why it cannot be a `Zeroizing`.
+    const ALLOWED_UNPROTECTED_COPIES: &[(&str, &str)] = &[];
+
+    // The conversions that take a borrow and return a value owning a copy of
+    // the bytes. `to_string` is here for `Phrase`, which is a
+    // `Zeroizing<String>`: a copy of one is a recovery phrase in a plain
+    // `String`, which is the worst of the four to leave lying around.
+    const OWNING: &[&str] = &["to_vec", "to_owned", "clone", "to_string"];
+
+    let files = crate_source_files();
+    assert!(
+        files.len() >= 10,
+        "the walk of crates/*/src found only {} files; any result from it is vacuous",
+        files.len()
+    );
+
+    fn mentions_protector(ty: &syn::Type) -> bool {
+        use quote::ToTokens;
+        ty.to_token_stream()
+            .into_iter()
+            .any(|t| matches!(&t, proc_macro2::TokenTree::Ident(i) if i == "Zeroizing" || i == "Secret"))
+    }
+
+    fn is_expose(e: &syn::Expr) -> bool {
+        matches!(e, syn::Expr::MethodCall(m) if m.method == "expose" && m.args.is_empty())
+    }
+
+    // `Zeroizing::new(..)`, `Secret::new(..)`, and the qualified spellings of
+    // both. A path naming either type is enough: every constructor of either
+    // returns the protecting wrapper, so there is no arm that names one and
+    // hands back bare bytes.
+    fn is_protecting_call(f: &syn::Expr) -> bool {
+        matches!(f, syn::Expr::Path(p)
+            if p.path.segments.iter().any(|s| s.ident == "Zeroizing" || s.ident == "Secret"))
+    }
+
+    fn bare_ident(e: &syn::Expr) -> Option<String> {
+        match e {
+            syn::Expr::Path(p) if p.qself.is_none() => p.path.get_ident().map(|i| i.to_string()),
+            _ => None,
+        }
+    }
+
+    fn bound_name(p: &syn::Pat) -> Option<String> {
+        match p {
+            syn::Pat::Ident(i) => Some(i.ident.to_string()),
+            syn::Pat::Type(t) => bound_name(&t.pat),
+            _ => None,
+        }
+    }
+
+    struct Scan {
+        file: String,
+        in_fn: String,
+        protected: usize,
+        tracked: std::collections::BTreeSet<String>,
+        expose_sites: usize,
+        protected_bindings: usize,
+        candidates: Vec<(String, String)>,
+    }
+
+    impl Scan {
+        fn scoped<F: FnOnce(&mut Self)>(&mut self, name: String, f: F) {
+            let outer_tracked = std::mem::take(&mut self.tracked);
+            let outer_fn = std::mem::replace(&mut self.in_fn, name);
+            f(self);
+            self.tracked = outer_tracked;
+            self.in_fn = outer_fn;
+        }
+        fn flag(&mut self, line: usize, what: &str) {
+            let site = format!("\x20 - {}:{} in `{}`: {}", self.file, line, self.in_fn, what);
+            self.candidates.push((self.in_fn.clone(), site));
+        }
+    }
+
+    impl<'ast> Visit<'ast> for Scan {
+        fn visit_item_fn(&mut self, f: &'ast syn::ItemFn) {
+            let n = f.sig.ident.to_string();
+            self.scoped(n, |s| visit::visit_item_fn(s, f));
+        }
+        fn visit_impl_item_fn(&mut self, f: &'ast syn::ImplItemFn) {
+            let n = f.sig.ident.to_string();
+            self.scoped(n, |s| visit::visit_impl_item_fn(s, f));
+        }
+        fn visit_trait_item_fn(&mut self, f: &'ast syn::TraitItemFn) {
+            let n = f.sig.ident.to_string();
+            self.scoped(n, |s| visit::visit_trait_item_fn(s, f));
+        }
+
+        fn visit_local(&mut self, l: &'ast syn::Local) {
+            let annotated = matches!(&l.pat, syn::Pat::Type(t) if mentions_protector(&t.ty));
+            let constructed = l.init.as_ref().is_some_and(|i| match &*i.expr {
+                syn::Expr::Call(c) => is_protecting_call(&c.func),
+                _ => false,
+            });
+            if annotated || constructed {
+                if let Some(n) = bound_name(&l.pat) {
+                    self.tracked.insert(n);
+                }
+                self.protected_bindings += 1;
+            } else if let Some(i) = &l.init {
+                // `let b = *s.expose();` -- the fixed-width array is `Copy`, so
+                // the deref is a copy of every byte into a bare array.
+                if let syn::Expr::Unary(u) = &*i.expr {
+                    if matches!(u.op, syn::UnOp::Deref(_)) && is_expose(&u.expr) {
+                        let line = i.expr.span().start().line;
+                        self.flag(line, "a deref copy of `expose()` into an unprotected binding");
+                    }
+                }
+            }
+            if annotated {
+                self.protected += 1;
+                visit::visit_local(self, l);
+                self.protected -= 1;
+            } else {
+                visit::visit_local(self, l);
+            }
+        }
+
+        fn visit_expr(&mut self, e: &'ast syn::Expr) {
+            match e {
+                syn::Expr::Call(c) if is_protecting_call(&c.func) => {
+                    self.protected += 1;
+                    visit::visit_expr(self, e);
+                    self.protected -= 1;
+                    return;
+                }
+                syn::Expr::MethodCall(m) if m.method == "expose" && m.args.is_empty() => {
+                    self.expose_sites += 1;
+                }
+                syn::Expr::MethodCall(m)
+                    if OWNING.iter().any(|o| m.method == o) && m.args.is_empty() =>
+                {
+                    let from_expose = is_expose(&m.receiver);
+                    let from_tracked =
+                        bare_ident(&m.receiver).is_some_and(|n| self.tracked.contains(&n));
+                    if self.protected == 0 && (from_expose || from_tracked) {
+                        let line = m.span().start().line;
+                        let src = if from_expose { "`expose()`" } else { "a `Zeroizing` binding" };
+                        let what = format!("`.{}()` takes an owning copy from {src}", m.method);
+                        self.flag(line, &what);
+                    }
+                }
+                _ => {}
+            }
+            visit::visit_expr(self, e);
+        }
+    }
+
+    let mut expose_sites = 0usize;
+    let mut protected_bindings = 0usize;
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    for (name, text) in &files {
+        let parsed =
+            syn::parse_file(text).unwrap_or_else(|e| panic!("{name} does not parse as Rust: {e}"));
+        let mut scan = Scan {
+            file: name.clone(),
+            in_fn: "<item scope>".to_string(),
+            protected: 0,
+            tracked: std::collections::BTreeSet::new(),
+            expose_sites: 0,
+            protected_bindings: 0,
+            candidates: Vec::new(),
+        };
+        scan.visit_file(&parsed);
+        expose_sites += scan.expose_sites;
+        protected_bindings += scan.protected_bindings;
+        candidates.extend(scan.candidates);
+    }
+
+    // Vacuity, both halves. A scan that found no chokepoint and no protected
+    // binding has nothing to be right about, and would report zero violations
+    // over an empty set exactly as it does over a clean one.
+    assert!(
+        expose_sites >= 8,
+        "the scan found {expose_sites} `expose()` call site(s) under crates/*/src; \
+         this walk sees 15. Under the floor the zero below is not a finding \
+         about the tree, it is a finding about the scan -- `expose` renamed, or \
+         the walk pointed somewhere else. (A text search finds 21. The six it \
+         finds and this does not are each inside a macro invocation, which is \
+         the bound the doc above states rather than a miscount here.)"
+    );
+    assert!(
+        protected_bindings >= 5,
+        "the scan tracked {protected_bindings} protected binding(s); this tree \
+         carries more. The `Zeroizing` half of the scan is reporting about \
+         nothing."
+    );
+
+    let violations: Vec<String> = candidates
+        .iter()
+        .filter(|(f, _)| !ALLOWED_UNPROTECTED_COPIES.iter().any(|(a, _)| a == f))
+        .map(|(_, site)| site.clone())
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "key material is copied into a buffer that is never scrubbed \
+         (docs/specification.md I6):\n{}\n\
+         Put the copy in a `Zeroizing` -- `Zeroizing::new(x.expose().to_vec())` \
+         -- or keep the borrow and drop the copy. A bare `Vec` or array holding \
+         a seed is returned to the allocator with the bytes still in it.",
+        violations.join("\n")
+    );
+    let unused: Vec<&str> = ALLOWED_UNPROTECTED_COPIES
+        .iter()
+        .filter(|(a, _)| !candidates.iter().any(|(f, _)| f == a))
+        .map(|(a, _)| *a)
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "these allow-list rows name a function the scan finds no copy in: \
+         {unused:?}. An unused permission is a hole waiting for an occupant; \
+         remove the row."
+    );
+
+    // Both integers are population counts, which is what the census floor
+    // reads. Nothing else is printed here for that reason -- see `Row::floor`.
+    println!(
+        "  key-material copy scan: {expose_sites} expose() call site(s) and \
+         {protected_bindings} protected binding(s) examined, 0 unprotected copies"
     );
 }
 

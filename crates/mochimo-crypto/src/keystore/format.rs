@@ -2604,7 +2604,11 @@ mod tests {
         let aad = f.aad.to_vec();
         let mut plain: Zeroizing<Vec<u8>> = Zeroizing::new(f.ciphertext.to_vec());
         crypt::open(key, &f.header.nonce, &aad, &mut plain, f.tag).expect("decrypt");
-        let mut edited = plain.to_vec();
+        // `Zeroizing`, because `plain` is one and this is a copy of the same
+        // decrypted body. In this helper the body is synthetic, but the shape
+        // is the one the scan forbids and an exception here would be an
+        // exception in the file that decrypts stores for a living.
+        let mut edited: Zeroizing<Vec<u8>> = Zeroizing::new(plain.to_vec());
         edit(&mut edited);
         let new_tag = crypt::seal(key, &f.header.nonce, &aad, &mut edited).expect("seal");
         let mut out = aad;
