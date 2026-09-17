@@ -2,7 +2,7 @@
 
 A command-line Rust wallet for **Mochimo v3**.
 
-It manages an encrypted local keystore, derives **WOTS+ one-time** signing keys, builds and submits spends through the public Mesh API, and refuses to open when local key state and the chain disagree. That last behaviour is intentional safety, not a crash.
+It manages an encrypted local keystore, derives **WOTS+ one-time** signing keys, builds and submits spends through the public Mesh API, and refuses to act on any account whose local key state and the chain disagree. That last behaviour is intentional safety, not a crash: the accounts that do reconcile keep working, and only a store in which *nothing* reconciled refuses to start.
 
 This repository is one crate (`mochimo-crypto`) and one shipped binary (`mcm-wallet`). How the wallet works in full is specified in [`docs/specification.md`](docs/specification.md). The fixture corpus under `fixtures/` is the executable form of that specification.
 
@@ -146,7 +146,7 @@ To empty an account in one payment, use the keyword `all` as the amount:
 mcm-wallet ... send <tag> <to> all
 ```
 
-`all` is `balance − fee`, read at the moment the spend is laid out, so the change is zero. (Typing the number yourself works too — balance `1000000000` with the default fee `500` is `999999500` — but the full balance as `<amount>` always fails, because nothing is left for the fee.) Read the warning `all` prints: an emptied account reads as **not found** to the Mesh until it is paid again, so `balance`, `settle`, `send` and `resign` on it will refuse to open, and `submit` is the only route to a node meanwhile.
+`all` is `balance − fee`, read at the moment the spend is laid out, so the change is zero. (Typing the number yourself works too — balance `1000000000` with the default fee `500` is `999999500` — but the full balance as `<amount>` always fails, because nothing is left for the fee.) Read the warning `all` prints: an emptied account reads as **not found** to the Mesh until it is paid again, so `settle`, `send` and `resign` naming it are refused and `balance` lists it as unreconciled, while every other account in the store keeps working. `submit` is the only route to a node for that account meanwhile.
 
 ### Block-to-live (`--btl`)
 
@@ -226,16 +226,16 @@ Creates `<DIR>` and account 0. Generates a 24-word phrase and shows it **once** 
 Works before the account is funded. Copy and share the **Base58** destination (not the 80-hex ledger address). `--account N` prints the destination of an account the store does not yet hold, derived from its seed and not stored: fund it, then `restore --account N` adds it.
 
 **`balance`**  
-Opens the wallet only if every account reconciles. Unfunded or zero-balance accounts often make this exit with a startup refusal (see below).
+Reports every account that reconciled, and prints the full report of every account that did not. It opens as long as **one** account reconciles; a store whose accounts are all unfunded or all at zero balance has nothing to operate and exits with a startup refusal (see below).
 
 **`send`**  
 Takes **1 to 256 destinations**: positional `<to> <amount>` pairs, or `--destinations <path>` — a file whose non-empty lines are `<to> <amount> [<ref>]`, `#` starting a comment. The two forms are exclusive, and two destinations sharing a tag are refused as a typo. `--fee` is a total defaulting to `500 × N`. Prints a large hex **artifact**. Keep it until the spend settles. If the process dies after signing, `submit` pushes that printout as it is, and `resign` with identical arguments rebuilds and submits it. `--ref TEXT` sets the reference of a **single** destination (a memo some payees require) — with several, put a reference in the file's third column instead: up to 16 characters of uppercase letters and digits in groups separated by single dashes, **each group all one kind and neighbouring groups of different kinds** — so `AB-00-EF` and `123-CDE-789` are accepted and `AB-CD-EF` is not — checked against the node's rule before anything is asked or signed.
 
 **`settle`**  
-Local bookkeeping after the chain shows the spend. Needs a successful wallet open first.
+Local bookkeeping after the chain shows the spend. Needs the named account to have reconciled; it is refused by name (exit 3) if it did not.
 
 **`submit`**  
-Writes a saved artifact (the hex `send` printed) to the socket exactly as it is. Opens no store and asks no password; only the layout is checked. It is the route to the socket when the wallet will not open, as after an account was emptied.
+Writes a saved artifact (the hex `send` printed) to the socket exactly as it is. Opens no store and asks no password; only the layout is checked. It is the route to the socket for an account the wallet refuses, as after that account was emptied — and the only route left when the emptied account is the store's only one and the wallet will not start at all.
 
 **`resign`**  
 Must match the pending spend **exactly** (every destination, every amount, fee, btl, and any `--ref`). The order does not matter — the layout sorts destinations before signing — but every value must be the one that was reserved. The store keeps only the digest, not the destinations, so `resign` cannot tell you what they were: keep your own record. It reproduces the same signature bytes (WOTS+ is deterministic); it does not create a second different signature under the reserved key.
@@ -244,7 +244,7 @@ Must match the pending spend **exactly** (every destination, every amount, fee, 
 Read-only. They **open no store and ask no password**, so they work with no wallet on this machine at all; `--dir` is still required and is not touched. `--count` runs 1–100 and defaults to 5 — outside that window the Mesh quietly answers with its own default of ten rows, so a count it would ignore is refused here instead. `block 0` is refused too: the Mesh serves index 0 as the *current* block, not as genesis. Each page names the endpoint it read, because `/block` and `/search/transactions` render the same transaction differently and neither is wrong (see below).
 
 **`status`**  
-First tool when something looks wrong. It **reports** divergence instead of refusing to start the whole wallet.
+First tool when something looks wrong. It **reports** divergence instead of refusing the account.
 
 **`reconcile`**  
 Only after you have read a divergence report and understand it. `--advance-to N` is checked against the chain; it is not blindly trusted.
@@ -318,8 +318,8 @@ If `status` reports a real index mismatch (not merely unresolved tag), read the 
 | --- | --- |
 | `0` | Success |
 | `1` | Usage / argv error (including missing `--node` when required) |
-| `2` | Startup refused (bad node URL, no TTY, store would not open, reconciliation divergence, …) |
-| `3` | The command was refused — every refusal from `create`, `address`, `discover`, `status`, `reconcile`, `restore` and `submit`, which open no wallet at all, and every refusal from a command that did open one, including a digest mismatch on `resign` and a socket write that failed |
+| `2` | Startup refused — nothing ran: bad node URL, no TTY, no entropy source, the store would not open, or **no** account reconciled |
+| `3` | The command was refused — every refusal from the eleven verbs that open no wallet at all (`create`, `address`, `discover`, `status`, `reconcile`, `restore`, `submit`, `transaction`, `recent-transactions`, `block`, `blocks`), and every refusal from a command that did open one: an account the wallet could not explain, a digest mismatch on `resign`, a `resign` whose reservation the chain has already moved past, and a socket write that failed |
 
 Success reports go to **stdout**. Non-zero reports go to **stderr**. That matters if `send` signs and then the socket write fails: the artifact may be on stderr with exit `3`.
 
@@ -336,6 +336,7 @@ These are present-tense limits of this binary:
 - **Dead reservation** — if signed bytes can no longer be accepted (e.g. balance moved another way, or `--btl` expired), the wallet explains the cost but has no dedicated “clear dead reservation” command.
 - **Seed derivation** — several schemes exist across Mochimo clients and they do not agree. This wallet matches the **browser extension** scheme (fixture group F). A phrase from another scheme is not refused: it derives a working store whose accounts are empty, which looks exactly like a wallet nobody has paid. `create --from-phrase` says so before it reads anything, and nothing detects the case afterwards, so an empty balance on a phrase from elsewhere is not evidence the funds are gone.
 - **Password prompt** — needs a real terminal; cannot be driven from a plain pipe.
+- **Memory is not locked and core dumps are not suppressed** — the master seed, the decrypted store, the password and the expanded signing keys sit in ordinary pageable memory while in use. Each is overwritten on drop, and that is the whole of it: a page already written to swap, a core dump, a hibernation image or an attached debugger are outside what this program addresses. Swap encryption and a core-dump limit are the platform's tools, set outside this process.
 
 ---
 
