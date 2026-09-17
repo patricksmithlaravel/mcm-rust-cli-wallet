@@ -1425,6 +1425,19 @@ fn all_lays_out_the_balance_less_the_fee_and_says_the_account_is_emptied() {
     assert!(r.text.contains("THIS EMPTIES THE ACCOUNT"), "the page does not say the account is emptied:\n{}", r.text);
     assert!(r.text.contains("\"account not found\""), "the page does not name the Mesh's answer:\n{}", r.text);
     assert!(r.text.contains("`submit` writes it to the socket"), "the page does not name the route out:\n{}", r.text);
+    // The scope of what an emptied account costs, which is the account and not
+    // the store: other accounts keep working and paying this one from one of
+    // them is the way back.
+    assert!(
+        r.text.contains("ON THIS ACCOUNT"),
+        "the page does not scope the refusal to this account:\n{}",
+        r.text
+    );
+    assert!(
+        r.text.contains("Other \naccounts in this store keep working") || r.text.contains("Other accounts in this store keep working"),
+        "the page does not say the rest of the store keeps working:\n{}",
+        r.text
+    );
 
     let body = log.borrow().first().cloned().unwrap_or_else(|| panic!("no body"));
     let tx = Transaction::from_wire(&submitted_wire(&body)).unwrap_or_else(|e| panic!("{e}"));

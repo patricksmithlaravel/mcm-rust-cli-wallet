@@ -275,7 +275,23 @@ pub fn run<M: Medium, T: Transport>(
     // An imported-only store has no master and reconciles through the stored
     // root; a derived account with no master never reaches here, because
     // `open` already refused it.
-    match command {
+    // The account this command acts on, for the three verbs that name one.
+    // `balance` names none: it reports the store, and the diverged half of it
+    // is rendered by the notice below rather than refusing the command.
+    let addressed = match command {
+        Command::Settle { tag } | Command::Resign(Spend { tag, .. }) | Command::Send(Spend { tag, .. }) => Some(*tag),
+        _ => None,
+    };
+    let notice = standing_divergence_notice(w.diverged());
+    // A named account that diverged is refused here, with its own report, and
+    // without the notice repeating it immediately above.
+    if let Some(tag) = addressed {
+        if let Some(d) = w.divergence_for(&tag) {
+            return refuse_diverged_account(d);
+        }
+    }
+
+    let report = match command {
         Command::Restore { .. }
         | Command::Address { .. }
         | Command::Discover { .. }
@@ -291,6 +307,10 @@ pub fn run<M: Medium, T: Transport>(
         Command::Settle { tag } => cmd_settle(&mut w, tag, master),
         Command::Send(s) => cmd_send(&mut w, s, master),
         Command::Resign(s) => cmd_resign(&mut w, s, master),
+    };
+    Report {
+        text: format!("{notice}{}", report.text),
+        code: report.code,
     }
 }
 
@@ -304,6 +324,46 @@ pub fn run<M: Medium, T: Transport>(
 /// The tag is printed already in its `0x` form so nothing is assembled by
 /// hand; a mistyped hex tag reaches `status`/`reconcile`'s no-such-account
 /// arm, which pays nobody.
+/// The diverged accounts, rendered on **every** page a started wallet produces.
+///
+/// A store that is not whole says so on every invocation, whatever the command
+/// was. The alternative is a condition an operator meets only when they happen
+/// to address the account it is about, which for an account they cannot use is
+/// exactly when they are not looking.
+///
+/// Empty for a whole store, so a wallet with nothing diverged renders nothing
+/// and every page it produces is the page it produced before.
+fn standing_divergence_notice(diverged: &[Divergence]) -> String {
+    if diverged.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "THIS STORE IS NOT WHOLE: {} account(s) could not be reconciled against the chain. The \
+         accounts below are refused; every other account in this store is not.\n\n",
+        diverged.len()
+    );
+    for d in diverged {
+        out.push_str(&format!("{d}\n\n"));
+    }
+    out.push_str(&next_steps(diverged));
+    out.push_str("\n\n---\n\n");
+    out
+}
+
+/// The page an operation on a diverged account is refused with.
+///
+/// The whole report, unchanged, and nothing about a sibling: a healthy sibling
+/// is evidence of nothing here. A second wallet on this seed touches one
+/// account and leaves the others pristine, so the state of another account is
+/// exactly what a second signer also produces.
+fn refuse_diverged_account(d: &Divergence) -> Report {
+    Report::refused(format!(
+        "REFUSED: this account is not reconciled with the chain, so no operation on it is \
+         permitted. Other accounts in this store are unaffected and are not refused.\n\n{d}{}",
+        next_steps(core::slice::from_ref(d))
+    ))
+}
+
 fn next_steps(diverged: &[Divergence]) -> String {
     let mut out = String::new();
     for d in diverged {
@@ -961,18 +1021,17 @@ fn cmd_status<M: Medium, T: Transport>(
             cause: Error::NoSuchAccount,
             ..
         }) => Report::refused(no_such_account(tag)),
-        // The same text `open`'s refusal prints -- one rendering, so what the
-        // operator reads when a command reports is what they read when the
-        // wallet refuses to start -- with the in-program spelling of its
-        // action, and a note that `balance` refuses this store until it is
-        // acted on.
+        // The same text a refusal prints -- one rendering, so what the
+        // operator reads when a command reports is what they read when an
+        // operation on this account is refused -- with the in-program spelling
+        // of its action.
         Err(d @ (Divergence::IndexMismatch { .. }
         | Divergence::ReservationUnexplained { .. }
         | Divergence::TagUnresolved { .. })) => match destination(tag) {
             Err(e) => cannot_render(tag, &e),
             Ok(dest) => Report::ok(format!(
-                "{dest}\n  state    DIVERGED -- this account would refuse the wallet at startup \
-                 (I4). Nothing was changed.\n\n{d}{}",
+                "{dest}\n  state    DIVERGED -- every operation on this account is refused \
+                 (I4). Other accounts in this store are not. Nothing was changed.\n\n{d}{}",
                 next_steps(core::slice::from_ref(&d))
             )),
         },
@@ -1070,8 +1129,11 @@ fn spend_destinations(s: &Spend, resolved: u64) -> Vec<Destination> {
 ///
 /// A change of zero empties the account, and the Mesh's tag resolution
 /// answers *account not found* for a tag it holds at zero balance -- the
-/// middleware's quorum discards the entry. `Wallet::open` fails closed on
-/// that answer, so the gated verbs refuse until the tag is paid again. The
+/// middleware's quorum discards the entry. Reconciliation fails closed on that
+/// answer, so every operation on **this account** refuses until the tag is
+/// paid again. Other accounts in the store are unaffected, and paying this one
+/// from a sibling is the recovery. A store in which this is the only account
+/// has no operable account at all and needs a payment from elsewhere. The
 /// route to the socket meanwhile is `submit`, which opens no store.
 ///
 /// Printed whenever the change is zero, not only for the `all` keyword: an
@@ -1085,10 +1147,11 @@ fn emptying_notice(plan: &SpendPlan, settle_arg: &str) -> String {
         "\nTHIS EMPTIES THE ACCOUNT. The change is zero, so nothing returns to your next key \
          under {settle_arg}.\n  The Mesh reports a tag it holds at zero balance as \"account not \
          found\", which it does not distinguish from never funded or from a failed lookup, so \
-         once this lands `balance`, `settle`, `send` and `resign` on this account will refuse to \
-         open until it is paid again.\n  Keep the artifact below. `submit` writes it to the \
-         socket without opening the store, and is the route to a node while the account reads as \
-         not found.\n"
+         once this lands every operation ON THIS ACCOUNT refuses until it is paid again. Other \
+         accounts in this store keep working, and paying this one from another account in the \
+         store is the way back. If this is the only account here, the payment has to come from \
+         somewhere else.\n  Keep the artifact below. `submit` writes it to the socket without \
+         opening the store, and is the route to a node while the account reads as not found.\n"
     )
 }
 
@@ -1663,8 +1726,9 @@ fn cmd_reconcile<M: Medium, T: Transport>(
     let others = reviewed.reports.iter().filter(|d| d.tag() != *tag).count();
     let still = if others > 0 {
         format!(
-            "\n{others} other account(s) in the report above are still diverged; `balance` \
-             refuses this store until each is reconciled."
+            "\n{others} other account(s) in the report above are still diverged; every \
+             operation on each of them is refused until it is reconciled, and `balance` \
+             reports them on every run."
         )
     } else {
         String::new()

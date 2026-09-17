@@ -3,9 +3,20 @@
 //!
 //! # What this type is for, in one sentence
 //!
-//! [`Wallet::open`] is the only constructor and it reconciles every account or
-//! refuses, so **a `Wallet` that exists is a wallet that was reconciled** —
-//! and every spend path is a method on it.
+//! [`Wallet::open`] is the only constructor and it reconciles every account,
+//! so **a `Wallet` that exists holds a partition**: the accounts the chain
+//! confirmed, and the accounts it could not explain. Every spend path is a
+//! method on it, and every one of them refuses an account from the second set
+//! by name. A store in which nothing reconciled is not a wallet at all and is
+//! refused outright.
+//!
+//! The property is per account, because the hazard is: a key signs twice or it
+//! does not, and that is a fact about one key stream. An account the node
+//! answered for with exactly the address this store derived at its stored
+//! position has a confirmed position -- no wrong seed, wrong chain or lying
+//! node can produce a match at an address only the chain can hold -- so its
+//! next key is provably unused. Nothing that keeps that key from signing twice
+//! consults another account.
 //!
 //! # THE BOUND, and it is exactly [`crate::keystore::Keystore::sign_spend`]'s
 //!
@@ -139,12 +150,23 @@ pub enum Settlement {
     NothingPending { index: WotsIndex },
 }
 
-/// A keystore and a chain client, reconciled (module doc).
+/// A keystore and a chain client, with every account reconciled or recorded as
+/// diverged (module doc).
+///
+/// **Both sets, and the partition is the point.** An account that reconciled
+/// is one the node answered for with exactly the address this store derived at
+/// the stored position; an account that diverged is one whose state this
+/// wallet cannot explain. The first can act. The second cannot, and every
+/// method that would act on it refuses by name.
 #[must_use]
 pub struct Wallet<M: Medium, T: Transport> {
     store: Keystore<M>,
     client: MeshClient<T>,
     accounts: Vec<(Tag, AccountStatus)>,
+    /// Every account reconciliation could not explain, in tag order. Empty
+    /// for a whole store; never the only thing here, because [`Wallet::open`]
+    /// refuses a store in which nothing reconciled.
+    diverged: Vec<Divergence>,
 }
 
 impl<M: Medium, T: Transport> Wallet<M, T> {
@@ -190,14 +212,53 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
                 },
             }
         }
-        if !diverged.is_empty() {
+        // **Refused only when nothing is operable.** A wallet whose every
+        // account diverged offers no action at all, and `StartupRefusal` is
+        // that state. A wallet with one reconciled account offers exactly that
+        // account: its key stream is confirmed at the stored position by an
+        // address only the chain can produce, and nothing that keeps a key
+        // from signing twice consults a sibling. A store with no accounts in
+        // it diverges nowhere and opens, as it always has.
+        if ok.is_empty() && !diverged.is_empty() {
             return Err(StartupRefusal { diverged, accounts });
         }
         Ok(Wallet {
             store,
             client,
             accounts: ok,
+            diverged,
         })
+    }
+
+    /// Every account reconciliation could not explain, in tag order.
+    ///
+    /// A caller that opens a wallet renders these whatever it went on to do:
+    /// a diverged account is a standing condition, not a footnote found by
+    /// whoever happens to address it.
+    #[must_use]
+    pub fn diverged(&self) -> &[Divergence] {
+        &self.diverged
+    }
+
+    /// This account's divergence, if it has one.
+    #[must_use]
+    pub fn divergence_for(&self, tag: &Tag) -> Option<&Divergence> {
+        self.diverged.iter().find(|d| d.tag() == *tag)
+    }
+
+    /// Refuse when `tag` is an account this wallet could not explain.
+    ///
+    /// The guard every operation that acts on one account passes through. It
+    /// reads the partition `open` made rather than asking the chain again:
+    /// the caller is one process invocation, and an account that diverged when
+    /// the wallet opened is diverged for the whole of it.
+    fn require_reconciled(&self, tag: &Tag) -> Result<()> {
+        match self.divergence_for(tag) {
+            None => Ok(()),
+            Some(d) => Err(Error::ReconciliationRefused {
+                what: divergence_kind(d),
+            }),
+        }
     }
 
     /// Which access an account's kind needs. A derived account with no master
@@ -261,7 +322,12 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     }
 
     /// The addresses a spend from `tag` is built for.
+    ///
+    /// Refuses an account this wallet could not reconcile: the addresses are
+    /// derived from a stored position, and a position the chain did not
+    /// confirm is the one thing that must not be signed from.
     pub fn spend_addresses(&self, tag: &Tag, access: &KeyAccess<'_>) -> Result<SpendAddresses> {
+        self.require_reconciled(tag)?;
         self.store.spend_addresses(tag, access)
     }
 
@@ -277,6 +343,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         fee_total: u64,
         blk_to_live: u64,
     ) -> Result<SpendPlan> {
+        self.require_reconciled(tag)?;
         let addresses = self.store.spend_addresses(tag, access)?;
         let entry = self.client.resolve_tag(tag)?;
         SpendPlan::new(&addresses, &entry, dsts, fee_total, blk_to_live)
@@ -299,6 +366,10 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         access: KeyAccess<'_>,
     ) -> Result<SignedTransaction> {
         let tag = plan.tag();
+        // The last place the partition is checked before a key is spent. A
+        // plan for a diverged account cannot be built through `plan` above,
+        // and this covers a plan built any other way.
+        self.require_reconciled(&tag)?;
         // The reservation carries the plan's two figures: the balance it
         // was built against and its block-to-live, so a
         // later `open` can compare them to the entry and the tip.
@@ -336,6 +407,13 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     /// depth rule buys nothing that check does not already catch, and costs
     /// the unbounded direction.
     pub fn settle_if_landed(&mut self, tag: &Tag, access: &KeyAccess<'_>) -> Result<Settlement> {
+        // **Not gated on the partition, because it makes a fresher one.** This
+        // reconciles the account again here and refuses on whatever it finds,
+        // so the check `require_reconciled` would add is the same comparison
+        // against an older observation. It matters in one direction: an
+        // account that was invisible at open and has since been paid settles
+        // on this call rather than needing the wallet reopened, which is the
+        // recovery an emptied account has.
         match recon::reconcile_account(&self.store, &self.client, tag, access) {
             Ok(AccountStatus::SpendLanded {
                 spent_index,
@@ -414,6 +492,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         fee_total: u64,
         blk_to_live: u64,
     ) -> Result<SignedTransaction> {
+        self.require_reconciled(tag)?;
         let view = self.store.view(tag)?.ok_or(Error::NoSuchAccount)?;
         let pending = view.pending.ok_or(Error::NothingPending)?;
         // The addresses the reserved spend was built for. `address_at` does
@@ -526,6 +605,16 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         ack: OperatorAcknowledgement,
         scope: &ScanScope,
     ) -> Result<AdvanceReceipt> {
+        // **Not gated on the partition, and it is the one method that must not
+        // be.** Acting on a diverged account is what this is for: the
+        // acknowledgement names the tag and the index the report printed, and
+        // `recon` re-derives and re-compares before it writes.
+        //
+        // It does not update the partition either. A wallet's partition is the
+        // one `open` made, so an account advanced through here stays in the
+        // diverged set for the life of this wallet and its spend operations go
+        // on refusing. Reopening is what re-reconciles, which is what the
+        // command line does on every invocation.
         recon::advance_after_operator_review(&mut self.store, &self.client, tag, access, ack, scope)
     }
 

@@ -4,13 +4,14 @@
 //!
 //! # Why these are not `Wallet` methods in the CLI
 //!
-//! `Wallet::open` is the only constructor and it refuses when any account is
-//! diverged (I4). A one-shot process that opens a wallet in order to act on a
-//! divergence therefore cannot act. Behind that gate, `reconcile <tag>
-//! --advance-to N` would exit with the same startup refusal that named the
-//! index it is given, and `status` could show a divergence only for a tag the
-//! store does not hold -- so the path every I4 report tells the operator to
-//! take would be the one path the binary could not offer.
+//! `Wallet::open` refuses every operation on a diverged account, and refuses
+//! outright a store in which no account reconciled (I4). A one-shot process
+//! that opens a wallet in order to act on a divergence therefore cannot act on
+//! the account it is about: behind that gate, `reconcile <tag> --advance-to N`
+//! would be refused by the very divergence it names, and a store with one
+//! account -- which is every store until a second is funded -- would not open
+//! at all. So the path every I4 report tells the operator to take would be the
+//! one path the binary could not offer.
 //! Measured by a probe before any edit; the one CLI test of `reconcile`
 //! asserted that refusal under a comment describing the mismatch check.
 //!

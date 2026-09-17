@@ -6826,3 +6826,215 @@ fn blocks_walks_down_from_the_tip_one_row_each() {
     assert!(r.text.contains("2 transaction(s)"), "the row does not carry a transaction count:\n{}", r.text);
     println!("  blocks: the tip and the two below it, one row each, one /block call per row");
 }
+
+// ---------------------------------------------------------------------------
+// The partition: a diverged account is refused, its siblings are not
+// ---------------------------------------------------------------------------
+
+/// Account 1, funded and in sync, beside account 0 swept to zero.
+///
+/// The emptied account reads as `Absent`: the Mesh answers code 4 for a tag it
+/// holds at zero balance, because its quorum discards zero-amount answers. The
+/// ledger entry is still there and reappears the moment the tag is paid, which
+/// is why the recovery below works at all.
+fn emptied_and_funded(name: &str) -> (ScratchDir, Keystore, mochimo_crypto::addr::Tag, Chain) {
+    let m = master();
+    let sibling = mochimo_crypto::derive::derive_account_tag(&m, 1);
+    let (dir, mut ks) = store(name);
+    ks.add(Account::derive(&m, 1)).unwrap_or_else(|e| panic!("{e}"));
+    // Account 0 swept itself to zero: the key at 0 signed and the store
+    // advanced to the change key at 1, with the reservation still open.
+    let _ = ks
+        .persist_advance(&TAG, &[0xD1; 32], Figures { reserved_balance: 5_000_000, blk_to_live: 0 })
+        .unwrap_or_else(|e| panic!("{e}"));
+    drop(ks);
+    let ks = reopen(name, dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+    let sibling_at = mochimo_crypto::recon::derived_address_at(&m, 1, chain::pos(0));
+    let chain = Chain::new(&[
+        (TAG, ChainState::Absent),
+        (sibling, ChainState::At(sibling_at, 9_000_000)),
+    ]);
+    (dir, ks, sibling, chain)
+}
+
+/// The id a spend from `tag` will carry, taken from a dry run on a throwaway
+/// store built from the same entropy. The dry run advances its own copy, which
+/// is why the caller uses a fresh one.
+fn submit_id_for(name: &str, tag: mochimo_crypto::addr::Tag, dsts: Vec<Destination>) -> [u8; 32] {
+    let m = master();
+    let (_dir, ks, _sibling, chain) = emptied_and_funded(name);
+    let mut w = Wallet::open(ks, MeshClient::new(chain), Some(&m)).unwrap_or_else(|e| panic!("{e}"));
+    let plan = w
+        .plan(&tag, &KeyAccess::Master(&m), dsts, MFEE, 0)
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.reserve_and_sign(&plan, KeyAccess::Master(&m))
+        .unwrap_or_else(|e| panic!("{e}"))
+        .id()
+        .0
+}
+
+/// **A sibling that reconciles spends while another account is diverged.**
+///
+/// The emptied account's key stream and the sibling's share nothing: a
+/// confirmed index on the sibling says the node returned exactly the address
+/// this store derived at the stored position, which no wrong seed, wrong chain
+/// or lying node can produce. The next key is provably unused, so signing it is
+/// not reuse, and none of the machinery that prevents reuse consults a sibling.
+#[test]
+fn a_reconciling_account_spends_while_a_sibling_is_diverged() {
+    let m = master();
+    let sibling = mochimo_crypto::derive::derive_account_tag(&m, 1);
+    let id = submit_id_for(
+        "cli-partition-send-dry",
+        sibling,
+        vec![Destination { tag: TO, reference: [0; 16], amount: 1_000 }],
+    );
+    let (_dir, ks, _s, chain) = emptied_and_funded("cli-partition-send");
+    chain.accepts_submit(id);
+    let s = Spend {
+        tag: sibling,
+        dsts: vec![SpendTo { to: TO, reference: [0; ADDR_REF_LEN], amount: Some(1_000) }],
+        fee_total: MFEE,
+        blk_to_live: 0,
+    };
+    let r = cli::run(ks, MeshClient::new(chain), &Command::Send(s));
+    assert_eq!(
+        r.code,
+        Code::Ok,
+        "a funded account could not spend while a sibling was diverged:\n{}",
+        r.text
+    );
+    assert_says(&r, "sending 1000 nanoMCM", "send from the reconciling account");
+    // The page still carries the diverged sibling's report: the spend went
+    // through and the store is still not whole.
+    assert_says(&r, "THIS STORE IS NOT WHOLE", "send from the reconciling account");
+}
+
+/// **The diverged account's own `send` refuses, by name, with its report.**
+///
+/// Nothing is reclassified: the sibling's health is evidence of nothing about
+/// this account, and the page an operator reads here carries the same three
+/// readings of code 4 that the startup refusal carried.
+#[test]
+fn the_diverged_accounts_own_send_refuses_by_name_with_its_report() {
+    let (_dir, ks, _sibling, chain) = emptied_and_funded("cli-partition-refuse");
+    let r = cli::run(ks, MeshClient::new(chain), &Command::Send(spend()));
+    assert_ne!(r.code, Code::Ok, "a diverged account spent:\n{}", r.text);
+    assert_says(&r, &format!("account {}", hexs(&TAG)), "the refusal names the account");
+    assert_says(&r, "did not resolve this tag", "the refusal carries the report");
+    assert_says(&r, "ZERO balance", "the report keeps the three readings");
+    assert_says(&r, "lookup itself failed", "the report keeps the three readings");
+    // It is THIS ACCOUNT that is refused, not the store. The wallet opened:
+    // the sibling reconciled, so the whole-store refusal is the wrong page and
+    // the wrong exit code for a command that reached a running wallet.
+    assert!(
+        !r.text.contains("WALLET WILL NOT START"),
+        "a per-account refusal rendered the whole-store page:\n{}",
+        r.text
+    );
+    assert_eq!(
+        r.code,
+        Code::Refused,
+        "the command was refused by a wallet that started, which is exit 3 and not startup:\n{}",
+        r.text
+    );
+}
+
+/// **Every command that opens the wallet renders every diverged report.**
+///
+/// A diverged account is a standing condition, not a footnote found by an
+/// operator who happens to address it. `balance` shows the reconciled accounts
+/// and the diverged ones together, so the page cannot read as a whole store.
+#[test]
+fn every_command_that_opens_the_wallet_renders_the_diverged_report() {
+    for (what, command) in [
+        ("balance", Command::Balance),
+        ("settle", Command::Settle { tag: mochimo_crypto::derive::derive_account_tag(&master(), 1) }),
+    ] {
+        let (_dir, ks, _sibling, chain) = emptied_and_funded(&format!("cli-partition-notice-{what}"));
+        let r = cli::run(ks, MeshClient::new(chain), &command);
+        assert_says(&r, &format!("account {}", hexs(&TAG)), what);
+        assert_says(&r, "did not resolve this tag", what);
+    }
+    // `balance` shows both halves: the sibling's funds and the diverged report.
+    let (_dir, ks, _sibling, chain) = emptied_and_funded("cli-partition-balance");
+    let r = cli::run(ks, MeshClient::new(chain), &Command::Balance);
+    assert_eq!(r.code, Code::Ok, "balance refused a store with one good account:\n{}", r.text);
+    assert_says(&r, "9000000", "balance lists the reconciled account's funds");
+    assert_says(&r, "did not resolve this tag", "balance lists the diverged account");
+}
+
+/// **A store where NO account reconciles still refuses outright.**
+///
+/// A wallet with nothing operable is not a wallet, and that is the job
+/// `StartupRefusal` keeps.
+#[test]
+fn a_store_where_no_account_reconciles_still_refuses_outright() {
+    let (_dir, ks) = store("cli-partition-none");
+    let r = cli::run(
+        ks,
+        MeshClient::new(Chain::new(&[(TAG, ChainState::Absent)])),
+        &Command::Balance,
+    );
+    assert_eq!(r.code, Code::StartupRefused, "a store with no operable account opened:\n{}", r.text);
+    assert_says(&r, "WALLET WILL NOT START", "the whole-store refusal");
+}
+
+/// **Paying the emptied account from its sibling restores it, and it settles.**
+///
+/// The end-to-end proof. The ledger keeps a zero-balance entry and keeps
+/// rehashing it, so a paid tag reappears at exactly the address this store
+/// expects -- the change key of the spend that emptied it -- and `settle` then
+/// resolves the reservation normally.
+///
+/// The stand-in node does not mine, so the ledger state after the payment is
+/// scripted rather than produced by the submit above it. What the test drives
+/// is the wallet's half: that the sibling can pay while the account is
+/// diverged, and that the account settles once the entry is visible again.
+#[test]
+fn paying_the_emptied_account_from_its_sibling_lets_it_settle() {
+    let m = master();
+    let (dir, ks, sibling, chain) = emptied_and_funded("cli-partition-recover");
+
+    // 1. The emptied account cannot settle while the chain will not show it.
+    let r = cli::run(ks, MeshClient::new(chain), &Command::Settle { tag: TAG });
+    assert_ne!(r.code, Code::Ok, "an invisible account settled:\n{}", r.text);
+    assert_says(&r, "did not resolve this tag", "settle on the diverged account");
+
+    // 2. The sibling pays it. This is the step the old whole-store refusal
+    //    made unreachable: the remedy required the wallet to open.
+    let ks = reopen("cli-partition-recover-2", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+    let sibling_at = mochimo_crypto::recon::derived_address_at(&m, 1, chain::pos(0));
+    let id = submit_id_for(
+        "cli-partition-recover-dry",
+        sibling,
+        vec![Destination { tag: TAG, reference: [0; 16], amount: 2_000_000 }],
+    );
+    let pay = Spend {
+        tag: sibling,
+        dsts: vec![SpendTo { to: TAG, reference: [0; ADDR_REF_LEN], amount: Some(2_000_000) }],
+        fee_total: MFEE,
+        blk_to_live: 0,
+    };
+    let paying = Chain::new(&[
+        (TAG, ChainState::Absent),
+        (sibling, ChainState::At(sibling_at, 9_000_000)),
+    ]);
+    paying.accepts_submit(id);
+    let r = cli::run(ks, MeshClient::new(paying), &Command::Send(pay));
+    assert_eq!(r.code, Code::Ok, "the sibling could not pay the emptied account:\n{}", r.text);
+
+    // 3. The entry reappears at the change key of the spend that emptied it,
+    //    which is the address this store already holds as its position.
+    let ks = reopen("cli-partition-recover-3", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+    let r = cli::run(
+        ks,
+        MeshClient::new(Chain::new(&[
+            (TAG, ChainState::At(addr_at(1), 2_000_000)),
+            (sibling, ChainState::At(sibling_at, 6_999_000)),
+        ])),
+        &Command::Settle { tag: TAG },
+    );
+    assert_eq!(r.code, Code::Ok, "the re-funded account did not settle:\n{}", r.text);
+    assert_says(&r, "settled", "settle after the account was paid");
+}
