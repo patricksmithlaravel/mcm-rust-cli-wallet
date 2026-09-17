@@ -36,10 +36,25 @@
 //! # Entropy is a parameter, and that is what three proofs rest on
 //!
 //! **This crate cannot reach a generator.** Neither `rand` nor `getrandom` is
-//! in its graph and nothing here opens a device, so entropy arrives as an
-//! argument: `Init`'s `salt` and `nonce_seed` and `Unlock`'s `nonce_seed` are
-//! `pub` fields the caller fills, and the binary is what reads `/dev/urandom`
-//! through `std::fs`.
+//! a declared dependency of it, and nothing here opens a device, so entropy
+//! arrives as an argument: `Init`'s `salt` and `nonce_seed` and `Unlock`'s
+//! `nonce_seed` are `pub` fields the caller fills, and the binary is what
+//! reads `/dev/urandom` through `std::fs`.
+//!
+//! **Declared, not absent from the graph**, and the difference is the whole of
+//! it. `rand` is in no configuration's graph at all; `getrandom` is in the
+//! shipped one. With `mesh-https` on, the chain runs from this crate through
+//! `ureq` to `rustls` to `ring` to `getrandom`, while the configuration the
+//! tests build -- `mesh-http`, no TLS -- carries none of it. So "not in the
+//! graph" would be a claim about the build the tests happen to make, and false
+//! of the build that ships.
+//!
+//! What holds instead is narrower and stronger. A library cannot NAME a crate
+//! it does not declare, and neither generator is among this crate's declared
+//! dependencies, so no path through this module reaches one whatever the
+//! feature set resolves to. That is a property of this crate's own manifest,
+//! which is where it can be read, and it is true in every configuration rather
+//! than in the one the tests happen to compile.
 //!
 //! What the constraint buys is a **deterministic image under fixed entropy**.
 //! Three byte-level proofs depend on it -- the format KAT,
