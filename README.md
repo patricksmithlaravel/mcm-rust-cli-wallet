@@ -351,6 +351,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --features mesh-https --bin mcm-wallet
 ```
 
+`./board check` runs the whole board in one command -- the four above and the
+four gates they leave out -- and names any row that failed. `./board verify`
+adds `cargo deny check` and the Miri run; [`RELEASE.md`](RELEASE.md) is the
+checklist before a tag.
+
 The full test board replays thousands of fixture vectors and can take several minutes. Details, invariants (I1–I8), and the open items live in [`AGENT.md`](AGENT.md) and [`docs/specification.md`](docs/specification.md).
 
 Features of note:

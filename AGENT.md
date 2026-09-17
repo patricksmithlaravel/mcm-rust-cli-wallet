@@ -36,6 +36,13 @@ cargo build --features mesh-https --bin mcm-wallet                              
 cargo +nightly miri test -p mochimo-crypto      # not part of the board; MIRIFLAGS unset; hours, not minutes
 ```
 
+`./board check` runs the eight commands above in order, names any row that
+failed and exits non-zero if one did; `./board verify` is that plus `cargo
+deny check` and the Miri run, and is what `RELEASE.md` asks for before a tag.
+The script transcribes this block and **nothing holds the two copies to each
+other** -- a row edited here and not there leaves the script running the old
+board and printing green for it.
+
 `cargo fmt` is not a gate; do not reformat unrelated code.
 
 `cargo doc` is the only command that reads doc links, so it is the only one that
