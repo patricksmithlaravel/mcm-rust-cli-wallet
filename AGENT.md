@@ -3,7 +3,9 @@
 A Rust wallet for Mochimo v3: WOTS+ one-time signatures, 40-byte `tag || hash`
 addresses, an encrypted keystore whose key index only ever moves forward, and
 a client for the Mesh API. One crate, `crates/mochimo-crypto`, and one binary,
-`mcm-wallet`. Pure Rust; no C toolchain is needed to build or test it.
+`mcm-wallet`. The crate and every test target are pure Rust; the shipped
+binary is not -- `--features mesh-https` links `ring`'s C and assembly for
+TLS, and both the board's last row and `tests/cli.rs`'s pty harness build it.
 
 **How the wallet works is written down once, in `docs/specification.md`.** Read
 it before changing anything that touches a wire format, a key, or the store.
