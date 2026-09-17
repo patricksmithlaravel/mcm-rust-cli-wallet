@@ -683,9 +683,9 @@ pub(crate) struct Framed<'a> {
 /// The first record's tag and kind of a version-1 or version-2 image, read
 /// only when the image's length is exactly that version's closed formula.
 ///
-/// The two layouts this crate ever wrote before this one -- v1 from
-/// `cebd1b4` until `2e3fbe0`, v2 from `c4b3a3d` until `8062c9a`, the
-/// commit before `0c07b65` landed v3 -- share a 22-byte plaintext
+/// The two layouts this crate ever wrote before encryption at rest --
+/// versions 1 and 2, neither of which any build here writes -- share a
+/// 22-byte plaintext
 /// header, `magic[8] | version u16 | generation u64 | count u32`, and a
 /// 32-byte sha3 trailer, and every record begins `tag[20] | kind u8`; they
 /// differ in the record width, 94 and 178. So `22 + count * width + 32 ==
@@ -2069,8 +2069,8 @@ mod tests {
         assert_eq!(roots, 1);
     }
 
-    /// A real version-1 `accounts.mks`, captured from the encoder at commit
-    /// `2e3fbe0` -- the last commit before this format existed -- by creating
+    /// A real version-1 `accounts.mks`, written by the last build whose
+    /// encoder wrote format version 1 (`testdata/README.md`), by creating
     /// a store and adding the two accounts the keystore harness seeded (an imported
     /// root `0xB7 * 32` under the unverified tag `0x1A * 20`, and
     /// `F-derive-account-1`). 242 bytes: `22 + 2*94 + 32`.
@@ -2086,8 +2086,8 @@ mod tests {
     const V1_SNAPSHOT: &[u8; 242] =
         include_bytes!("../../testdata/keystore_v1_snapshot.bin");
 
-    /// A real version-2 `accounts.mks`, captured from the encoder at commit
-    /// `8062c9a` -- the last commit whose encoder wrote v2 -- by creating a
+    /// A real version-2 `accounts.mks`, written by the last build whose
+    /// encoder wrote format version 2, by creating a
     /// store and adding the harness's two group-F accounts
     /// (`testdata/README.md`). 410 bytes: `22 + 2*178 + 32`. The imported
     /// account sorts first, so bytes 22..42 are `IMPORTED_TAG` and byte 42
@@ -2104,8 +2104,8 @@ mod tests {
     const V3_SNAPSHOT: &[u8; 290] = include_bytes!("../../testdata/keystore_v3_snapshot.bin");
 
     /// A version-3 `accounts.mks` with a RESERVATION OPEN, captured at
-    /// `Kdf::CHEAP_FOR_TESTS` by the encoder at `529017f` -- the last commit
-    /// whose encoder wrote v3 -- from `Keystore::create`, `adopt_master`
+    /// `Kdf::CHEAP_FOR_TESTS` by the last build whose encoder wrote format
+    /// version 3, from `Keystore::create`, `adopt_master`
     /// (`F-address-widths`' master, `00..1f`), `add(Account::derive(master,
     /// 0))` and `persist_advance(&tag, &[0xD1; 32])` under the harness's
     /// password, salt and nonce seed (`testdata/README.md`).

@@ -111,10 +111,12 @@ const WEAKLY_CHECKED_IDS: &[&str] = &[];
 /// vectors. Adding to this list is a decision, not a convenience.
 const WEAKLY_ANCHORED: &[(&str, &str)] = &[(
     "mochimo_crypto::net::valid_op",
-    "restated in Rust rather than bound: valid_op is a function-like macro \
-     inside network.c, which bindgen never sees and which cannot be linked \
-     (~65 unresolved symbols). Admissible only because it is a predicate over \
-     constants — FIRST_OP and LAST_OP are bound and checked against the C by \
+    "restated in Rust rather than read from an oracle: valid_op is a \
+     function-like macro inside the reference's network.c, so no header \
+     declares it and no fixture group carries its answers. Admissible only \
+     because it is a predicate over constants — FIRST_OP and LAST_OP are \
+     declared in lib.rs as literals read from the reference and compared \
+     against group E's recorded constants by \
      group_e_constants_match_the_reference, and tests/net.rs enumerates the \
      whole input domain against those bounds rather than against literals. A \
      deliberate single exception, not precedent; net.rs's module doc carries the \
@@ -687,8 +689,10 @@ fn sha3(ctx: &mut Ctx) {
         n => panic!(
             "sha3 vector {} has outlen {n}, which is not one of the four widths \
              sha3.h:44 declares compatible (28, 32, 48, 64). The reference \
-             would accept it and produce a non-standard sponge -- and above 99 \
-             it is undefined; see backend::ffi::SHA3_REFERENCE_UNDEFINED_AT_OUTLEN. \
+             would accept it and produce a non-standard sponge -- and from \
+             outlen 100 its own rsiz underflows and sha3_final writes out of \
+             bounds, which is why the width here is a type and not a \
+             parameter (addr.rs's sha3 doc). \
              Either the vector is wrong or a fifth width needs porting.",
             ctx.id
         ),
@@ -2245,10 +2249,10 @@ const TX_CORE_CENSUS: &[(&str, usize)] = &[
 /// `source`.
 ///
 /// Stated so that a core field appearing or disappearing is reported here as
-/// well as wherever else it lands. `tx_layout_core` reads all 35 by name, so a
-/// core field that vanished already fails in the handler and one that appeared
-/// already fails coverage; this makes the number itself auditable rather than
-/// leaving the reader to count the handler.
+/// well as wherever else it lands. The `tx_core` handler reads all 35 by name,
+/// so a core field that vanished already fails in the handler and one that
+/// appeared already fails coverage; this makes the number itself auditable
+/// rather than leaving the reader to count the handler.
 const TX_CORE_UNIVERSAL_KEYS: usize = 39;
 
 #[test]
@@ -2293,9 +2297,10 @@ fn group_d_core_census() {
     assert_eq!(
         universal.len(),
         TX_CORE_UNIVERSAL_KEYS,
-        "the 21 transaction-core vectors now share {} keys, not {TX_CORE_UNIVERSAL_KEYS}. \
-         tx_layout_core mirrors a 35-field core plus four metadata keys; a change here \
+        "the {} transaction-core vectors now share {} keys, not {TX_CORE_UNIVERSAL_KEYS}. \
+         The `tx_core` handler mirrors a 35-field core plus four metadata keys; a change here \
          means the core itself moved.\n  shared: {universal:?}",
+        core.len(),
         universal.len()
     );
 

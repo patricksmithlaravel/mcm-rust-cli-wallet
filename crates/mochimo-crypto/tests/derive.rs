@@ -8,9 +8,10 @@
 //! absent**. The coverage-tracking replay of the same fifteen vectors lives
 //! in `kat.rs`, through the same walk (`support/derivation_walk.rs`, one
 //! implementation behind a trait) with `Ctx` recording every field read.
-//! In the default build `backend::selected` is `ffi` and the WOTS+ step of
-//! this walk runs through the C; the printed line names which, so a green
-//! here says which claim it made.
+//! `backend::selected` is an alias of `native` and there is no second
+//! backend, so the WOTS+ step of this walk is Rust in every configuration
+//! this file compiles in; the printed line says so rather than leaving a
+//! reader to infer it.
 //!
 //! # What this file establishes, and what it cannot
 //!

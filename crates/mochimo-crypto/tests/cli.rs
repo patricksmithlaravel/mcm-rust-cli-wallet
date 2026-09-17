@@ -1244,7 +1244,8 @@ fn reconcile_refuses_an_advance_to_that_does_not_match_the_report() {
 
 /// **The acknowledged path exists**: the number the report
 /// named advances the store, the report is printed before the write, and
-/// the store then reconciles. Red against `1da242d`, where this exited 2.
+/// the store then reconciles -- an acknowledged advance that ends in the
+/// startup refusal it was invoked to clear is a path with no exit.
 #[test]
 fn reconcile_with_the_number_the_report_named_advances_the_store() {
     let (dir, r) = run_on_keeping(
@@ -5678,10 +5679,11 @@ mod pty {
     /// **The acknowledged path exists in the shipped binary, and it verifies
     /// the index it is given**.
     ///
-    /// Once step 2 below exited 2 with the same report as step 1: the
-    /// binary opened a `Wallet` to reconcile, and a `Wallet` refuses to open
-    /// on the divergence it was asked to reconcile. Every assertion from step
-    /// 2 on was red against `1da242d`'s binary.
+    /// The whole path has to work in the shipped binary and not only in the
+    /// library: `reconcile` is a pre-gate command precisely so that it is not
+    /// behind a constructor that refuses on the divergence it exists to
+    /// clear, and a binary that reached the wallet gate here would answer
+    /// step 2 with step 1's report and offer the operator nothing.
     #[test]
     fn reconcile_on_a_real_pty_takes_the_acknowledged_path_the_report_names() {
         use mochimo_crypto::account::Account;
@@ -5723,7 +5725,7 @@ mod pty {
             o3.code,
             Some(0),
             "THE ACKNOWLEDGED PATH IS NOT REACHABLE: reconcile with the exact index the report \
-             named did not exit 0. For a time this was the startup refusal again.\n--- screen ---\n{}\n--- stderr ---\n{}\n--- stdout ---\n{}",
+             named did not exit 0, which leaves a divergence with no way out of it.\n--- screen ---\n{}\n--- stderr ---\n{}\n--- stdout ---\n{}",
             o3.screen, o3.stderr, o3.stdout
         );
         assert!(o3.stdout.contains("to index 2 after operator review"), "reconcile's stdout does not say what it did:\n{}", o3.stdout);

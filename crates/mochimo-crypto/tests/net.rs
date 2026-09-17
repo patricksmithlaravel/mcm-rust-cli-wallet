@@ -1,25 +1,28 @@
 //! `valid_op` over its entire input domain.
 //!
 //! `mochimo_crypto::net::valid_op` is the one definition in this crate that is
-//! restated in Rust rather than bound. `valid_op` is a function-like macro
-//! defined inside a `.c` file rather than a header,
-//! so bindgen never sees it, and `network.c` cannot be compiled into the crate
-//! to shim it — it leaves ~65 symbols unresolved across the peer subsystem,
-//! block and tfile I/O, and `process_tx`.
+//! restated in Rust rather than read from an oracle. `valid_op` is a
+//! function-like macro defined inside the reference's `network.c` rather than
+//! in a header, so no declaration of it exists for a tool to read, and no
+//! fixture group carries its answers: group E records the opcode constants and
+//! not the predicate over them.
 //!
-//! The exception was granted on the grounds that `valid_op` is a **predicate
+//! The exception stands on the grounds that `valid_op` is a **predicate
 //! over constants** rather than a protocol value, and it comes with the
 //! obligation this file discharges: enumerate the whole input domain, with the
-//! expectation written in terms of the bound constants rather than the literals
-//! they currently equal. `FIRST_OP` and `LAST_OP` are read from the generated
-//! bindings and compared against the C by
+//! expectation written in terms of the named constants rather than the literals
+//! they currently equal. `FIRST_OP` and `LAST_OP` are declared in
+//! `lib.rs`'s `consts::net` as literals read from the reference and compared
+//! against group E's recorded constants by
 //! `kat.rs::group_e_constants_match_the_reference`, so if upstream widens the
 //! opcode range this test follows it instead of pinning the old range.
 //!
-//! It is listed in `kat.rs::WEAKLY_ANCHORED` so the weaker standard is visible,
-//! and `invariants.rs::valid_op_upstream_header_fix_owed` fails until the
-//! durable fix lands upstream. It is not precedent; the specification's *Open
-//! items* records the transcription.
+//! It is listed in `kat.rs::WEAKLY_ANCHORED` so the weaker standard is visible.
+//! It is not precedent, and no row of the board carries the remaining want: an
+//! upstream header that declares the predicate is outside any repository, so a
+//! row for it would be red at every commit. Its home is the specification's
+//! *Open items* and `AGENT.md`'s board section, which names it with the other
+//! two conditions held there for the same reason.
 
 use mochimo_crypto::consts::net::{FIRST_OP, LAST_OP};
 use mochimo_crypto::net::valid_op;
@@ -94,7 +97,7 @@ fn valid_op_boundaries_are_closed() {
     }
 }
 
-/// Every named opcode the bindings carry lies inside the range, except the
+/// Every named opcode `consts::net` carries lies inside the range, except the
 /// three the reference places outside it on purpose.
 ///
 /// `OP_NULL`, `OP_HELLO` and `OP_HELLO_ACK` are the pre-handshake codes:

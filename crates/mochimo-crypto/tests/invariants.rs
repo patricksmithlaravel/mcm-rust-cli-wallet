@@ -2132,7 +2132,7 @@ fn no_wallet_visible_fn_hands_out_a_wots_signature() {
         (
             "cli/mod.rs::run",
             Class::Entrypoint,
-            "the CLI's dispatch: it opens a Wallet -- which reconciles or refuses -- and calls              the wallet's own methods, so every route to a signature it has is one the gate              already holds. It hands back a Report, which is text and an exit code; nothing a              signature can be read out of. the pre-gate commands (`create`, `address`, `restore`,              `status` and `reconcile`) run before a Wallet exists, and none of those paths              signs -- the_cli_cannot_reach_around_the_wallet checks both halves mechanically              (this said `restore` was the one such command for a time)",
+            "the CLI's dispatch: it opens a Wallet -- which reconciles every account, partitions              them, and refuses outright only when none reconciled -- and calls              the wallet's own methods, so every route to a signature it has is one the gate              already holds. It hands back a Report, which is text and an exit code; nothing a              signature can be read out of. Ten commands return before a Wallet exists              (`address`, `restore`, `discover`, `status`, `reconcile`, `submit` and the four              read-only verbs), and `create` never reaches this function at all because there is              no store to hand it; none of those paths signs --              the_cli_cannot_reach_around_the_wallet checks both halves mechanically",
         ),
     ];
     let mut unlisted: Vec<String> = Vec::new();
@@ -5444,8 +5444,9 @@ fn corpus_reference_pin_matches_the_commit_the_documents_state() {
     assert!(
         pin.len() >= 7 && pin.chars().all(|c| c.is_ascii_hexdigit()),
         "`{key}` is {pin:?}, which is not a hex object id of at least 7 \
-         characters. It sat at `699f41b` -- a commit that does not exist in \
-         the reference -- for eighteen sessions because nothing looked."
+         characters. A pin nobody reads is a pin that can name a commit the \
+         reference does not have, and every citation resting on it then \
+         points at nothing; this arm is what reads it."
     );
 
     let stated = stated_commits();
@@ -8545,9 +8546,9 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
         3,
         "ull_to_bytes's empty-out guard and base_w's geometry guard: contract \
          guards on the caller's own buffer geometry -- no path from network or \
-         disk bytes chooses these lengths, so the hardening pass left them as panics rather \
-         than widening the seam to Result. They matched the \
-         foreign-function backend's guards while that backend was here. The \
+         disk bytes chooses these lengths, so a failure here is a caller \
+         defect and never an input, and a Result would put a branch at every \
+         call site for a condition no input can reach. The \
          third is the `const _` width assertion over the chunked chain loops: \
          const-evaluated, so it fails a build and can never fail a run. It is \
          counted here rather than parsed around, because a construct the \
@@ -9163,15 +9164,15 @@ fn unsafe_is_confined_to_declared_files() {
 /// no caller-controlled `outlen` is expressible on the SHA3 surface.
 ///
 /// The reference's `sha3_init` computes `rsiz = 200 - 2*outlen` with no range
-/// check; from `outlen == 100` the final-block write is out of bounds
-/// (a reference defect, still held; the notice that named it went with the
-/// binding). The width change closed this crate's
-/// exposure by making the width part of the *type*: four fixed-width
-/// functions, one private funnel. What nothing did until the hardening pass is keep the shape
-/// closed: `sha3_reference_domain_bound_is_derived` checks the number 100 and
-/// `unimplemented_sites_are_declared_with_a_reason` would catch a one-sided
-/// re-addition, but a `pub fn sha3(input: &[u8], out: &mut [u8])` added to
-/// BOTH backends and `addr.rs` together would have sailed through green.
+/// check; from `outlen == 100` the final-block write is out of bounds, which
+/// is a defect of the reference this crate does not reproduce. The width is
+/// part of the *type* here -- four fixed-width functions over one private
+/// funnel -- so an unsupported width is a name that does not exist rather
+/// than a value reaching `sha3_init`, and `addr.rs`'s own doc carries that
+/// argument. This check is what keeps the shape closed: nothing else in the
+/// tree asserts the number 100, and a `pub fn sha3(input: &[u8], out: &mut
+/// [u8])` added to `native.rs` and `addr.rs` together would satisfy every
+/// other check in this file.
 ///
 /// Two arms, one of them gone:
 /// * **shape** — `syn` over the two files with a sha3-named public surface:
@@ -10545,8 +10546,8 @@ fn impl_block(code: &str, header: &str) -> String {
 ///   module that owns them: `add` in `create` and `restore`, `Keystore::create`
 ///   in `create`, `advance_after_operator_review` -- the one route from a
 ///   report to a moved index -- in `reconcile`; and
-/// * **every pre-gate module** (`create`, `address`, `restore`, `reconcile`)
-///   names no `Wallet` at all.
+/// * **every pre-gate module** (`create`, `address`, `discover`, `restore`,
+///   `reconcile`) names no `Wallet` at all.
 ///
 /// So no command holds a `Wallet` and a mutable store at once, the commands
 /// that hold a mutable store are the pre-gate ones, and none of them signs.
@@ -10646,11 +10647,13 @@ fn the_cli_cannot_reach_around_the_wallet() {
     /// `reconcile`, one function that takes an `OperatorAcknowledgement`
     /// built from a `Divergence`. `create` and `address` need no reconciled
     /// state; `restore` constructs one; `reconcile` repairs one, and could not
-    /// do so behind a constructor that refuses on the state it repairs
-    ///.
-    const PRE_GATE: [&str; 4] = [
+    /// do so behind a constructor that refuses on the state it repairs;
+    /// `discover` asks the node about tags the store does not hold, which is
+    /// the one question a gate over the store's own accounts cannot answer.
+    const PRE_GATE: [&str; 5] = [
         "src/cli/create.rs",
         "src/cli/address.rs",
+        "src/cli/discover.rs",
         "src/cli/restore.rs",
         "src/cli/reconcile.rs",
     ];

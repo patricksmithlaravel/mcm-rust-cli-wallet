@@ -239,9 +239,10 @@ pub fn run<M: Medium, T: Transport>(
         }
         Command::Address { tag, account } => return cmd_address(&store, tag.as_ref(), *account, master),
         // `discover` sits beside `address` for the same reason and one
-        // more: it asks the node about tags the store does NOT hold, and
-        // `Wallet::open` refuses a store whose accounts the node does not
-        // resolve -- which is the state a sweep exists to report on.
+        // more: it asks the node about tags the store does NOT hold, and an
+        // account the node does not resolve is one `Wallet::open` refuses --
+        // which is the state a sweep exists to report on, and a store whose
+        // accounts are all in it does not open at all.
         Command::Discover { to } => return cmd_discover(&store, &client, master, *to),
         // No store at all: the artifact is the input. The binary reaches
         // `run_submit` before it opens one; a caller that hands a store in
@@ -1387,15 +1388,18 @@ fn submitted_block(id: &TxId, settle_arg: &str) -> String {
 /// `submit <artifact-hex>`: the artifact `send` printed, written to the
 /// socket as it is.
 ///
-/// # The hole this closes
+/// # Why it opens no store
 ///
-/// After a spend empties an account the Mesh reports its tag as not found,
-/// `Wallet::open` refuses, and an operator holding a valid signed artifact
-/// had no product route to the socket: `resign` needs the node to resolve
-/// the tag first. This command needs no store, opens none and asks no
-/// password: the artifact is the operator's input and the socket the only
-/// output. It reserves nothing, signs nothing and writes nothing to disk;
-/// the binary reaches it before the password prompt, as it does `create`.
+/// After a spend empties an account the Mesh reports its tag as not found, so
+/// reconciliation refuses that account and `resign` cannot run on it -- a
+/// resign needs the node to resolve the tag first. An operator holding a
+/// valid signed artifact needs a route to the socket that asks the node
+/// nothing about the account. This command is it: no store, no password, the
+/// artifact as the whole input and the socket as the only output. It reserves
+/// nothing, signs nothing and writes nothing to disk; the binary reaches it
+/// before the password prompt, as it does `create`. It is equally the route
+/// when the emptied account is the store's only one and the wallet will not
+/// start at all.
 ///
 /// # What it refuses, and what it does not judge
 ///

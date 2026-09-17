@@ -158,7 +158,8 @@ fn adopt_master_refuses_to_replace_a_seed_and_leaves_the_store_untouched() {
 /// `Keystore::create` at `Kdf::RECOMMENDED`, then `adopt_master`, then
 /// `add(Account::derive(master, 0))` -- what `cli::create::create` writes once
 /// the phrase has become a seed -- under the fixed password, salt, nonce seed
-/// and master below, by the build of `f6e42c9`. **It is kept byte for
+/// and master below, by the build whose encoder wrote format version 3 at
+/// that parameter point. **It is kept byte for
 /// byte under its version**, as its README row prescribes, and its subject
 /// changed meaning with version 4: it is the version-3 READ PATH, exercised at the
 /// shipped parameter point, end to end from password to state -- the
@@ -354,8 +355,8 @@ fn a_store_sealed_by_an_earlier_build_opens_and_is_reproduced_byte_for_byte() {
 /// migration exists to preserve, against a real file rather than a forged
 /// word.
 ///
-/// `testdata/keystore_v3_reserved_snapshot.bin` was written by the encoder
-/// at `529017f`, the last commit whose encoder wrote version 3, for the
+/// `testdata/keystore_v3_reserved_snapshot.bin` was written by the last
+/// build whose encoder wrote format version 3, for the
 /// harness's imported master at account index 0 -- `create` at
 /// `CHEAP_FOR_TESTS`, `adopt_master`, `add`, `persist_advance` -- so it
 /// holds a reservation at 0 with the index at 1 and no figures anywhere in
@@ -955,8 +956,8 @@ fn corrupt_snapshots_are_refused_by_exact_variant_and_never_panic() {
 ///
 /// # Why a captured file and not a v1-shaped buffer
 ///
-/// The bytes below were written by the encoder at commit `2e3fbe0`, the last
-/// commit before version 2 existed (`src/keystore/format.rs` carries the same
+/// The bytes below were written by the last build whose encoder wrote format
+/// version 1 (`src/keystore/format.rs` carries the same
 /// image with the capture recorded). A buffer assembled here would exercise
 /// this test's idea of version 1; this exercises version 1.
 ///
@@ -1508,9 +1509,9 @@ fn first_record_of_an_older_image(image: &[u8]) -> ([u8; 20], u8) {
 /// # What is driven
 ///
 /// Two captured files, both written by the encoder of their own version
-/// rather than assembled here (`testdata/README.md`): the version-1 store
-/// captured from `2e3fbe0`, and a version-2 store captured from
-/// `8062c9a`, the last commit whose encoder wrote v2, holding the harness's
+/// rather than assembled here (`testdata/README.md`): a version-1 store and
+/// a version-2 store, each written by the last build whose encoder wrote
+/// that version, the second holding the harness's
 /// two group-F accounts. Each is placed in a directory as `accounts.mks`,
 /// opened through `Keystore::open`, and the refusal is rendered. The refusal
 /// must name the file's first tag in hex and the procedure -- `address
