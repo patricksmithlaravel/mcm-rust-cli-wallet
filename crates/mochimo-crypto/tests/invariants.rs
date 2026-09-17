@@ -6077,6 +6077,14 @@ const DECLARED_UNRESOLVED_SRC_NAMES: &[(&str, &str)] = &[
          runs.",
     ),
     (
+        "private_intra_doc_links",
+        "a rustdoc lint name, in the same crate-level block, allowed rather than denied. Its \
+         argument is written at the site: the links it names resolve, the `deny` above is what \
+         makes them resolve, and dropping the brackets to satisfy it would turn the tree's only \
+         assertion that those private names exist into prose nothing checks. Dependency surface \
+         like the two lints beside it, and visible under `cargo doc` alone.",
+    ),
+    (
         "base58_to_addr_tag",
         "a fixture field: group C's `base58_to_addr_tag`, quoted in `addr.rs` as the datum the \
          function under discussion refuses. Fixture keys are asserted by the group's own \

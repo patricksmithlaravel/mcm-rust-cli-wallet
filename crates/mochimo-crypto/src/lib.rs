@@ -13,6 +13,30 @@
 // pointer while pointing at no item at all. `cargo doc` is the only command
 // that sees this; `cargo test` and `cargo clippy` do not.
 #![deny(rustdoc::broken_intra_doc_links)]
+// A link from a public item's documentation to a PRIVATE one is a different
+// thing, and it is allowed here deliberately rather than left to warn.
+//
+// The three groups it covers are `backend::{native, selected}`, which are
+// crate-private in every build a wallet uses because that is I1's mechanism;
+// `KeyMaterial` and its variants, the closed representation behind
+// `AccountKind`; and the private items a public doc names because they are
+// what the public item is explained BY -- `Keystore::commit`,
+// `AdvanceReceipt::attesting`, `Keystore::key_at`, `crypt::nonce_for`,
+// `read_new_password` and their kind. Every one of those is private because
+// an invariant's mechanism requires it, so the remedy rustdoc implies --
+// widen the item -- is refused at each site: it would trade a mechanism for a
+// warning.
+//
+// The other remedy, dropping the brackets, is worse than the warning here.
+// These links RESOLVE, and the deny above is what makes them resolve: it is
+// the only thing in the tree asserting that `Keystore::commit` and
+// `KeyMaterial::Imported` still exist under those names. Written as plain
+// backticks they become prose nothing checks, which is exactly the class of
+// dead pointer the deny exists to catch. So the links stay, the deny stays,
+// and the warning about a reader who cannot follow them is allowed: this
+// crate is `publish = false` and ships a binary, and the reader it documents
+// for has the source open.
+#![allow(rustdoc::private_intra_doc_links)]
 
 #[cfg(not(feature = "native"))]
 compile_error!(
