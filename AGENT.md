@@ -222,14 +222,14 @@ figure with the latest deltas added to it. **No check reads the total**:
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `f86c9a5`, cargo's exit read from its own process: exit 0,
+The board on commit `54b18db`, cargo's exit read from its own process: exit 0,
 **383 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 4 m 46 s on a warm `target/`, measured with `time(1)`
+ignored, 17 result lines, 4 m 59 s on a warm `target/`, measured with `time(1)`
 around the run being reported rather than estimated from a previous one. **The
 commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff f86c9a5` and, if nothing
+false at the next one. A reader runs `git diff 54b18db` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. The figure to compare across runs is the per-target
@@ -245,7 +245,7 @@ the shipped binary with `--features mesh-https` and drive it under BSD
 mochimo-crypto --test cli -- --list | grep -c 'pty::'` prints. The
 `invariants` target's census spawns `cargo test --workspace --no-run` and the
 sibling binaries, so it has to be run *by* `cargo test` and never by invoking
-the test binary directly. And `kat.rs` replays all 5,364 vectors twice, 109 s
+the test binary directly. And `kat.rs` replays all 5,364 vectors twice, 111 s
 of the run above in a debug build -- over a third of it, and the reason the
 board is minutes rather than seconds.
 
