@@ -1,0 +1,188 @@
+#!/bin/sh
+#
+# The board, in one command.
+#
+#   ./board check     the eight commands under "Build and test" in AGENT.md.
+#                     Minutes. Run before a commit.
+#   ./board verify    check, then `cargo deny check`, then Miri.
+#                     Hours. Run before a tag.
+#
+# WHY A SHELL SCRIPT, and not a justfile or a Makefile. `just` is not
+# installed here, and a recipe file nobody on this machine can run is worse
+# than no recipe file. `make` is installed, but it is GNU make 3.81 on this
+# host -- 2006, the last GPLv2 release Apple ships -- against 4.x on every
+# current Linux, and RELEASE.md requires this be run on both platforms. A
+# build tool whose two versions are nineteen years apart is a second variable
+# inside the thing meant to remove variables. A POSIX shell script has no
+# version skew between the two, no tab-versus-space rule, and nothing to
+# install before the board can be run at all.
+#
+# WHERE THE ROWS CAME FROM. Every command below is transcribed from AGENT.md's
+# "Build and test" block, which is where the board is defined. THE TWO COPIES
+# ARE NOT HELD TO EACH OTHER: a row edited there and not here leaves this
+# script running the old board and printing green for it. Closing that is the
+# same shape as `documented_counts_match_the_artifacts`, which already reads
+# AGENT.md for exactly this class of drift -- so it is a check that could
+# exist and does not. It is written down here rather than covered over.
+#
+# A ROW THAT FAILS DOES NOT STOP THE RUN. The rows are separate cargo
+# invocations and each is independently meaningful, so stopping at the first
+# failure would hide the other seven behind a five-minute round trip apiece.
+# This is the same reasoning as the `--no-fail-fast` the board's own test row
+# carries. The cost is real and is stated rather than hidden: when the tree
+# does not compile, every row fails and prints the same error. The summary at
+# the end names which rows failed, and the exit status is non-zero if any did.
+#
+# THE ROWS RUN IN SEQUENCE, never in parallel. They share one `target/` and
+# cargo takes a lock on it, so parallel rows would serialise on that lock
+# while making the output interleave unreadably.
+
+set -u
+
+# cargo is not on the default PATH on this machine; this line is AGENT.md's,
+# from the top of its "Build and test" block. Prepending is harmless when
+# cargo is already on PATH by another route and when the directory does not
+# exist.
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Run from the repository root whatever the caller's directory. The
+# `invariants` census spawns `cargo test --workspace --no-run` and resolves
+# sibling test binaries relative to the root, so a row run from elsewhere
+# measures a different resolution than the one running.
+# CDPATH is cleared first: it is a common interactive setting, and `cd` with
+# it set can land in a same-named directory somewhere else entirely.
+CDPATH=
+cd "$(dirname "$0")" || exit 1
+
+failures=0
+failed_rows=""
+
+# One board row: a label, then the command and its arguments.
+run() {
+    label=$1
+    shift
+    printf '\n========================================================\n'
+    printf '=== %s\n' "$label"
+    printf '=== %s\n' "$*"
+    printf '========================================================\n\n'
+    row_start=$(date +%s)
+    if "$@"; then
+        row_status=0
+    else
+        row_status=$?
+    fi
+    row_elapsed=$(( $(date +%s) - row_start ))
+    if [ "$row_status" -eq 0 ]; then
+        printf '\n--- %s: ok (%ss)\n' "$label" "$row_elapsed"
+    else
+        failures=$(( failures + 1 ))
+        failed_rows="$failed_rows
+  - $label (exit $row_status)"
+        printf '\n--- %s: FAILED, exit %s (%ss)\n' "$label" "$row_status" "$row_elapsed"
+    fi
+}
+
+# Refuse a row whose tool is absent, rather than skipping it. A gate that
+# passes because its tool was missing reports about nothing.
+require() {
+    tool=$1
+    install_hint=$2
+    if command -v "$tool" >/dev/null 2>&1; then
+        return 0
+    fi
+    failures=$(( failures + 1 ))
+    failed_rows="$failed_rows
+  - $tool is not installed -- $install_hint"
+    printf '\n--- %s is not installed. %s\n' "$tool" "$install_hint"
+    return 1
+}
+
+# The eight rows, in AGENT.md's order.
+check() {
+    run "build"              cargo build --workspace
+    run "test"               cargo test --workspace --no-fail-fast
+    run "clippy: all targets" cargo clippy --workspace --all-targets -- -D warnings
+    # What a dependent compiles: no test targets, so no `raw-backend` and no
+    # `mesh-http` from the dev-dependency on the crate itself.
+    run "clippy: dependent"  cargo clippy --workspace -- -D warnings
+    # The shipped binary's graph, the one configuration that compiles C.
+    run "clippy: mesh-https" cargo clippy -p mochimo-crypto --features mesh-https --all-targets -- -D warnings
+    # Its own workspace, so the row above does not reach it.
+    run "clippy: downstream" cargo clippy --manifest-path crates/mochimo-crypto/ui/downstream/Cargo.toml --bin pass -- -D warnings
+    # AGENT.md's claim for this row is ZERO WARNINGS, and an exit status does
+    # not witness that: rustdoc warns and returns 0. What this row does catch
+    # is the deleted doc link, because `lib.rs` denies
+    # `rustdoc::broken_intra_doc_links` and a denied lint is an error. Setting
+    # RUSTDOCFLAGS=-D warnings here would make the row witness the whole
+    # claim, and it is deliberately not set: that is a different command from
+    # the one AGENT.md documents as the gate, and widening a gate is the
+    # maintainer's decision to record there, not this script's to make
+    # quietly. Read this row's output for warnings; the status will not.
+    run "doc"                cargo doc --workspace --no-deps
+    run "build: shipped"     cargo build --features mesh-https --bin mcm-wallet
+}
+
+# check, plus the two steps whose cost puts them at a tag rather than a commit.
+verify() {
+    check
+
+    # Licence and advisory policy. `deny.toml` at the root carries it, and its
+    # comments carry what it does and does not reach.
+    if require cargo-deny "install it with: cargo install cargo-deny --locked"; then
+        run "cargo deny" cargo deny check
+    fi
+
+    # AGENT.md names this command in one form and the tree names the same form
+    # in `tests/miri.rs` and in `invariants.rs`. MIRIFLAGS is deliberately
+    # NOT set: AGENT.md records that it is unset for this run, and a flag set
+    # here would mean the release gate interpreted the crate under different
+    # rules than the documented command does.
+    #
+    # Narrowing it to `--test miri` would run the memory-safety walks alone and
+    # finish far sooner. It is not done: `miri.rs`'s own domain table is held
+    # honest by a check in `invariants.rs`, so a narrowed run would skip the
+    # target that proves the walk's domain is complete. AGENT.md calls the
+    # full run hours rather than minutes; that is the cost of this row.
+    if require rustup "Miri needs a nightly toolchain; see https://rustup.rs"; then
+        run "miri" cargo +nightly miri test -p mochimo-crypto
+    fi
+}
+
+summarise() {
+    what=$1
+    printf '\n========================================================\n'
+    if [ "$failures" -eq 0 ]; then
+        printf '=== %s: green. Every row passed.\n' "$what"
+    else
+        printf '=== %s: %s row(s) FAILED:%s\n' "$what" "$failures" "$failed_rows"
+    fi
+    printf '=== total %ss\n' "$(( $(date +%s) - run_start ))"
+    printf '========================================================\n'
+    [ "$failures" -eq 0 ]
+}
+
+if ! command -v cargo >/dev/null 2>&1; then
+    printf 'cargo is not on PATH, and "$HOME/.cargo/bin" did not supply it.\n' >&2
+    printf 'Nothing below can run. Install Rust (https://rustup.rs) and retry.\n' >&2
+    exit 127
+fi
+
+run_start=$(date +%s)
+case "${1:-}" in
+    check)
+        check
+        summarise "check"
+        ;;
+    verify)
+        verify
+        summarise "verify"
+        ;;
+    *)
+        printf 'usage: %s check | verify\n\n' "$0" >&2
+        printf '  check   the eight board commands from AGENT.md. Minutes.\n' >&2
+        printf '          Run before a commit.\n' >&2
+        printf '  verify  check, then `cargo deny check`, then Miri. Hours.\n' >&2
+        printf '          Run before a tag, on Linux and on macOS. See RELEASE.md.\n' >&2
+        exit 2
+        ;;
+esac
