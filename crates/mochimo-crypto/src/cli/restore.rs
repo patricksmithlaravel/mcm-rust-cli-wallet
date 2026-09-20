@@ -72,7 +72,7 @@ pub fn restore_account<M: Medium, T: Transport>(
         Some(m) => ScanScope::RESTORE.with_ceiling(m.saturating_add(1)),
         None => ScanScope::RESTORE,
     };
-    let found = recon::restore_account_index_with(client, master, account_index, &scope)?;
+    let found = recon::restore_account_index_with(client, master, account_index, &scope, &recon::Cancel::NEVER)?;
 
     let cannot_store = |cause| RestoreFailure::CannotStore {
         tag: found.tag,

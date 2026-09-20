@@ -4344,7 +4344,7 @@ fn restore_derives_the_index_from_chain_state() {
     let mut found_at = 0u32;
     for i in 0..WALK {
         let client = MC::new(Chain::new(&[(TAG, ChainState::At(addr_at(i), 1_000 + u64::from(i)))]));
-        let r = recon_api::restore_account_index_with(&client, &master(), 0, &scope).unwrap_or_else(|e| {
+        let r = recon_api::restore_account_index_with(&client, &master(), 0, &scope, &recon_api::Cancel::NEVER).unwrap_or_else(|e| {
             panic!("the scan did not reach position {i} inside the bound:\n{e}")
         });
         assert_eq!(r.index, pos(i), "the scan derived the wrong index at position {i}");
@@ -4379,7 +4379,7 @@ fn restore_derives_the_index_from_chain_state() {
     let mut alien = addr_at(0);
     alien[TAGLEN] ^= 0x01;
     let client = MC::new(Chain::new(&[(TAG, ChainState::At(alien, 1))]));
-    match recon_api::restore_account_index_with(&client, &master(), 0, &scope) {
+    match recon_api::restore_account_index_with(&client, &master(), 0, &scope, &recon_api::Cancel::NEVER) {
         Err(RF::NoIndexReproducesTheAddress { scanned, .. }) => {
             assert_eq!(scanned, WALK, "the bound reported is not the bound walked");
         }
@@ -4392,7 +4392,7 @@ fn restore_derives_the_index_from_chain_state() {
     // found, the first OUTSIDE is refused rather than guessed at.
     let client = MC::new(Chain::new(&[(TAG, ChainState::At(addr_at(WALK - 1), 1))]));
     assert_eq!(
-        recon_api::restore_account_index_with(&client, &master(), 0, &scope)
+        recon_api::restore_account_index_with(&client, &master(), 0, &scope, &recon_api::Cancel::NEVER)
             .unwrap_or_else(|e| panic!("the last position INSIDE the bound was not reached:\n{e}"))
             .index,
         pos(WALK - 1)
@@ -4400,7 +4400,7 @@ fn restore_derives_the_index_from_chain_state() {
     let client = MC::new(Chain::new(&[(TAG, ChainState::At(addr_at(WALK), 1))]));
     assert!(
         matches!(
-            recon_api::restore_account_index_with(&client, &master(), 0, &scope),
+            recon_api::restore_account_index_with(&client, &master(), 0, &scope, &recon_api::Cancel::NEVER),
             Err(RF::NoIndexReproducesTheAddress { .. })
         ),
         "the first position OUTSIDE the bound was reached; the bound stopped bounding"

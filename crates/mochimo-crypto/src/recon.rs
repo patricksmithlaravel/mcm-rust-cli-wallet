@@ -501,6 +501,66 @@ fn walked(f: &mut fmt::Formatter<'_>, local: WotsIndex, scope: &ScanScope) -> fm
     Ok(())
 }
 
+/// A caller's answer to *should this walk stop now?*, asked once per key
+/// position.
+///
+/// [`ScanScope`] says how far a walk may go; this says whether it may keep
+/// going. The two are separate because they answer to different people: the
+/// scope is a property of the recovery question being asked, and this is the
+/// operator changing their mind about waiting.
+///
+/// # Why a walk needs to be stoppable at all, which is not about patience
+///
+/// A restore walks up to [`RECOVERY_CEILING`] positions with the master seed
+/// borrowed across every one of them, and the seed is a [`Secret`]: it is
+/// overwritten when it drops, and that is the whole of this crate's answer
+/// for it in memory.
+///
+/// **The overwrite only happens if the process unwinds or returns.** Nothing
+/// in this tree installs a signal handler, so a `SIGINT` at the terminal --
+/// the ordinary way a person ends a wait they did not expect to be this long
+/// -- terminates the process with no destructor run and the seed intact in
+/// pages the kernel is about to hand back. That is the same argument the
+/// workspace manifest makes for `panic = "unwind"` over `panic = "abort"`,
+/// reaching a signal the manifest does not mention.
+///
+/// This type is the mechanism that makes the other answer available: a caller
+/// that can notice the interruption can stop the walk, get an ordinary
+/// `Err(Error::Cancelled)` back, and let every `Drop` between there and the
+/// top run. **It is not itself that answer.** Nothing in this crate and
+/// nothing in the shipped binary installs such a handler, so at the command
+/// line the gap is open and `README.md` says so. What is closed is the part a
+/// library can close: the walk is no longer unstoppable from outside.
+///
+/// # The predicate's obligations
+///
+/// It is called once per position, on the walking thread, and it must be
+/// cheap -- a relaxed load of a flag is the shape intended. It must not lock
+/// anything the caller also holds elsewhere, and it must not panic: a panic
+/// here unwinds through the walk, which does run the destructors, but it
+/// leaves the caller with a panic where a refusal was available.
+pub struct Cancel<'a>(Option<&'a dyn Fn() -> bool>);
+
+impl Cancel<'static> {
+    /// The walk runs to its scope's end. What every caller that cannot be
+    /// interrupted passes, including every one in this crate today.
+    pub const NEVER: Cancel<'static> = Cancel(None);
+}
+
+impl<'a> Cancel<'a> {
+    /// Stop as soon as `asked` answers `true`.
+    #[must_use]
+    pub fn when(asked: &'a dyn Fn() -> bool) -> Cancel<'a> {
+        Cancel(Some(asked))
+    }
+
+    /// Ask. `NEVER` never asks, so a caller that passes it pays no call at
+    /// all rather than a call that returns `false`.
+    fn stop(&self) -> bool {
+        matches!(self.0, Some(asked) if asked())
+    }
+}
+
 /// Why the wallet will not start. Every variant renders a report naming what
 /// diverged, by how much, and one action (I4's clause that message
 /// quality is part of the requirement, not a nicety).
@@ -1054,6 +1114,20 @@ impl fmt::Display for RestoreFailure {
                 hex20(address),
                 scanned.saturating_sub(1),
             ),
+            // A cancel is not a fault and must not be rendered as one. The
+            // arm below tells the reader to fix the cause, which for
+            // `Cancelled` is the reader, and says the scan could not run,
+            // which is false -- it ran and was stopped. I4's clause is that
+            // message quality is part of the requirement.
+            RestoreFailure::CannotScan { tag, cause: Error::Cancelled } => {
+                write!(
+                    f,
+                    "restore of account {}: the scan was stopped before it found an index. \
+                     ACTION: run it again to search from the start; nothing was written, no \
+                     index is assumed, and stopping cost nothing but the search.",
+                    hex20(tag),
+                )
+            }
             RestoreFailure::CannotScan { tag, cause } => write!(
                 f,
                 "restore of account {}: the scan could not run ({cause}). ACTION: fix the cause; \
@@ -1089,7 +1163,7 @@ pub fn restore_account_index<T: Transport>(
     master: &Secret<SEED_LEN>,
     account_index: u32,
 ) -> core::result::Result<RestoredAccount, RestoreFailure> {
-    restore_account_index_with(client, master, account_index, &ScanScope::RESTORE)
+    restore_account_index_with(client, master, account_index, &ScanScope::RESTORE, &Cancel::NEVER)
 }
 
 /// [`restore_account_index`] over a caller-set scope — the way an operator
@@ -1101,6 +1175,7 @@ pub fn restore_account_index_with<T: Transport>(
     master: &Secret<SEED_LEN>,
     account_index: u32,
     scope: &ScanScope,
+    cancel: &Cancel<'_>,
 ) -> core::result::Result<RestoredAccount, RestoreFailure> {
     let tag = derive::derive_account_tag(master, account_index);
     let entry = match client.resolve_tag(&tag) {
@@ -1112,6 +1187,14 @@ pub fn restore_account_index_with<T: Transport>(
         Err(cause) => return Err(RestoreFailure::ChainUnreachable { tag, cause }),
     };
     let found = scan_for_address(&entry.address, scope, None, |p| {
+        // Asked before the derivation and not after, so a cancel costs at
+        // most the position it arrives during rather than one more.
+        // `scan_for_address` already takes the caller's derivation closure,
+        // and routing the check through it is why neither `walk` nor
+        // `scan_for_address` grows a parameter for this.
+        if cancel.stop() {
+            return Err(Error::Cancelled);
+        }
         Ok(derived_address_at(master, account_index, p))
     })
     .map_err(|cause| RestoreFailure::CannotScan { tag, cause })?;

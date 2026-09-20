@@ -43,8 +43,8 @@ use mochimo_crypto::consts::{ADDR_TAG_LEN, MFEE};
 use mochimo_crypto::keystore::{Disk, Figures, Keystore, Pending};
 use mochimo_crypto::mesh::MeshClient;
 use mochimo_crypto::recon::{
-    self, AccountStatus, ChainPosition, Diagnosis, Divergence, Expiry, Reservation, RestoreFailure,
-    ScanScope, DIVERGENCE_WINDOW, RECOVERY_CEILING,
+    self, AccountStatus, Cancel, ChainPosition, Diagnosis, Divergence, Expiry, Reservation,
+    RestoreFailure, ScanScope, DIVERGENCE_WINDOW, RECOVERY_CEILING,
 };
 use mochimo_crypto::tx::wire::Destination;
 use mochimo_crypto::wallet::{OperatorAcknowledgement, Settlement, StartupRefusal, Wallet};
@@ -114,7 +114,7 @@ fn the_restore_scan_stops_on_the_match_at_every_position_in_the_bound() {
     for i in 0..WALKED {
         let chain = Chain::new(&[(TAG, ChainState::At(addr_at(i), 1_000 + u64::from(i)))]);
         let client = MeshClient::new(chain);
-        let found = recon::restore_account_index_with(&client, &master(), 0, &scope)
+        let found = recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::NEVER)
             .unwrap_or_else(|e| panic!("position {i}: {e}"));
         assert_eq!(found.index, pos(i), "the scan found the wrong index for position {i}");
         assert_eq!(found.tag, TAG);
@@ -127,6 +127,125 @@ fn the_restore_scan_stops_on_the_match_at_every_position_in_the_bound() {
 /// Every failing path fails, and **none of them returns zero**. I5's clause
 /// that restore never defaults to zero is unconditional, and zero is only
 /// ever returned as a match like any other.
+/// `NEVER` is an optimisation and not a second policy: it is never asked at
+/// all, where a predicate that answers `false` is asked once per position, and
+/// the two must reach the same index.
+#[test]
+fn a_cancel_that_never_fires_leaves_the_scan_exactly_as_it_was() {
+    let scope = ScanScope::RESTORE.with_ceiling(WALKED);
+
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(3), 1_003))]));
+    let found = recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::NEVER)
+        .expect("a scan nobody cancels must find the index");
+
+    let never = || false;
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(3), 1_003))]));
+    let same =
+        recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::when(&never))
+            .expect("a predicate that never says stop must not stop the scan");
+
+    assert_eq!(found.index, pos(3));
+    assert_eq!(same.index, found.index, "the two forms of not cancelling disagree");
+    assert_eq!(same.balance, found.balance);
+    assert_eq!(same.tag, found.tag);
+}
+
+/// The chain here holds an address this bound DOES reach, so the only reason
+/// the scan ends without an index is the cancel.
+#[test]
+fn a_cancel_that_fires_stops_the_scan_and_reports_that_nothing_was_decided() {
+    let scope = ScanScope::RESTORE.with_ceiling(WALKED);
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(3), 1_003))]));
+    let stop = || true;
+    let err = recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::when(&stop))
+        .expect_err("a cancel that fires must not return an index");
+
+    match &err {
+        RestoreFailure::CannotScan { cause, .. } => assert_eq!(
+            *cause,
+            Error::Cancelled,
+            "a cancel was reported under another cause"
+        ),
+        other => panic!("{other:?}"),
+    }
+
+    // I4's message-quality clause, and the reason this arm exists at all: the
+    // generic `CannotScan` sentence tells the reader to fix the cause and says
+    // the scan could not run. For a cancel the reader IS the cause, and the
+    // scan ran and was stopped.
+    let text = err.to_string();
+    assert!(text.contains("stopped before it found an index"), "{text}");
+    assert!(!text.contains("fix the cause"), "a cancel is rendered as a fault: {text}");
+    assert!(!text.contains("could not run"), "a cancel is rendered as a fault: {text}");
+}
+
+/// The two ways a walk ends without an index are OPPOSITE claims, and this is
+/// the property that keeps them apart.
+///
+/// An exhausted bound says *no position this scan reached reproduces that
+/// address*, which an operator acts on -- it is the shape of a wrong seed, a
+/// wrong chain, or an account further along than the ceiling. A cancel says
+/// nothing whatever was learned. Reporting the second as the first is how a
+/// stopped scan teaches somebody their seed is wrong.
+#[test]
+fn a_cancelled_scan_is_never_reported_as_a_bound_that_found_nothing() {
+    let scope = ScanScope::RESTORE.with_ceiling(WALKED);
+    let mut alien = ADDRESS_AT_1;
+    alien[ADDR_TAG_LEN] ^= 0x01;
+
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 7))]));
+    let exhausted =
+        recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::NEVER)
+            .expect_err("an address no index reproduces must fail");
+    assert!(
+        matches!(exhausted, RestoreFailure::NoIndexReproducesTheAddress { .. }),
+        "{exhausted:?}"
+    );
+
+    let stop = || true;
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 7))]));
+    let cancelled =
+        recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::when(&stop))
+            .expect_err("a cancel must fail");
+    assert!(
+        !matches!(cancelled, RestoreFailure::NoIndexReproducesTheAddress { .. }),
+        "a cancelled scan was reported as an exhausted bound: {cancelled:?}"
+    );
+}
+
+/// The predicate is asked once per position, and the walk ends where it says
+/// rather than at the scope's end.
+///
+/// The address is placed at the LAST position the bound reaches, so a walk
+/// that ignored the predicate would succeed and this test would fail by
+/// returning an index rather than by counting wrong.
+#[test]
+fn the_cancel_is_asked_once_per_position_and_the_walk_ends_where_it_says() {
+    let scope = ScanScope::RESTORE.with_ceiling(WALKED);
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(WALKED - 1), 5))]));
+
+    let asked = std::cell::Cell::new(0u32);
+    const STOP_AFTER: u32 = 4;
+    let predicate = || {
+        let n = asked.get();
+        asked.set(n + 1);
+        n >= STOP_AFTER
+    };
+    let err =
+        recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::when(&predicate))
+            .expect_err("the walk must stop before the position holding the address");
+
+    assert!(
+        matches!(err, RestoreFailure::CannotScan { cause: Error::Cancelled, .. }),
+        "{err:?}"
+    );
+    assert_eq!(
+        asked.get(),
+        STOP_AFTER + 1,
+        "the predicate is asked once per position, up to and including the one that says stop"
+    );
+}
+
 #[test]
 fn restore_fails_rather_than_assuming_zero_on_every_unavailable_path() {
     // (1) the chain cannot be reached
@@ -148,7 +267,7 @@ fn restore_fails_rather_than_assuming_zero_on_every_unavailable_path() {
     let mut alien = ADDRESS_AT_1;
     alien[ADDR_TAG_LEN] ^= 0x01;
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 7))]));
-    let err = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(WALKED))
+    let err = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(WALKED), &Cancel::NEVER)
         .expect_err("alien must fail");
     match err {
         RestoreFailure::NoIndexReproducesTheAddress { scanned, .. } => {
@@ -187,7 +306,7 @@ fn a_position_past_the_bound_fails_rather_than_being_guessed_at() {
     let scope = ScanScope::RESTORE.with_ceiling(WALKED);
     let past = addr_at(WALKED);
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(past, 1))]));
-    let err = recon::restore_account_index_with(&client, &master(), 0, &scope).expect_err("past the bound must fail");
+    let err = recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::NEVER).expect_err("past the bound must fail");
     assert!(matches!(
         err,
         RestoreFailure::NoIndexReproducesTheAddress { scanned, .. } if scanned == WALKED
@@ -197,7 +316,7 @@ fn a_position_past_the_bound_fails_rather_than_being_guessed_at() {
     let last = addr_at(WALKED - 1);
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(last, 1))]));
     assert_eq!(
-        recon::restore_account_index_with(&client, &master(), 0, &scope)
+        recon::restore_account_index_with(&client, &master(), 0, &scope, &Cancel::NEVER)
             .unwrap_or_else(|e| panic!("{e}"))
             .index,
         pos(WALKED - 1)
@@ -1427,7 +1546,7 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
 #[test]
 fn restore_finds_a_far_along_index_only_when_the_ceiling_is_raised() {
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(30), 5))]));
-    let err = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(WALKED))
+    let err = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(WALKED), &Cancel::NEVER)
         .expect_err("30 is past a ceiling of 20");
     match &err {
         RestoreFailure::NoIndexReproducesTheAddress { scanned, .. } => assert_eq!(*scanned, WALKED),
@@ -1443,12 +1562,12 @@ fn restore_finds_a_far_along_index_only_when_the_ceiling_is_raised() {
     assert!(!text.contains("not 'further along"), "the denial is back:\n{text}");
 
     // Raised to walk 0..=30: found. Raised to walk 0..=29: still not.
-    let found = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(31))
+    let found = recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(31), &Cancel::NEVER)
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(found.index, pos(30));
     assert_eq!(found.balance, 5);
     assert!(matches!(
-        recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(30)),
+        recon::restore_account_index_with(&client, &master(), 0, &ScanScope::RESTORE.with_ceiling(30), &Cancel::NEVER),
         Err(RestoreFailure::NoIndexReproducesTheAddress { scanned: 30, .. })
     ), "a ceiling of 30 walked index 30");
 
@@ -1457,7 +1576,7 @@ fn restore_finds_a_far_along_index_only_when_the_ceiling_is_raised() {
     let mut alien = addr_at(0);
     alien[ADDR_TAG_LEN] ^= 0x01;
     let client2 = MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 7))]));
-    match recon::restore_account_index_with(&client2, &master(), 0, &ScanScope::RESTORE.with_ceiling(60)) {
+    match recon::restore_account_index_with(&client2, &master(), 0, &ScanScope::RESTORE.with_ceiling(60), &Cancel::NEVER) {
         Err(e @ RestoreFailure::NoIndexReproducesTheAddress { scanned: 60, .. }) => {
             assert!(format!("{e}").contains("0 through 59"), "{e}");
         }

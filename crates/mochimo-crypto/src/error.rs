@@ -227,6 +227,24 @@ pub enum Error {
     AcknowledgementDoesNotMatch,
     /// `advance_after_operator_review` on an account that reconciles cleanly.
     NothingToReconcile,
+    /// A caller's [`crate::recon::Cancel`] asked a key-position walk to stop,
+    /// and it stopped.
+    ///
+    /// **Not a failure of anything**, which is why it is its own variant
+    /// rather than an `Io` or a `Range`: the walk was working, and the
+    /// operator or the interface driving it asked for it to end. It is an
+    /// `Error` because the alternative is to report it as `Ok(None)` -- the
+    /// same value a walk that reached its ceiling and found nothing returns
+    /// -- and those two say opposite things. One means *this seed does not
+    /// hold that address anywhere the scan reached*, which is a finding; this
+    /// one means *nothing was learned*.
+    ///
+    /// **It carries no position.** A cancelled walk stopped somewhere, and
+    /// the number is deliberately not here: the only caller that can cancel
+    /// is the one driving the predicate, which is already counting, and a
+    /// figure this type reported would be a second count to keep in step with
+    /// the first.
+    Cancelled,
     /// The Mesh transport failed before a response body arrived. `op` names
     /// the step (`"connect"`, `"send"`, `"read body"`), `kind` the class;
     /// never the transport's message, which can carry a host or a
@@ -576,6 +594,10 @@ impl fmt::Display for Error {
             Error::NothingToReconcile => f.write_str(
                 "this account reconciles cleanly against the chain; there is no divergence to \
                  advance past",
+            ),
+            Error::Cancelled => f.write_str(
+                "the key-position walk was stopped before it reached a conclusion; nothing was \
+                 decided and no index is assumed",
             ),
             Error::Transport { op, kind } => write!(f, "mesh transport {op}: {kind:?}"),
             Error::HttpStatus { status } => write!(
