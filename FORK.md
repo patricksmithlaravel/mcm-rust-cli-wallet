@@ -56,28 +56,41 @@ extraction invisible to `tests/keystore.rs`.
 implementation behind it, no `cfg` and no trait, and a non-unix build still
 fails at `lib.rs`'s `compile_error!` and again at `keystore`'s.
 
-### P0-2 -- cooperative cancellation, and the signal gap
+### P0-2 -- cooperative cancellation, and the signal gap **(the restore walk done, 2026-09-20)**
 
 Two parts. The second is the reason the first is worth having here rather than
 downstream.
 
-**The gap.** Nothing in this tree addresses signals -- not the source, not the
-documents, not `Cargo.toml`. A `restore` walks up to `recon::RECOVERY_CEILING`
-key positions with `master: &Secret<SEED_LEN>` live across the whole walk, and
-`SIGINT` terminates the process without unwinding, so **no destructor runs and
-the seed is not scrubbed.** That is exactly the argument the root `Cargo.toml`
-makes against `panic = "abort"`, reaching a signal that argument does not
-mention. It is a defect of this wallet, on Unix, today.
+**The gap, which is a defect of this wallet on Unix today.** Nothing in this
+tree addresses signals -- not the source, not the documents, not `Cargo.toml`.
+A `restore` walks up to `recon::RECOVERY_CEILING` key positions with `master:
+&Secret<SEED_LEN>` live across the whole walk, and `SIGINT` terminates the
+process without unwinding, so **no destructor runs and the seed is not
+overwritten.** That is the argument the root `Cargo.toml` makes against
+`panic = "abort"`, reaching a signal that argument does not mention.
 
-**The mechanism.** `recon::scan_for_address` already takes the caller's
-derivation closure, but `restore_account_index_with` and
-`reconcile_account_with` build that closure internally, so a caller cannot
-inject a check. Thread a cancellation predicate through both.
+**The mechanism, done for the restore walk.** `recon::Cancel` is asked once
+per position; a cancel is `Error::Cancelled`, which is deliberately not the
+`Ok(None)` an exhausted bound returns, because those two say opposite things.
+The check sits in the derivation closure `restore_account_index_with` already
+builds, so neither `walk` nor `scan_for_address` grew a parameter. `README.md`
+records the open half in its limits section.
 
-Whether Rep-0 also installs a handler that *uses* the predicate is a separate
-decision and a larger one: a wallet that catches a signal is a wallet with a
-new path through its own shutdown, and that path owes the same fault injection
-every other path here owes.
+**Still open, and both deliberately.**
+
+* **The diagnostic walk.** `reconcile_account_with` reaches the same ceiling
+  through `locate` and is not cancellable. It cannot be without reshaping
+  `ChainPosition`: `Unlocated` records a stopped walk in `failed_at` and its
+  `Display` says the walk stopped *on a derivation error*, which of a cancel is
+  false. That is a public enum whose every variant carries an argument, and the
+  reshape belongs in a commit whose subject is the reshape. The two walks also
+  differ in kind -- cancel a restore and nothing happened; cancel a diagnostic
+  and the divergence is still reported, with its position uncharacterised -- so
+  the right answer may differ too.
+* **A signal handler.** Nothing installs one and the binary passes
+  `Cancel::NEVER`, so at the command line the gap is open. A wallet that
+  catches a signal is a wallet with a new path through its own shutdown, and
+  that path owes the fault injection every other path here owes.
 
 ### P0-3 -- separate the decision from its rendering
 
