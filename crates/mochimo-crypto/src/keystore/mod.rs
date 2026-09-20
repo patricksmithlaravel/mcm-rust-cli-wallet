@@ -141,13 +141,13 @@ compile_error!(
 pub(crate) mod crypt;
 pub mod format;
 pub mod medium;
+pub(crate) mod perms;
 pub mod sign;
 pub mod spend;
 
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs::{self, File, TryLockError};
 use std::io::Read;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
@@ -304,30 +304,8 @@ fn io(op: &'static str) -> impl Fn(std::io::Error) -> Error {
     move |e| Error::Io { op, kind: e.kind() }
 }
 
-fn refuse_unsafe_dir(dir: &Path) -> Result<()> {
-    let meta = fs::metadata(dir).map_err(io("stat directory"))?;
-    if !meta.is_dir() {
-        return Err(Error::Io {
-            op: "stat directory",
-            kind: std::io::ErrorKind::NotADirectory,
-        });
-    }
-    let mode = meta.mode() & 0o777;
-    if mode & 0o022 != 0 {
-        return Err(Error::UnsafePermissions { mode });
-    }
-    Ok(())
-}
-
 fn take_lock(dir: &Path) -> Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(dir.join(LOCK_NAME))
-        .map_err(io("open lock"))?;
+    let file = perms::open_private_lock(&dir.join(LOCK_NAME)).map_err(io("open lock"))?;
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(TryLockError::WouldBlock) => Err(Error::Locked),
@@ -387,12 +365,9 @@ impl<M: Medium> Keystore<M> {
     /// [`Instrumented`]).
     pub fn create_with(dir: &Path, medium: M, init: &Init<'_>) -> Result<Self> {
         if !dir.exists() {
-            fs::DirBuilder::new()
-                .mode(0o700)
-                .create(dir)
-                .map_err(io("create directory"))?;
+            perms::create_private_dir(dir).map_err(io("create directory"))?;
         }
-        refuse_unsafe_dir(dir)?;
+        perms::refuse_unsafe_dir(dir)?;
         if let Some(what) = occupied(dir) {
             return Err(Error::Exists { what });
         }
@@ -440,7 +415,7 @@ impl<M: Medium> Keystore<M> {
 
     /// [`Keystore::open`] over an explicit medium.
     pub fn open_with(dir: &Path, medium: M, unlock: &Unlock<'_>) -> Result<Self> {
-        refuse_unsafe_dir(dir)?;
+        perms::refuse_unsafe_dir(dir)?;
         // The snapshot's existence is checked before the lock file is touched,
         // so an `open` that reports `Missing` leaves no lock behind. **Every
         // refusal below this point does leave one**, because

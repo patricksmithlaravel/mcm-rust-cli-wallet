@@ -34,11 +34,11 @@
 //! visible only here (the proof test's sequence assertion, and the paired
 //! injection that shows it).
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use super::perms;
 use crate::error::{Error, Result};
 
 pub(crate) const SNAPSHOT_NAME: &str = "accounts.mks";
@@ -95,21 +95,18 @@ impl Medium for Disk {
         // truncated leftover carries its own permissions through the rename.
         // `open` already unlinks a stale temp after taking the lock; doing it
         // here too is what keeps `create`'s first commit, and every other,
-        // from depending on the caller remembering. Mode 0600: since format
-        // v3 the temp is a 51-byte plaintext header over a sealed body, so a
-        // partial one leaks the KDF parameters, the salt and the nonce rather
-        // than a root -- metadata, not key material, and still nobody else's.
+        // from depending on the caller remembering. The mode the temp is
+        // created with is `perms::FILE_MODE`, and the reason it is the same
+        // `0600` the lock file gets is argued there: since format v3 the temp
+        // is a 51-byte plaintext header over a sealed body, so a partial one
+        // leaks the KDF parameters, the salt and the nonce rather than a root
+        // -- metadata, not key material, and still nobody else's.
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(io("write_temp unlink stale temp")(e)),
         }
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&path)
-            .map_err(io("write_temp open"))?;
+        let mut file = perms::create_private_file(&path).map_err(io("write_temp open"))?;
         file.write_all(image).map_err(io("write_temp write"))?;
         Ok(Written { file, path })
     }
