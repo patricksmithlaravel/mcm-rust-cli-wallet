@@ -2003,6 +2003,55 @@ fn key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent() {
 /// an embedded control crate in which a visible wrapper over `wots::sign`,
 /// a visible `-> Box<[u8; SIG_LEN]>`, and the same under a `pub(crate)`
 /// module must flag, flag, and not flag respectively.
+/// **The decision layer carries no prose.**
+///
+/// `cli::outcome` is what a command established; `cli::render` is what the
+/// program says about it. The split is only worth having while the first of
+/// those cannot quietly become the second, and the way it becomes the second
+/// is one variant with a `String` in it -- a page already built, handed
+/// through a type that claims to be a decision. One such field and a
+/// dependent can no longer tell which variants it may act on and which it may
+/// only print.
+///
+/// So the scan is exact rather than tasteful: **no `String` anywhere in
+/// `cli/outcome.rs`**, comments stripped. The module needs none today, and a
+/// variant that genuinely needs one is a variant whose data has not been
+/// found yet -- which is a conversation to have at this test, not a field to
+/// add quietly.
+///
+/// `&'static str` is not what this catches and should not be: a fixed string
+/// is a discriminant with a readable spelling, not a page. Nothing in the
+/// module uses one either.
+///
+/// The paired half is structural and needs no test: `render::outcome`
+/// matches `Outcome` exhaustively, so a variant added without a rendering is
+/// a compile error rather than a silent blank page.
+#[test]
+fn the_decision_layer_carries_no_prose() {
+    let src = code_only(&read_crate_file("crates/mochimo-crypto/src/cli/outcome.rs"));
+    assert!(
+        src.contains("pub enum Outcome"),
+        "the scan did not find `Outcome` in cli/outcome.rs; it is reading the wrong file \
+         or the module moved, and a scan that matches nothing holds nothing"
+    );
+    let hits: Vec<(usize, &str)> = src
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.contains("String"))
+        .map(|(i, l)| (i + 1, l.trim()))
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "cli/outcome.rs names `String`, so a decision can carry a page through the type that \
+         says it is a decision:\n{}\nPut the value the sentence is made of in the variant and \
+         the sentence in `cli::render`.",
+        hits.iter()
+            .map(|(n, l)| format!("\x20 - line {n}: {l}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 #[test]
 fn no_wallet_visible_fn_hands_out_a_wots_signature() {
     let files = crate_source_files();
@@ -2143,6 +2192,11 @@ fn no_wallet_visible_fn_hands_out_a_wots_signature() {
         (
             "cli/mod.rs::run",
             Class::Entrypoint,
+            "the CLI's one-line entry: `render(decide(..))` and nothing else. It names no              `Wallet` itself and reaches the signer only through `decide`, whose Entrypoint              permission is checked on its own row below; it hands back a Report, which is text              and an exit code and nothing a signature can be read out of. This is the              delegation clause's only user, and the reason the clause exists",
+        ),
+        (
+            "cli/mod.rs::decide",
+            Class::Entrypoint,
             "the CLI's dispatch: it opens a Wallet -- which reconciles every account, partitions              them, and refuses outright only when none reconciled -- and calls              the wallet's own methods, so every route to a signature it has is one the gate              already holds. It hands back a Report, which is text and an exit code; nothing a              signature can be read out of. Ten commands return before a Wallet exists              (`address`, `restore`, `discover`, `status`, `reconcile`, `submit` and the four              read-only verbs), and `create` never reaches this function at all because there is              no store to hand it; none of those paths signs --              the_cli_cannot_reach_around_the_wallet checks both halves mechanically",
         ),
     ];
@@ -2203,9 +2257,33 @@ fn no_wallet_visible_fn_hands_out_a_wots_signature() {
                     !f.names_raw_signer,
                     "{name} is allow-listed as an Entrypoint but its body names a RAW signer                      port; that is a route around the gate, which is the I1 hole this scan                      exists to catch"
                 );
+                // **The gate on its path, directly or one call away.**
+                //
+                // The clause was `body_names_wallet` alone, which was exact
+                // while the dispatch and the wallet were the same function.
+                // They are not: `run` is `render(decide(..))` now, and it is
+                // `decide` that opens the `Wallet`. A dispatch that delegates
+                // has the same permission as one that does the work -- the
+                // gate is still on its path -- and reading the clause
+                // literally would have forced the split to be undone or the
+                // route to be waived.
+                //
+                // So the clause is widened rather than waived, and only as
+                // far as the property already reaches: the body must name
+                // `Wallet`, or name another function ALLOW-LISTED AS AN
+                // ENTRYPOINT, whose own permission is checked by these same
+                // three assertions on its own row. A chain of delegations is
+                // therefore a chain of checked permissions, and a function
+                // that names neither is rejected exactly as before.
+                let delegates_to_entrypoint = f.body_idents.iter().any(|id| {
+                    ALLOWED.iter().any(|(n, c, _)| {
+                        matches!(c, Class::Entrypoint)
+                            && n.rsplit("::").next().is_some_and(|short| short == id)
+                    })
+                });
                 assert!(
-                    f.body_names_wallet,
-                    "{name} is allow-listed as an Entrypoint but its body never names `Wallet`.                      The permission rests on the gate being ON its path; without that it is an                      unlisted route to a signature."
+                    f.body_names_wallet || delegates_to_entrypoint,
+                    "{name} is allow-listed as an Entrypoint but its body neither names `Wallet`                      nor calls another allow-listed Entrypoint. The permission rests on the gate                      being ON its path; without that it is an unlisted route to a signature."
                 );
                 entrypoints_verified += 1;
             }
@@ -2330,6 +2408,10 @@ mod route_scan {
         pub reads_pending: bool,
         /// The body names `Wallet` — the gate is on its path.
         pub body_names_wallet: bool,
+        /// Every identifier the body mentions. Added for the Entrypoint
+        /// check's delegation clause, which has to ask whether the body names
+        /// another Entrypoint and cannot do that from a fixed set of flags.
+        pub body_idents: Vec<String>,
         /// The body names a RAW signer port (`wots::sign` and the two
         /// `backend::*::wots_sign`). A Composer permission requires this
         /// false: reaching the signer through `sign_spend` inherits the
@@ -2817,6 +2899,11 @@ mod route_scan {
                 .body
                 .as_ref()
                 .is_some_and(|b| idents(b).iter().any(|t| t.to_string() == "Wallet"));
+            let body_idents: Vec<String> = f
+                .body
+                .as_ref()
+                .map(|b| idents(b).iter().map(|t| t.to_string()).collect())
+                .unwrap_or_default();
             let takes_digest = f.sig.inputs.iter().any(|arg| match arg {
                 syn::FnArg::Typed(t) => {
                     let rendered = t.ty.to_token_stream().to_string().replace(' ', "");
@@ -2834,6 +2921,7 @@ mod route_scan {
                 why,
                 reaches_signer: reaches,
                 body_names_wallet,
+                body_idents,
                 takes_digest,
                 reads_pending,
                 holder_params,

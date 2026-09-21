@@ -85,6 +85,7 @@ pub fn account_status<M: Medium, T: Transport>(
 }
 
 /// What `reconcile` decided, after reading the whole store.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The store advanced the named account to the acknowledged index.
     Advanced { index: u32 },
@@ -104,6 +105,7 @@ pub enum Outcome {
 
 /// What `reconcile` read and did: every diverged account's report as it
 /// stood before the decision, in tag order, and the decision.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reviewed {
     pub reports: Vec<Divergence>,
     pub accounts: usize,

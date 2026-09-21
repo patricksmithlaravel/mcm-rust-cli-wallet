@@ -50,6 +50,12 @@ use crate::keystore::{KeyAccess, Keystore, Medium};
 use crate::{Error, Result};
 
 /// One account, as the store records it. No seed, no node.
+///
+/// `Debug` and the comparisons are safe on this and are not on much else in
+/// this crate: every field is a public identifier or a position, and no
+/// derivation of it reaches key material. It carries them because
+/// `outcome::Outcome` holds a list of these and is itself compared in tests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Held {
     pub tag: Tag,
     pub kind: crate::account::AccountKind,

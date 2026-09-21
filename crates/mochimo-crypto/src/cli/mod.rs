@@ -48,22 +48,25 @@ pub mod address;
 pub mod args;
 pub mod create;
 pub mod discover;
+pub mod outcome;
 pub mod reconcile;
+pub mod render;
 pub mod restore;
 
 use crate::addr::Tag;
-use crate::consts::{ADDR_LEN, ADDR_REF_LEN, ADDR_TAG_LEN, HASHLEN, MFEE, SEED_LEN};
+use crate::consts::{ADDR_LEN, ADDR_REF_LEN, ADDR_TAG_LEN, HASHLEN, SEED_LEN};
 use crate::keystore::{KeyAccess, Keystore, Medium};
 use crate::mesh::spend::SpendPlan;
 use crate::mesh::codec;
-use crate::mesh::{MeshClient, SignedTransaction, Transport, TxId};
+use crate::mesh::{MeshClient, Transport, TxId};
 use crate::account::WotsIndex;
 use crate::recon::{AccountStatus, ChainPosition, Divergence, Expiry, Reservation};
 use crate::tx::wire::Destination;
-use crate::wallet::{Settlement, Wallet};
+use crate::wallet::Wallet;
 use crate::{Error, Result, Secret};
 
 use args::{Command, Spend};
+use outcome::{AccountLine, Decided, Outcome};
 
 /// What the process exits with. A refusal is never `0`.
 ///
@@ -212,6 +215,30 @@ pub fn run<M: Medium, T: Transport>(
     client: MeshClient<T>,
     command: &Command,
 ) -> Report {
+    render::render(&decide(store, client, command))
+}
+
+/// A command that answered before a `Wallet` existed, so there are no
+/// standing divergences to report beside it: nothing reconciled anything.
+fn before_the_gate(outcome: Outcome) -> Decided {
+    Decided {
+        standing: Vec::new(),
+        outcome,
+    }
+}
+
+/// Run `command` and return **what it decided**, in types, with nothing yet
+/// said in words.
+///
+/// This is [`run`] without the last step. The two exist separately because a
+/// decision and the sentence announcing it are different things and only one
+/// of them can be tested for being right; `render` is the other, and
+/// `outcome`'s module doc carries the argument.
+pub fn decide<M: Medium, T: Transport>(
+    store: Keystore<M>,
+    client: MeshClient<T>,
+    command: &Command,
+) -> Decided {
     // **The seed comes out of the store, not off the terminal**: the password
     // that opened the file is what produced it.
     // Cloned because the store is consumed into a `Wallet` below and the seed
@@ -220,10 +247,7 @@ pub fn run<M: Medium, T: Transport>(
     let master = match store.master() {
         Ok(m) => m.map(Secret::duplicate),
         Err(e) => {
-            return Report {
-                text: format!("{e}"),
-                code: Code::StartupRefused,
-            }
+            return before_the_gate(Outcome::StoreUnreadable(e))
         }
     };
     let master = master.as_ref();
@@ -235,30 +259,38 @@ pub fn run<M: Medium, T: Transport>(
     // never reaches here: there is no store to hand in.
     match command {
         Command::Restore { account, scan_to } => {
-            return cmd_restore(store, &client, master, *account, *scan_to)
+            return before_the_gate(cmd_restore(store, &client, master, *account, *scan_to))
         }
-        Command::Address { tag, account } => return cmd_address(&store, tag.as_ref(), *account, master),
+        Command::Address { tag, account } => {
+            return before_the_gate(cmd_address(&store, tag.as_ref(), *account, master))
+        }
         // `discover` sits beside `address` for the same reason and one
         // more: it asks the node about tags the store does NOT hold, and an
         // account the node does not resolve is one `Wallet::open` refuses --
         // which is the state a sweep exists to report on, and a store whose
         // accounts are all in it does not open at all.
-        Command::Discover { to } => return cmd_discover(&store, &client, master, *to),
+        Command::Discover { to } => {
+            return before_the_gate(cmd_discover(&store, &client, master, *to))
+        }
         // No store at all: the artifact is the input. The binary reaches
         // `run_submit` before it opens one; a caller that hands a store in
         // gets it dropped, unread.
-        Command::Submit { artifact } => return cmd_submit(&client, artifact),
+        Command::Submit { artifact } => return before_the_gate(cmd_submit(&client, artifact)),
         // The explorer verbs, for the same reason: the node is the whole
         // input. The binary reaches `run_explorer` before it prompts.
-        Command::LookupTransaction { hash } => return cmd_transaction(&client, hash),
-        Command::RecentTransactions { tag, count } => {
-            return cmd_recent_transactions(&client, tag, *count)
+        Command::LookupTransaction { hash } => {
+            return before_the_gate(cmd_transaction(&client, hash))
         }
-        Command::Block { at } => return cmd_block(&client, at),
-        Command::Blocks { count } => return cmd_blocks(&client, *count),
-        Command::Status { tag, scan_to } => return cmd_status(&store, &client, tag, master, *scan_to),
+        Command::RecentTransactions { tag, count } => {
+            return before_the_gate(cmd_recent_transactions(&client, tag, *count))
+        }
+        Command::Block { at } => return before_the_gate(cmd_block(&client, at)),
+        Command::Blocks { count } => return before_the_gate(cmd_blocks(&client, *count)),
+        Command::Status { tag, scan_to } => {
+            return before_the_gate(cmd_status(&store, &client, tag, master, *scan_to))
+        }
         Command::Reconcile { tag, advance_to } => {
-            return cmd_reconcile(store, &client, tag, master, *advance_to)
+            return before_the_gate(cmd_reconcile(store, &client, tag, master, *advance_to))
         }
         _ => {}
     }
@@ -266,10 +298,7 @@ pub fn run<M: Medium, T: Transport>(
     let mut w = match Wallet::open(store, client, master) {
         Ok(w) => w,
         Err(refusal) => {
-            return Report {
-                text: format!("{refusal}{}", next_steps(&refusal.diverged)),
-                code: Code::StartupRefused,
-            }
+            return before_the_gate(Outcome::StartupRefused(Box::new(refusal)))
         }
     };
 
@@ -283,16 +312,21 @@ pub fn run<M: Medium, T: Transport>(
         Command::Settle { tag } | Command::Resign(Spend { tag, .. }) | Command::Send(Spend { tag, .. }) => Some(*tag),
         _ => None,
     };
-    let notice = standing_divergence_notice(w.diverged());
     // A named account that diverged is refused here, with its own report, and
-    // without the notice repeating it immediately above.
+    // **with no standing divergences carried beside it**, so the notice does
+    // not repeat immediately above what the refusal already says. That was an
+    // early return before the notice was applied; it is an empty `standing`
+    // now, which is the same thing said in the value instead of in the
+    // control flow.
     if let Some(tag) = addressed {
         if let Some(d) = w.divergence_for(&tag) {
-            return refuse_diverged_account(d);
+            return before_the_gate(Outcome::Diverged(Box::new(d.clone())));
         }
     }
 
-    let report = match command {
+    // Owned, so the borrow ends before the commands that need `&mut w`.
+    let standing = w.diverged().to_vec();
+    let outcome = match command {
         Command::Restore { .. }
         | Command::Address { .. }
         | Command::Discover { .. }
@@ -303,16 +337,13 @@ pub fn run<M: Medium, T: Transport>(
         | Command::LookupTransaction { .. }
         | Command::RecentTransactions { .. }
         | Command::Block { .. }
-        | Command::Blocks { .. } => handled_before_the_wallet(),
+        | Command::Blocks { .. } => Outcome::HandledBeforeTheWallet,
         Command::Balance => cmd_balance(&w),
         Command::Settle { tag } => cmd_settle(&mut w, tag, master),
         Command::Send(s) => cmd_send(&mut w, s, master),
         Command::Resign(s) => cmd_resign(&mut w, s, master),
     };
-    Report {
-        text: format!("{notice}{}", report.text),
-        code: report.code,
-    }
+    Decided { standing, outcome }
 }
 
 /// The in-program spelling of the action a report names, per account, after
@@ -390,76 +421,24 @@ fn next_steps(diverged: &[Divergence]) -> String {
     out
 }
 
-/// The pre-gate commands cannot reach the dispatch below. A `match` arm rather
-/// than a wildcard so that adding a command is a compile error here rather than
-/// a silent fall-through, and a `Report` rather than `unreachable!()` because
-/// the panic census is right: a CLI that panics on an internal invariant is a
-/// CLI that panics.
-fn handled_before_the_wallet() -> Report {
-    Report::refused("this command is handled before the wallet opens".into())
-}
-
 fn cmd_restore<M: Medium, T: Transport>(
     mut store: Keystore<M>,
     client: &MeshClient<T>,
     master: Option<&Secret<SEED_LEN>>,
     account: u32,
     scan_to: Option<u32>,
-) -> Report {
+) -> Outcome {
     let Some(m) = master else {
-        return Report::refused(
-            "restore derives an account from the master seed, and none was supplied.".into(),
-        );
+        return Outcome::RestoreNeedsMaster;
     };
     match restore::restore_account(&mut store, client, m, account, scan_to) {
-        Ok(r) => {
-            let restored_tag = match destination(&r.found.tag) {
-                Ok(d) => d,
-                Err(e) => return cannot_render(&r.found.tag, &e),
-            };
-            let what = match r.held_at {
-                None => "added to the store at that index, in one write".to_string(),
-                Some(stored) if stored == r.found.index => format!(
-                    "already in the store, at that same index {}; nothing was written",
-                    stored.get()
-                ),
-                Some(stored) => format!(
-                    "ALREADY IN THE STORE, at index {} -- and NOT moved. Restore builds an \
-                     account the store lacks; moving one it holds is reconciliation, which \
-                     shows you the whole store's report first. Run `status 0x{}` to see it and \
-                     `reconcile 0x{} --advance-to {}` to act on it.",
-                    stored.get(),
-                    hex_bytes(&r.found.tag),
-                    hex_bytes(&r.found.tag),
-                    r.found.index.get()
-                ),
-            };
-            Report::ok(format!(
-                "restored account {account}\n  destination  {}\n  index    {} (from the chain, \
-                 never assumed)\n  address  {}\n  balance  {} nanoMCM\n  {what}\n\nthe index came from \
-                 scanning derived addresses against the one the chain holds for this tag. \
-                 Position 0 is a match like any other, never a default.{}",
-                restored_tag,
-                r.found.index.get(),
-                hex_bytes(&r.found.address),
-                r.found.balance,
-                upgrade_line(&store)
-            ))
-        }
-        // The flag is this program's; the library text names the remedy in
-        // its own words and this line gives it a spelling.
-        Err(f @ crate::recon::RestoreFailure::NoIndexReproducesTheAddress { scanned, .. }) => {
-            Report::refused(format!(
-                "{f}\n\nIn this program: `restore --account {account} --scan-to <M>` walks \
-                 indices 0 through M instead of 0 through {}. Each index costs one key \
-                 derivation.",
-                scanned.saturating_sub(1)
-            ))
-        }
-        Err(f) => Report {
-            text: format!("{f}"),
-            code: Code::Refused,
+        Ok(r) => Outcome::Restored {
+            account,
+            found: r.found,
+            held_at: r.held_at,
+            upgraded: store.upgraded_from(),
         },
+        Err(failure) => Outcome::RestoreRefused { account, failure },
     }
 }
 
@@ -582,64 +561,17 @@ fn reservation_lines(spent_index: WotsIndex, reservation: &Reservation, indent: 
     out
 }
 
-/// The one-way crossing, on the page of the command that made it: a
-/// version-3 store is read as it is and re-sealed as
-/// version 4 by its first commit, after which an older build meets `got >
-/// supported` on a real file for the first time and prints the
-/// fresh-directory advice -- which, for an open reservation, is the
-/// second-signature route. Empty for every store that did not cross under
-/// this handle, which is every store this build created and every version-3
-/// store a read-only command opened: `open` never rewrites the snapshot, and
-/// `status`, `balance` and `address` do not call this. The detector for an
-/// `upgraded_from` that reports the crossing before it has happened is the
-/// pin test's fourth arm, not a page.
-fn upgrade_line<M: Medium>(store: &Keystore<M>) -> String {
-    match store.upgraded_from() {
-        Some(from) => format!(
-            "\n\nThis store was written in format version {} by this command (it was version {from} \
-             until now). An older build of this wallet will no longer open \
-             it; this build and later ones do. Nothing was retyped and nothing needs to be.",
-            crate::keystore::format::VERSION
-        ),
-        None => String::new(),
+fn cmd_balance<M: Medium, T: Transport>(w: &Wallet<M, T>) -> Outcome {
+    Outcome::Balance {
+        accounts: w
+            .accounts()
+            .iter()
+            .map(|(tag, status)| AccountLine {
+                tag: *tag,
+                status: status.clone(),
+            })
+            .collect(),
     }
-}
-
-fn cmd_balance<M: Medium, T: Transport>(w: &Wallet<M, T>) -> Report {
-    let accounts = w.accounts();
-    if accounts.is_empty() {
-        return Report::ok("no accounts in this store.".into());
-    }
-    let mut out = String::new();
-    for (tag, status) in accounts {
-        let state = state_of(status);
-        let dest = match destination(tag) {
-            Ok(d) => d,
-            Err(e) => return cannot_render(tag, &e),
-        };
-        // Padded to the widest a destination can be, because Base58 is
-        // variable-width (22 to 31) where the old hex rendering was not, and
-        // a right-aligned amount column measured from a moving left edge is
-        // worse than no alignment: it looks deliberate.
-        out.push_str(&format!(
-            "{dest:<width$}  {:>20} nanoMCM  index {}  {}\n",
-            status.balance(),
-            status.index().get(),
-            state,
-            width = crate::addr::TAG_BASE58_MAX_CHARS
-        ));
-        // The reserved figures under the account's row, in `status`'s words.
-        // The row itself is unchanged.
-        if let AccountStatus::SpendOutstanding {
-            spent_index,
-            reservation,
-            ..
-        } = status
-        {
-            out.push_str(&reservation_lines(*spent_index, reservation, "    "));
-        }
-    }
-    Report::ok(out)
 }
 
 /// Where to receive. **No wallet, no chain** — see `cli::address`.
@@ -668,7 +600,7 @@ fn cmd_address<M: Medium>(
     tag: Option<&Tag>,
     account: Option<u32>,
     master: Option<&Secret<SEED_LEN>>,
-) -> Report {
+) -> Outcome {
     if let Some(n) = account {
         return cmd_address_of_unstored_account(store, n, master);
     }
@@ -676,37 +608,13 @@ fn cmd_address<M: Medium>(
         return cmd_accounts(store);
     };
     match key_access(store, tag, master).and_then(|access| address::address_of(store, tag, &access)) {
-        Ok(w) => match destination(tag) {
-            Err(e) => cannot_render(tag, &e),
-            Ok(dest) => Report::ok(format!(
-            "{dest}\n  address  {}\n  index    {}\n\nThe first line is this account's \
-             DESTINATION -- Base58 over the tag and its CRC16, the form every Mochimo wallet \
-             takes. Give that to whoever is paying you. It is computed from this store alone: \
-             no node was asked, and it is the destination whether or not the chain has ever \
-             heard of this tag.\n\nThe indented `address` is the 40-byte entry the \
-             LEDGER WILL HOLD for this account at this index. Before the first credit the \
-             ledger holds nothing at all, and the entry the first credit creates comes from \
-             the tag alone -- it matches this line only because a derived account at index 0 \
-             has its tag in both halves. It is not a destination: no wallet takes it, and \
-             neither does this one.",
-            hex_bytes(&w.address),
-            w.index.get()
-        )),
+        Ok(w) => Outcome::Address {
+            tag: *tag,
+            address: w.address,
+            index: w.index,
         },
-        // **Hex, not the destination form**, and deliberately: `dest` here is
-        // a re-rendering of what the operator typed for an account this store
-        // does not hold. Printing it as Base58 would put a string in exactly
-        // the shape this program teaches means *where money goes* on screen at
-        // the moment it is saying it knows nothing about it -- and an operator
-        // who pasted the wrong tag would be one glance from paying it.
-        Err(Error::NoSuchAccount) => Report::refused(format!(
-            "no account for the tag {} in this store -- that is the tag you named, in hex so it \
-             cannot be mistaken for somewhere to send funds.\n  `create` makes an account; \
-             `restore --account N` adds one the chain already knows; `address` with no argument \
-             lists what is here.",
-            hex_bytes(tag)
-        )),
-        Err(e) => Report::refused(format!("{e}")),
+        Err(Error::NoSuchAccount) => Outcome::NoAccountToAddress { tag: *tag },
+        Err(e) => Outcome::Failed(e),
     }
 }
 
@@ -743,44 +651,27 @@ fn cmd_address_of_unstored_account<M: Medium>(
     store: &Keystore<M>,
     account: u32,
     master: Option<&Secret<SEED_LEN>>,
-) -> Report {
+) -> Outcome {
     let Some(master) = master else {
-        return Report::refused(
-            "this store holds no master seed (its accounts are imported), so no account can be \
-             derived from it; `address <destination>` prints a stored account's address. Nothing \
-             was written."
-                .into(),
-        );
+        return Outcome::NoMasterSeed;
     };
     let tag = crate::derive::derive_account_tag(master, account);
-    let dest = match destination(&tag) {
-        Ok(d) => d,
-        Err(e) => return cannot_render(&tag, &e),
-    };
     match store.view(&tag) {
         Ok(Some(view)) => {
-            return Report::refused(format!(
-                "account {account} is already in this store (its destination is {dest}, at index \
-                 {}); run `address {dest}` for the address it will next present -- position 0's \
-                 address is one the chain may no longer hold. Nothing was written.",
-                view.wots_index.get()
-            ))
+            return Outcome::AccountAlreadyStored {
+                account,
+                tag,
+                index: view.wots_index,
+            }
         }
         Ok(None) => {}
-        Err(e) => return Report::refused(format!("{e}")),
+        Err(e) => return Outcome::Failed(e),
     }
-    let address = crate::recon::derived_address_at(master, account, WotsIndex::ZERO);
-    Report::ok(format!(
-        "{dest}\n  address  {}\n  index    0\n\nNOT STORED. Account {account} was derived from this \
-         store's master seed and written nowhere: nothing was written, nothing reserved, no node \
-         asked. The first line is its DESTINATION -- Base58 over the tag and its CRC16, the form \
-         every Mochimo wallet takes -- and the indented `address` is the 40-byte entry the ledger \
-         will hold at index 0 once it is paid. Give the destination to whoever is paying you; once \
-         it has been paid, run `restore --account {account}`, which asks the chain where the \
-         account sits and adds it to this store at that position (0 for a first credit), under \
-         this same tag. Until then the store does not hold it and `balance` will not show it.",
-        hex_bytes(&address)
-    ))
+    Outcome::UnstoredAddress {
+        account,
+        tag,
+        address: crate::recon::derived_address_at(master, account, WotsIndex::ZERO),
+    }
 }
 
 /// `discover [--to N]`: what the node says about accounts `0..=N` derived
@@ -807,100 +698,23 @@ fn cmd_discover<M: Medium, T: Transport>(
     client: &MeshClient<T>,
     master: Option<&Secret<SEED_LEN>>,
     to: u32,
-) -> Report {
+) -> Outcome {
     let Some(master) = master else {
-        return Report::refused(
-            "this store holds no master seed (its accounts are imported), so no account index \
-             can be derived from it and there is nothing to sweep; `address` with no argument \
-             lists what this store holds. Nothing was written."
-                .into(),
-        );
+        return Outcome::DiscoverNeedsMaster;
     };
-    let sweep = match discover::sweep(store, client, master, to) {
-        Ok(s) => s,
+    match discover::sweep(store, client, master, to) {
+        Ok(sweep) => Outcome::Discovered { sweep },
         Err(discover::SweepFailure::ChainUnreachable {
             account,
             searched,
             cause,
-        }) => {
-            return Report::refused(format!(
-                "the sweep stopped at account index {account}: {cause}\n  {searched} of {} index(es) \
-                 were searched. The node was not asked about index {account} or anything above it, \
-                 so this page reports NO extent and says nothing at all about those indices -- a \
-                 partial sweep printed as a whole one would be asserting absence by omission.\n  \
-                 Nothing was written. Fix the node and run it again.",
-                u64::from(to) + 1
-            ))
-        }
-    };
-
-    let mut rows = String::new();
-    let mut unresolved: Vec<u32> = Vec::new();
-    for s in &sweep.sightings {
-        // Every index the node resolved, and every index this store holds
-        // whatever the node said, gets its own row. A held account the node
-        // does not resolve is exactly the emptied-account window, and
-        // hiding it would hide the one row an operator most needs.
-        if s.entry.is_none() && s.held.is_none() {
-            unresolved.push(s.account);
-            continue;
-        }
-        let dest = match destination(&s.tag) {
-            Ok(d) => d,
-            Err(e) => return cannot_render(&s.tag, &e),
-        };
-        let balance = match &s.entry {
-            Some(e) => nano_and_mcm(i128::from(e.balance)),
-            None => "not resolved by the node".to_string(),
-        };
-        let held = match s.held {
-            None => String::new(),
-            Some((kind, index)) => format!(
-                "  IN THIS STORE ({}, at key index {})",
-                match kind {
-                    crate::account::AccountKind::Derived => "derived",
-                    crate::account::AccountKind::Imported => "imported",
-                },
-                index.get()
-            ),
-        };
-        rows.push_str(&format!(
-            "  {:>5}  {dest:<width$}  {balance}{held}\n",
-            s.account,
-            width = crate::addr::TAG_BASE58_MAX_CHARS
-        ));
+        }) => Outcome::SweepStopped {
+            account,
+            searched,
+            to,
+            cause,
+        },
     }
-
-    let mut out = format!(
-        "searched account indices 0..={to} from this store's master seed -- {} index(es), one \
-         node call each. The node resolved {} of them.\n\n{rows}",
-        u64::from(to) + 1,
-        sweep.resolved()
-    );
-    if !unresolved.is_empty() {
-        out.push_str(&format!(
-            "  the node did not resolve {} index(es):{}\n",
-            unresolved.len(),
-            wrapped_indices(&unresolved)
-        ));
-    }
-    out.push_str(&format!(
-        "\n`did not resolve` is what was OBSERVED, and this page does NOT say those accounts do \
-         not exist -- it cannot. The node answers `account not found` for a tag the ledger has no \
-         entry for, for a tag it holds at ZERO balance, and for a lookup that failed, and it does \
-         not tell the three apart; never funded, a node serving another chain, and a seed that is \
-         not the one that made the account all produce the first of them. What is reported per \
-         index is the node's answer and nothing beyond it.\n\n\
-         The extent is 0..={to} because that is what was asked for: `discover --to N` searches \
-         0..=N for any N from 1 to {}, and the number searched is on the first line so it can be \
-         raised when it is too small. An index the node resolved is added to this store by \
-         `restore --account N`. An index you expected to see and do not is a reason to check the \
-         node and the seed, not a verdict.\n\n\
-         Nothing was written: no account was added, nothing reserved, nothing signed, and the \
-         store is unchanged.",
-        args::DISCOVER_MAX_TO
-    ));
-    Report::ok(out)
 }
 
 /// A list of indices, sixteen to a line, each line indented under the count
@@ -922,48 +736,11 @@ fn wrapped_indices(indices: &[u32]) -> String {
 /// **No seed and no node**, which is the point — this is the route back to a
 /// destination for an operator who has one and cannot name it, including the
 /// one `create` just refused the confirmation for.
-fn cmd_accounts<M: Medium>(store: &Keystore<M>) -> Report {
-    let held = match address::accounts_in(store) {
-        Ok(h) => h,
-        Err(e) => return Report::refused(format!("{e}")),
-    };
-    if held.is_empty() {
-        return Report::ok(
-            "no accounts in this store. `create` makes one; `restore --account N` adds one the \
-             chain already knows."
-                .into(),
-        );
+fn cmd_accounts<M: Medium>(store: &Keystore<M>) -> Outcome {
+    match address::accounts_in(store) {
+        Ok(held) => Outcome::Accounts { held },
+        Err(e) => Outcome::Failed(e),
     }
-    // **A header, and it is load-bearing rather than decorative.** `address
-    // <tag>` puts a bare destination on line one so an operator copies line
-    // one and a script reads it. If this listing did the same, a script whose
-    // tag argument went missing -- an unquoted empty shell variable -- would
-    // silently receive a well-formed destination for whatever account happens
-    // to sort first, and publish it. The header makes line one something no
-    // parser mistakes for a destination, so the dropped argument fails loudly.
-    let mut out = format!("{} account(s) in this store:\n", held.len());
-    for h in &held {
-        let dest = match destination(&h.tag) {
-            Ok(d) => d,
-            Err(e) => return cannot_render(&h.tag, &e),
-        };
-        out.push_str(&format!(
-            "  {dest:<width$}  index {}  {}\n",
-            h.index.get(),
-            match h.kind {
-                crate::account::AccountKind::Derived => "derived",
-                crate::account::AccountKind::Imported => "imported",
-            },
-            width = crate::addr::TAG_BASE58_MAX_CHARS
-        ));
-    }
-    out.push_str(
-        "\nEach line begins with a DESTINATION -- give one to whoever is paying you. Read from \
-         the store's own records: no node was asked and no seed was needed, so this works \
-         before the account has any funds and without the phrase. `address <destination>` adds \
-         the 40-byte ledger address, and that one does need the seed.",
-    );
-    Report::ok(out)
 }
 
 /// `status`: one account, reconciled now, **before the gate**.
@@ -981,62 +758,26 @@ fn cmd_status<M: Medium, T: Transport>(
     tag: &Tag,
     master: Option<&Secret<SEED_LEN>>,
     scan_to: Option<u32>,
-) -> Report {
+) -> Outcome {
     match reconcile::account_status(store, client, tag, master, scan_to) {
-        // **Rendered, not `{s:?}`**. It was the derived `Debug` of
-        // `AccountStatus`, whose `InSync` arm carries a 40-byte `Address`, so
-        // this command printed the ledger address as a forty-element DECIMAL
-        // byte array -- a third spelling of an object `address` shows in hex
-        // and `balance` names by its destination, agreeing with neither, and
-        // matching nothing an operator could look up. It contained no `{:02x}`
-        // and no `hex` symbol, so a pass over "where does the CLI render an
-        // identifier" keyed on hex sites went straight past it.
-        Ok(s) => match destination(tag) {
-            Err(e) => cannot_render(tag, &e),
-            Ok(dest) => {
-                // After the state line: the ledger address for an in-sync
-                // account, or the reserved figures on their own lines for an
-                // outstanding one -- never appended to
-                // the state line itself.
-                let tail = match &s {
-                    AccountStatus::InSync { address, .. } => format!("\n  address  {}", hex_bytes(address)),
-                    AccountStatus::SpendOutstanding {
-                        spent_index,
-                        reservation,
-                        ..
-                    } => {
-                        let lines = reservation_lines(*spent_index, reservation, "  ");
-                        format!("\n{}", lines.trim_end_matches('\n'))
-                    }
-                    AccountStatus::SpendLanded { .. } => String::new(),
-                };
-                Report::ok(format!(
-                    "{dest}\n  balance  {} nanoMCM\n  index    {}\n  state    {}{tail}",
-                    s.balance(),
-                    s.index().get(),
-                    state_of(&s),
-                ))
-            }
-        },
+        Ok(status) => Outcome::Status { tag: *tag, status },
         Err(Divergence::CannotReconcile {
             cause: Error::NoSuchAccount,
             ..
-        }) => Report::refused(no_such_account(tag)),
-        // The same text a refusal prints -- one rendering, so what the
+        }) => Outcome::NoSuchAccount { tag: *tag },
+        // The same report a refusal prints -- one rendering, so what the
         // operator reads when a command reports is what they read when an
-        // operation on this account is refused -- with the in-program spelling
-        // of its action.
+        // operation on this account is refused. Exit 0: it is an answer about
+        // the account and not a refusal of the command.
         Err(d @ (Divergence::IndexMismatch { .. }
         | Divergence::ReservationUnexplained { .. }
-        | Divergence::TagUnresolved { .. })) => match destination(tag) {
-            Err(e) => cannot_render(tag, &e),
-            Ok(dest) => Report::ok(format!(
-                "{dest}\n  state    DIVERGED -- every operation on this account is refused \
-                 (I4). Other accounts in this store are not. Nothing was changed.\n\n{d}{}",
-                next_steps(core::slice::from_ref(&d))
-            )),
+        | Divergence::TagUnresolved { .. })) => Outcome::StatusDiverged {
+            tag: *tag,
+            divergence: Box::new(d),
         },
-        Err(d) => Report::refused(format!("{d}")),
+        Err(d) => Outcome::StatusRefused {
+            divergence: Box::new(d),
+        },
     }
 }
 
@@ -1061,51 +802,19 @@ fn cmd_settle<M: Medium, T: Transport>(
     w: &mut Wallet<M, T>,
     tag: &Tag,
     master: Option<&Secret<SEED_LEN>>,
-) -> Report {
-    let outcome = match key_access(w.store(), tag, master) {
+) -> Outcome {
+    let settlement = match key_access(w.store(), tag, master) {
         Ok(access) => w.settle_if_landed(tag, &access),
         Err(e) => Err(e),
     };
-    let upgrade = upgrade_line(w.store());
-    match outcome {
-        Ok(Settlement::Settled {
-            spent_index,
-            index,
-        }) => Report::ok(format!(
-            "settled: the chain holds this tag at the change key.\n  spent index {}  ->  next \
-             index {}\nthe reservation is cleared and the account can spend again. The settled \
-             block is kept in the record until the next spend or advance, so a reorg that \
-             reverts it is reported with the digest it settled.{upgrade}",
-            spent_index.get(),
-            index.get()
-        )),
-        Ok(Settlement::StillOutstanding {
-            spent_index,
-            reservation,
-        }) => {
-            let lines = reservation_lines(spent_index, &reservation, "  ");
-            let dead = matches!(&reservation, Reservation::Recorded(d) if d.is_dead());
-            Report::ok(if dead {
-                format!(
-                    "NOT settled: the chain still holds this tag at the key that signed (index {}), \
-                     and the reserved artifact can no longer be accepted -- the spend will never \
-                     land. The store was not advanced.\n{lines}",
-                    spent_index.get()
-                )
-            } else {
-                format!(
-                    "NOT settled: the chain still holds this tag at the key that signed (index {}).\nThe \
-                     spend has not landed. It may never -- submission is a socket write, not a verdict. \
-                     If the retry artifact is lost, `resign` rebuilds it.\n{lines}",
-                    spent_index.get()
-                )
-            })
-        }
-        Ok(Settlement::NothingPending { index }) => Report::ok(format!(
-            "nothing is reserved for this tag; it is at index {}.",
-            index.get()
-        )),
-        Err(e) => Report::refused(format!("{e}")),
+    // Read where the store is open, because the renderer does not hold it.
+    let upgraded = w.store().upgraded_from();
+    match settlement {
+        Ok(settlement) => Outcome::Settled {
+            settlement,
+            upgraded,
+        },
+        Err(e) => Outcome::Failed(e),
     }
 }
 
@@ -1140,10 +849,7 @@ fn spend_destinations(s: &Spend, resolved: u64) -> Vec<Destination> {
 /// Printed whenever the change is zero, not only for the `all` keyword: an
 /// operator who typed `balance − fee` by hand reaches exactly the same state
 /// and is owed the same warning.
-fn emptying_notice(plan: &SpendPlan, settle_arg: &str) -> String {
-    if plan.change_total() != 0 {
-        return String::new();
-    }
+fn emptying_text(settle_arg: &str) -> String {
     format!(
         "\nTHIS EMPTIES THE ACCOUNT. The change is zero, so nothing returns to your next key \
          under {settle_arg}.\n  The Mesh reports a tag it holds at zero balance as \"account not \
@@ -1332,45 +1038,6 @@ fn resign_refusal(settle_arg: &str) -> String {
     )
 }
 
-/// **The submission and its two renderings, shared by `send` and `resign`**.
-///
-/// One tail rather than two so the two commands that write to the socket
-/// cannot drift into describing the write differently -- `state_of`'s
-/// argument, applied to the residue this program most needs to render
-/// exactly: a 200 from `/construction/submit` is a socket write, not a
-/// verdict. `on_refusal` is the one sentence that differs,
-/// because what the operator holds afterwards differs: after `send` the
-/// artifact on the page is the only copy; after `resign` it is not, since
-/// `resign` reproduces it. The exit code is `Refused` on either failure,
-/// for the reason `Code` gives: a write that did not happen is a command
-/// that did not happen. The page is complete before the write on both
-/// arms, so the artifact reaches the operator whatever the socket does --
-/// on stdout with exit 0, on stderr with exit 3, `main` routing by the
-/// code alone (recorded as `resign`'s accepted cost).
-///
-/// The type is the mechanism, not a check: this takes a
-/// `&SignedTransaction`, and the only values the two callers can hand it
-/// are the one `reserve_and_sign` released behind the receipt and the one
-/// `resign_pending` digest-checked against the store's reservation.
-fn ship<M: Medium, T: Transport>(
-    w: &Wallet<M, T>,
-    signed: &SignedTransaction,
-    settle_arg: &str,
-    mut page: String,
-    on_refusal: &str,
-) -> Report {
-    match w.submit(signed) {
-        Ok(id) => {
-            page.push_str(&submitted_block(&id, settle_arg));
-            Report::ok(page)
-        }
-        Err(e) => {
-            page.push_str(&format!("\nsubmission FAILED: {e}\n{on_refusal}"));
-            Report::refused(page)
-        }
-    }
-}
-
 /// What a successful write says, on every page that makes one: `send`'s,
 /// `resign`'s and `submit`'s. One function, so the sentence that a 200 is a
 /// socket write and not acceptance cannot drift between the three.
@@ -1420,61 +1087,33 @@ fn submitted_block(id: &TxId, settle_arg: &str) -> String {
 /// sentence that a 200 is a socket write and not acceptance is the same
 /// sentence; `settle` is named with the source tag read out of the
 /// artifact's own header.
-fn cmd_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> Report {
-    const NOTHING: &str =
-        "Nothing was written to the socket, nothing to disk, and no store was opened.";
+fn cmd_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> Outcome {
     let bytes = match crate::mesh::hex::decode(artifact_hex.trim(), "artifact") {
         Ok(b) => b,
-        Err(e) => return Report::refused(format!("the artifact is not hex: {e}\n{NOTHING}")),
+        Err(cause) => return Outcome::ArtifactNotHex { cause },
     };
     let tx = match crate::tx::wire::Transaction::from_wire(&bytes) {
         Ok(tx) => tx,
-        Err(e) => {
-            return Report::refused(format!(
-                "the artifact does not parse as a transaction: {e}\n{NOTHING}"
-            ))
-        }
+        Err(cause) => return Outcome::ArtifactNotATransaction { cause },
     };
     // Byte-identical or refused: layout is the whole of what is judged here.
     if tx.to_wire() != bytes {
-        return Report::refused(format!(
-            "the artifact is not a whole transaction image: {} bytes were given and the \
-             transaction they describe is {} bytes, so the bytes on the socket would not be the \
-             bytes you hold. A truncated or padded artifact is refused rather than repaired.\n\
-             {NOTHING}",
-            bytes.len(),
-            tx.wire_len()
-        ));
+        return Outcome::ArtifactNotWhole {
+            given: bytes.len(),
+            described: tx.wire_len(),
+        };
     }
     let mut source = [0u8; crate::consts::ADDR_TAG_LEN];
     source.copy_from_slice(&tx.src_addr[..crate::consts::ADDR_TAG_LEN]);
-    let settle_arg = match destination(&source) {
-        Ok(d) => d,
-        Err(e) => return cannot_render(&source, &e),
-    };
-    let mut page = format!(
-        "submitting {} bytes ({} hex characters) from {settle_arg}\n\nNo store was opened and no \
-         password asked: the artifact is the input, and this command's one job is to reach the \
-         socket. It reserves nothing, signs nothing and writes nothing to disk. The bytes were \
-         checked for layout only -- this program has no transaction validator -- so a signature \
-         that does not recover, a passed block-to-live or a balance the ledger no longer holds is \
-         refused by the node, silently.\n",
-        bytes.len(),
-        bytes.len() * 2
-    );
-    match client.submit_wire(&bytes, TxId(tx.id_digest())) {
-        Ok(id) => {
-            page.push_str(&submitted_block(&id, &settle_arg));
-            Report::ok(page)
-        }
-        Err(e) => {
-            page.push_str(&format!(
-                "\nsubmission FAILED: {e}\nThe artifact is unchanged and still yours. Whether the \
-                 bytes reached a node before the failure is not knowable here; `settle {settle_arg}` \
-                 answers it once the chain has moved, and this command can be run again."
-            ));
-            Report::refused(page)
-        }
+    // Attempted here because it decides whether the socket is written to.
+    if let Err(cause) = destination(&source) {
+        return Outcome::CannotRender { tag: source, cause };
+    }
+    let submitted = client.submit_wire(&bytes, TxId(tx.id_digest()));
+    Outcome::Submitted {
+        source,
+        bytes,
+        submitted,
     }
 }
 
@@ -1482,7 +1121,7 @@ fn cmd_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> Repor
 /// opened -- the one command besides `create` that `run` never sees from
 /// there.
 pub fn run_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> Report {
-    cmd_submit(client, artifact_hex)
+    render::render(&before_the_gate(cmd_submit(client, artifact_hex)))
 }
 
 /// The four read-only verbs for the binary, which reaches them **before the
@@ -1495,85 +1134,60 @@ pub fn run_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> R
 /// is not one of the four is a caller error, and is reported as one rather
 /// than silently doing nothing.
 pub fn run_explorer<T: Transport>(client: &MeshClient<T>, command: &Command) -> Report {
-    match command {
+    let outcome = match command {
         Command::LookupTransaction { hash } => cmd_transaction(client, hash),
         Command::RecentTransactions { tag, count } => cmd_recent_transactions(client, tag, *count),
         Command::Block { at } => cmd_block(client, at),
         Command::Blocks { count } => cmd_blocks(client, *count),
-        other => Report::refused(format!(
-            "internal: {other:?} is not one of the read-only verbs and cannot be run without a store"
-        )),
-    }
+        other => Outcome::NotAReadOnlyVerb {
+            command: Box::new(other.clone()),
+        },
+    };
+    render::render(&before_the_gate(outcome))
 }
 
 fn cmd_send<M: Medium, T: Transport>(
     w: &mut Wallet<M, T>,
     s: &Spend,
     master: Option<&Secret<SEED_LEN>>,
-) -> Report {
+) -> Outcome {
     let plan = match key_access(w.store(), &s.tag, master).and_then(|access| plan_spend(w, s, &access)) {
         Ok(p) => p,
-        Err(e) => return Report::refused(format!("{e}")),
-    };
-    let settle_arg = match destination(&s.tag) {
-        Ok(d) => d,
-        Err(e) => return cannot_render(&s.tag, &e),
-    };
-    // **Where the money is going, read back in the checksummed form**.
-    //
-    // A `send` page that showed the artifact, the locally-computed id and a
-    // `settle <src>` hint would leave the value of `<to>` visible only inside
-    // two thousand characters of wire hex -- defeating the argument for
-    // printing Base58 everywhere else, on the one path where money actually
-    // moves. An operator who supplied `0x`-hex, the form with no checksum,
-    // needs the chance to compare what this program understood against what
-    // the payee's wallet says.
-    //
-    // The list is read off the PLAN, not off argv, so the page cannot
-    // disagree with the bytes: the planner sorted the destinations into the
-    // node's own order, and that is the order signed and submitted.
-    let listed = match destination_lines(plan.dsts()) {
-        Ok(l) => l,
-        Err((tag, e)) => return cannot_render(&tag, &e),
+        Err(e) => return Outcome::Failed(e),
     };
     // **Everything that can refuse has refused by this line.** What follows is
     // one reservation and then formatting, so the account is not emptied by a
-    // run that then fails to render its own page. The emptying notice in
-    // particular is read off the plan, which knows the change is zero before
-    // any key is spent: a warning computed after the irreversible step is a
-    // warning about something the operator can no longer decide.
-    let emptying = emptying_notice(&plan, &settle_arg);
+    // run that then fails to render its own page. Both renderings are
+    // ATTEMPTED here and their results thrown away, because whether they
+    // succeed is a decision -- it decides whether a key is spent -- while what
+    // they produce is the renderer's.
+    if let Err(e) = destination(&s.tag) {
+        return Outcome::CannotRender { tag: s.tag, cause: e };
+    }
+    if let Err((tag, cause)) = destination_lines(plan.dsts()) {
+        return Outcome::CannotRender { tag, cause };
+    }
     let signed = match key_access(w.store(), &s.tag, master) {
         Ok(access) => match w.reserve_and_sign(&plan, access) {
             Ok(t) => t,
-            Err(e) => return Report::refused(format!("{e}")),
+            Err(e) => return Outcome::Failed(e),
         },
-        Err(e) => return Report::refused(format!("{e}")),
+        Err(e) => return Outcome::Failed(e),
     };
-    let wire_hex = hex_bytes(&signed.wire());
-    // The block-to-live beside the other three values `resign` will demand,
-    // and the crossing line when this reservation is the first write over a
-    // version-3 store -- which an ordinary `send` is, since `reserve_and_sign`
-    // commits before it signs.
-    let out = format!(
-        "sending {} nanoMCM to {} destination(s)\n{listed}  from   {settle_arg}\n  fee    {} total \
-         (the node's floor is {MFEE} per destination, {} here)\n  change {} to your own next key \
-         under this tag\n  btl    {}\n\nCheck every destination against its payee before going \
-         further. Each is shown in the checksummed form whichever form you typed, so it can be \
-         compared character for character with what their wallet shows. They are listed in the \
-         order that goes on the wire, which the layout sorts and which need not be the order you \
-         typed.\n{}\n{}{}",
-        plan.send_total(),
-        plan.dsts().len(),
-        plan.fee_total(),
-        MFEE.saturating_mul(u64::try_from(plan.dsts().len()).unwrap_or(u64::MAX)),
-        plan.change_total(),
-        block_to_live_line(plan.blk_to_live()),
-        emptying,
-        artifact_notices(&wire_hex),
-        upgrade_line(w.store())
-    );
-    ship(w, &signed, &settle_arg, out, SEND_REFUSAL)
+    let submitted = w.submit(&signed);
+    Outcome::Sent {
+        shipped: outcome::Shipped {
+            source: s.tag,
+            destinations: plan.dsts().to_vec(),
+            blk_to_live: plan.blk_to_live(),
+            wire: signed.wire().to_vec(),
+            submitted,
+        },
+        send_total: plan.send_total(),
+        fee_total: plan.fee_total(),
+        change_total: plan.change_total(),
+        upgraded: w.store().upgraded_from(),
+    }
 }
 
 /// `resign`: reproduce the reserved artifact and **submit it**.
@@ -1612,14 +1226,14 @@ fn cmd_resign<M: Medium, T: Transport>(
     w: &mut Wallet<M, T>,
     s: &Spend,
     master: Option<&Secret<SEED_LEN>>,
-) -> Report {
+) -> Outcome {
     let access = match key_access(w.store(), &s.tag, master) {
         Ok(access) => access,
-        Err(e) => return Report::refused(format!("{e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let dsts = match resign_destinations(w, s, &access) {
         Ok(d) => d,
-        Err(e) => return Report::refused(format!("{e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     // The page lists them in the order the planner will put them on the wire,
     // which is the same sort `SpendPlan::new` applies, so `send`'s page and
@@ -1628,65 +1242,42 @@ fn cmd_resign<M: Medium, T: Transport>(
     listed_dsts.sort_by_key(Destination::mdst_image);
     match w.resign_pending(&s.tag, &access, dsts, s.fee_total, s.blk_to_live) {
         Ok(signed) => {
-            let wire_hex = hex_bytes(&signed.wire());
-            // The value that matched, on the page that replaces the lost
-            // one; then the artifact; then the write.
-            let listed = match destination_lines(&listed_dsts) {
-                Ok(l) => l,
-                Err((tag, e)) => return cannot_render(&tag, &e),
-            };
-            let page = format!(
-                "reproduced {} destination(s)\n{listed}block-to-live {}\n{}\nThese are the SAME \
-                 bytes the original signing produced -- the reserved key signed the reserved \
-                 digest again, which WOTS+ determinism makes byte-identical. No second signature \
-                 was created.\n",
-                listed_dsts.len(),
-                block_to_live_line(s.blk_to_live),
-                artifact_notices(&wire_hex)
-            );
-            let settle_arg = match destination(&s.tag) {
-                Ok(d) => d,
-                Err(e) => return Report::refused(format!("{page}\ncannot render the destination for the tag whose hex is {}: {e}", hex_bytes(&s.tag))),
-            };
-            ship(w, &signed, &settle_arg, page, &resign_refusal(&settle_arg))
+            let wire = signed.wire().to_vec();
+            // **Asked here and not in the renderer**, because whether the
+            // source tag renders decides whether the socket is written to,
+            // and that is not a rendering question. The reproduction goes out
+            // either way: this page may be the only rendering of the only
+            // bytes that can move those funds.
+            if let Err(cause) = destination(&s.tag) {
+                return Outcome::ReproducedButUnrenderable {
+                    source: s.tag,
+                    destinations: listed_dsts,
+                    blk_to_live: s.blk_to_live,
+                    wire,
+                    cause,
+                };
+            }
+            let submitted = w.submit(&signed);
+            Outcome::Resigned {
+                shipped: outcome::Shipped {
+                    source: s.tag,
+                    destinations: listed_dsts,
+                    blk_to_live: s.blk_to_live,
+                    wire,
+                    submitted,
+                },
+            }
         }
-        Err(Error::DigestMismatch) => Report::refused(
-            "this is not the spend that was reserved.\n  `resign` rebuilds the reserved plan and \
-             compares it to what the store recorded; the destination, amount, fee, \
-             block-to-live or reference differs.\n  ACTION: re-run with the exact values the \
-             original `send` used, `--ref` included if one was given. Nothing was signed."
-                .into(),
-        ),
-        // **The page a live chain asked for.** Until it did, this state --
-        // the chain standing at the reservation's change key -- reached the
-        // operator as the chain-address guard's three-cause divergence page,
-        // which named `reconcile` and none of whose causes applied. The
-        // destination is rendered here rather than before the match because
-        // the success path deliberately builds its page first (see this
-        // function's doc); an unrenderable tag still gets an answer it can
-        // act on, since `settle` takes the hex form too.
+        Err(Error::DigestMismatch) => Outcome::NotTheReservedSpend,
         Err(Error::ReservationLanded {
             spent_index,
             settled_index,
-        }) => {
-            let settle_arg =
-                destination(&s.tag).unwrap_or_else(|_| format!("0x{}", hex_bytes(&s.tag)));
-            Report::refused(format!(
-                "the chain has moved past the key this reservation holds, so there is nothing \
-                 left to reproduce.\n  The chain holds this tag at the key at position \
-                 {settled_index}, which is the change key of the reservation at position \
-                 {spent_index} -- the state reconciliation calls a landed spend, and the one \
-                 `settle` resolves.\n  ACTION: `settle {settle_arg}`, which re-reads the chain, \
-                 clears the reservation and keeps the settled block, so a reorg that reverts it \
-                 is reported with the digest it settled. Nothing was reserved, nothing was \
-                 signed, and nothing reached the socket here.\n  What was observed is the chain \
-                 standing at the change key, not which transaction put it there: a change \
-                 address follows the POSITION and not the transaction, so any spend from the \
-                 reserved key leaves the tag exactly here. `transaction <hash>` on the id the \
-                 original `send` printed is what names it."
-            ))
-        }
-        Err(e) => Report::refused(format!("{e}")),
+        }) => Outcome::ReservationAlreadyLanded {
+            source: s.tag,
+            spent_index,
+            settled_index,
+        },
+        Err(e) => Outcome::Failed(e),
     }
 }
 
@@ -1702,75 +1293,15 @@ fn cmd_reconcile<M: Medium, T: Transport>(
     tag: &Tag,
     master: Option<&Secret<SEED_LEN>>,
     advance_to: u32,
-) -> Report {
-    let reviewed = match reconcile::advance_acknowledged(&mut store, client, tag, master, advance_to) {
-        Ok(r) => r,
-        Err(e) => return Report::refused(format!("{e}")),
-    };
-    // The report of every diverged account as it stood before the decision,
-    // each in the words `balance` uses when it refuses -- one rendering per
-    // account -- under a header that says what this page is, because
-    // `StartupRefusal`'s own header ("WALLET WILL NOT START") would read as a
-    // refusal of this command on the path where it advanced.
-    let report = if reviewed.reports.is_empty() {
-        String::new()
-    } else {
-        let mut r = format!(
-            "THE STORE BEFORE THIS DECISION: {} of {} account(s) diverged. Read every report \
-             below -- the evidence that one account's advance is wrong is most often in \
-             another account's.\n\n",
-            reviewed.reports.len(),
-            reviewed.accounts
-        );
-        for d in &reviewed.reports {
-            r.push_str(&format!("{d}\n\n"));
-        }
-        r
-    };
-    let others = reviewed.reports.iter().filter(|d| d.tag() != *tag).count();
-    let still = if others > 0 {
-        format!(
-            "\n{others} other account(s) in the report above are still diverged; every \
-             operation on each of them is refused until it is reconciled, and `balance` \
-             reports them on every run."
-        )
-    } else {
-        String::new()
-    };
-    match reviewed.outcome {
-        reconcile::Outcome::NotHeld => Report::refused(no_such_account(tag)),
-        reconcile::Outcome::NothingToReconcile(_) => Report::refused(format!(
-            "{report}account 0x{}: not diverged; there is nothing to reconcile.{still}",
-            hex_bytes(tag)
-        )),
-        reconcile::Outcome::SecondInstanceSignal { other } => Report::refused(format!(
-            "{report}NOT ADVANCED. Account 0x{} shows a spend this wallet did not make -- a \
-             reservation the chain explains at neither of its keys -- which is the signal that \
-             a SECOND WALLET is live on this seed. Advancing account 0x{} would hand that wallet \
-             the key at index {advance_to} as well. Find the other wallet first (compare the key \
-             streams above); nothing was written.",
-            hex_bytes(&other),
-            hex_bytes(tag)
-        )),
-        reconcile::Outcome::NoAdvance { target: None } => Report::refused(format!(
-            "{report}This divergence has no advance to acknowledge. Advancing is only correct \
-             when the chain is AHEAD of the local index, at an index the walk confirmed; the \
-             report above says what the walk found, and for this account it walked indices 0 \
-             through {advance_to} as well as the window. Nothing was written.{still}"
-        )),
-        reconcile::Outcome::NoAdvance { target: Some(t) } => Report::refused(format!(
-            "{report}--advance-to {advance_to} does not match the index this divergence reports \
-             ({t}). Type the number in the report above. Nothing was written.{still}"
-        )),
-        reconcile::Outcome::Advanced { index } => Report::ok(format!(
-            "{report}advanced account 0x{} to index {index} after operator review. Index {index} \
-             was derived and its address compared to the one the chain holds before anything was \
-             written; the report above is what was acknowledged. The key at every skipped \
-             position is now unreachable by this wallet, which is the point: they may already \
-             have signed.{still}{}",
-            hex_bytes(tag),
-            upgrade_line(&store)
-        )),
+) -> Outcome {
+    match reconcile::advance_acknowledged(&mut store, client, tag, master, advance_to) {
+        Ok(reviewed) => Outcome::Reconciled {
+            tag: *tag,
+            advance_to,
+            reviewed,
+            upgraded: store.upgraded_from(),
+        },
+        Err(e) => Outcome::Failed(e),
     }
 }
 
@@ -1861,193 +1392,55 @@ fn metadata_lines(meta: &[(String, String)], indent: &str) -> String {
 }
 
 /// `transaction <hash>`: one transaction from the indexer.
-pub fn cmd_transaction<T: Transport>(client: &MeshClient<T>, hash: &[u8; HASHLEN]) -> Report {
-    let page = match client.search_by_hash(hash) {
-        Ok(p) => p,
-        Err(e) => return Report::refused(explorer_refusal(&e)),
-    };
-    let Some(tx) = page.transactions.first() else {
-        return Report::refused(format!(
-            "no transaction with hash {} is in this node's index.\n  The indexer holds what it saw \
-             when each block arrived; a transaction still in the mempool is not there, and a \
-             deployment that runs no indexer answers nothing at all.\n  Nothing was read but the \
-             node.",
-            hex_bytes(hash)
-        ));
-    };
-    let mut out = format!("transaction {}\n", hex_bytes(&tx.hash));
-    if let Some(b) = tx.block {
-        out.push_str(&format!("  in block {} ({})\n", b.index, hex_bytes(&b.hash)));
+pub fn cmd_transaction<T: Transport>(client: &MeshClient<T>, hash: &[u8; HASHLEN]) -> Outcome {
+    match client.search_by_hash(hash) {
+        Err(cause) => Outcome::ExplorerFailed { cause },
+        Ok(page) if page.transactions.is_empty() => Outcome::TransactionNotFound { hash: *hash },
+        Ok(page) => Outcome::LookedUpTransaction {
+            page: Box::new(page),
+        },
     }
-    if let Some(ms) = tx.timestamp_ms {
-        out.push_str(&format!("  at       {}\n", stamp(ms)));
-    }
-    out.push_str(&format!("  {} operation(s)\n", tx.operations.len()));
-    out.push_str(&operation_lines(&tx.operations, "    "));
-    if !tx.metadata.is_empty() {
-        out.push_str("  metadata, in the endpoint's own spelling:\n");
-        out.push_str(&metadata_lines(&tx.metadata, "    "));
-    }
-    out.push_str(&format!("\n{SEARCH_CONVENTION}\n"));
-    Report::ok(out)
 }
 
 /// `recent-transactions <tag> [--count N]`: what touched a tag, newest first.
-pub fn cmd_recent_transactions<T: Transport>(client: &MeshClient<T>, tag: &Tag, count: u64) -> Report {
-    let page = match client.search_by_account(tag, count) {
-        Ok(p) => p,
-        Err(e) => return Report::refused(explorer_refusal(&e)),
-    };
-    let shown = match destination(tag) {
-        Ok(d) => d,
-        Err(e) => return cannot_render(tag, &e),
-    };
-    let mut out = format!(
-        "recent transactions for {shown}\n  {} of {} row(s), newest first\n",
-        page.transactions.len(),
-        page.total_count
-    );
-    if page.transactions.is_empty() {
-        out.push_str(
-            "  (none: this node's index holds no transaction for this tag. A tag never paid has \
-             none; so has every tag when the deployment runs no indexer.)\n",
-        );
+pub fn cmd_recent_transactions<T: Transport>(
+    client: &MeshClient<T>,
+    tag: &Tag,
+    count: u64,
+) -> Outcome {
+    match client.search_by_account(tag, count) {
+        Ok(page) => Outcome::RecentTransactions {
+            tag: *tag,
+            page: Box::new(page),
+        },
+        Err(cause) => Outcome::ExplorerFailed { cause },
     }
-    for tx in &page.transactions {
-        let touched: i128 = tx
-            .operations
-            .iter()
-            .filter(|o| o.address.strip_prefix("0x").unwrap_or(&o.address) == hex_bytes(tag))
-            .map(|o| o.amount)
-            .sum();
-        let out_ops = tx.operations.iter().any(|o| {
-            o.kind == codec::OP_SOURCE && o.address.strip_prefix("0x").unwrap_or(&o.address) == hex_bytes(tag)
-        });
-        let in_ops = tx.operations.iter().any(|o| {
-            o.kind == codec::OP_DESTINATION && o.address.strip_prefix("0x").unwrap_or(&o.address) == hex_bytes(tag)
-        });
-        let direction = match (out_ops, in_ops) {
-            (true, true) => "both",
-            (true, false) => "out",
-            (false, true) => "in",
-            (false, false) => "--",
-        };
-        let memo = tx
-            .operations
-            .iter()
-            .find(|o| !o.memo.is_empty())
-            .map(|o| o.memo.clone())
-            .unwrap_or_default();
-        out.push_str(&format!(
-            "  block {:>9}  {}  {:<4}  {}\n",
-            tx.block.map_or(0, |b| b.index),
-            hex_bytes(&tx.hash),
-            direction,
-            nano_and_mcm(touched)
-        ));
-        if !memo.is_empty() {
-            out.push_str(&format!("                    memo {memo}\n"));
-        }
-    }
-    if let Some(n) = page.next_offset {
-        out.push_str(&format!("  more rows exist; the endpoint's next offset is {n}\n"));
-    }
-    out.push_str(&format!("\n{SEARCH_CONVENTION}\n"));
-    Report::ok(out)
 }
 
 /// `block <number|hash>`: one block, with its reward and what it moved.
-pub fn cmd_block<T: Transport>(client: &MeshClient<T>, at: &args::BlockAt) -> Report {
-    let block = match match at {
+pub fn cmd_block<T: Transport>(client: &MeshClient<T>, at: &args::BlockAt) -> Outcome {
+    let got = match at {
         args::BlockAt::Index(i) => client.block_by_index(*i),
         args::BlockAt::Hash(h) => client.block_by_hash(h),
-    } {
-        Ok(b) => b,
-        Err(e) => {
-            let mut text = explorer_refusal(&e);
-            if matches!(at, args::BlockAt::Hash(_)) {
-                text.push_str(
-                    "\n  A block is served by hash only from the deployment's own archive folder, \
-                     so a not-found here is about that archive rather than about the chain. The \
-                     index always works.",
-                );
-            }
-            return Report::refused(text);
-        }
     };
-
-    // The reward transaction is the one carrying a REWARD operation.
-    let (rewards, spends): (Vec<_>, Vec<_>) = block
-        .transactions
-        .iter()
-        .partition(|t| t.operations.iter().any(|o| o.kind == codec::OP_REWARD));
-    // **What "moved" means here, and why.** Every DESTINATION_TRANSFER of
-    // every non-reward transaction. On THIS endpoint a source is debited its
-    // net and the change is not an operation, so the destinations are
-    // exactly value delivered to payees. The reward is excluded: it is newly
-    // minted, not moved, and folding it in would make the figure mean
-    // nothing an operator can use. The fee is excluded and shown on its own.
-    let moved: i128 = spends
-        .iter()
-        .flat_map(|t| t.operations.iter())
-        .filter(|o| o.kind == codec::OP_DESTINATION)
-        .map(|o| o.amount)
-        .sum();
-    let fees: i128 = block
-        .transactions
-        .iter()
-        .flat_map(|t| t.operations.iter())
-        .filter(|o| o.kind == codec::OP_FEE)
-        .map(|o| o.amount)
-        .sum();
-
-    let mut out = format!(
-        "block {}\n  hash     {}\n  parent   {} ({})\n  at       {}\n",
-        block.block.index,
-        hex_bytes(&block.block.hash),
-        block.parent.index,
-        hex_bytes(&block.parent.hash),
-        stamp(block.timestamp_ms)
-    );
-    match rewards.first().and_then(|t| t.operations.iter().find(|o| o.kind == codec::OP_REWARD)) {
-        Some(r) => {
-            out.push_str(&format!("  reward   {}\n    to     {}\n", nano_and_mcm(r.amount), explorer_address(&r.address)));
-        }
-        None => out.push_str("  reward   none in this block\n"),
+    match got {
+        Ok(block) => Outcome::Block {
+            block: Box::new(block),
+        },
+        Err(cause) => Outcome::BlockNotServed {
+            by_hash: matches!(at, args::BlockAt::Hash(_)),
+            cause,
+        },
     }
-    out.push_str(&format!(
-        "  spends   {}\n  moved    {}  (every destination of every non-reward transaction; the \
-         reward is newly minted, not moved, and is not counted)\n  fees     {}\n",
-        spends.len(),
-        nano_and_mcm(moved),
-        nano_and_mcm(fees)
-    ));
-    for t in &spends {
-        let dests = t.operations.iter().filter(|o| o.kind == codec::OP_DESTINATION).count();
-        let total: i128 = t
-            .operations
-            .iter()
-            .filter(|o| o.kind == codec::OP_DESTINATION)
-            .map(|o| o.amount)
-            .sum();
-        out.push_str(&format!(
-            "    {}  {} destination(s)  {}\n",
-            hex_bytes(&t.hash),
-            dests,
-            nano_and_mcm(total)
-        ));
-    }
-    out.push_str(&format!("\n{BLOCK_CONVENTION}\n"));
-    Report::ok(out)
 }
 
 /// `blocks [--count N]`: the tip and the N newest, one row each.
-pub fn cmd_blocks<T: Transport>(client: &MeshClient<T>, count: u64) -> Report {
+pub fn cmd_blocks<T: Transport>(client: &MeshClient<T>, count: u64) -> Outcome {
     let tip = match client.network_status() {
         Ok(t) => t,
-        Err(e) => return Report::refused(explorer_refusal(&e)),
+        Err(cause) => return Outcome::ExplorerFailed { cause },
     };
-    let mut out = format!("the {count} newest block(s); the tip is {}\n", tip.index);
+    let mut rows = Vec::new();
     for i in 0..count {
         let Some(index) = tip.index.checked_sub(i) else { break };
         // Index 0 is the tip to this endpoint, never genesis, so the walk
@@ -2056,17 +1449,13 @@ pub fn cmd_blocks<T: Transport>(client: &MeshClient<T>, count: u64) -> Report {
             break;
         }
         match client.block_by_index(index) {
-            Ok(b) => out.push_str(&format!(
-                "  {:>9}  {}  {}  {} transaction(s)\n",
-                b.block.index,
-                hex_bytes(&b.block.hash),
-                stamp(b.timestamp_ms),
-                b.transactions.len()
-            )),
-            Err(e) => return Report::refused(format!("{}\n  The tip was read; block {index} was not.", explorer_refusal(&e))),
+            Ok(b) => rows.push(b),
+            // The partial walk is discarded on purpose: a page listing some
+            // of the newest blocks reads as a complete answer.
+            Err(cause) => return Outcome::BlocksStopped { index, cause },
         }
     }
-    Report::ok(out)
+    Outcome::Blocks { count, tip, rows }
 }
 
 /// A failed explorer read, said in the operator's terms.

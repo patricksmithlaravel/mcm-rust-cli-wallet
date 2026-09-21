@@ -81,48 +81,65 @@ its own shutdown, and that path owes the fault injection every other path here
 owes -- it is a change to what the command layer *does* rather than to what
 `recon` *offers*, which is why it now sits in the item below.
 
-### P0-3 -- separate the decision from its rendering
+### P0-3 -- separate the decision from its rendering **(done, 2026-09-20)**
 
-`cli/mod.rs` is 2,090 lines carrying 96 `Report` constructions and 135 format
-sites. Split each `cmd_*` into a typed outcome and a renderer over it.
+`cli/mod.rs` ended every command by building a `Report` -- a `String` and an
+exit code -- so a command's decision and the sentence announcing it were one
+statement, ninety-six times over.
 
-**On this repository's own terms:** the decisions become assertable as values.
-Today a test that means to check a gating decision can only check that a
-sentence came out, and `tests/cli.rs` is 7,042 lines of largely that. The same
-suite is what holds the split honest -- the rendered text and the exit codes
-must come out byte-identical.
+`cli::decide` returns `Decided`, which is what a command established in the
+types the layers below already use; `cli::render` turns one into a `Report`.
+`cli::run` is `render(decide(..))` and nothing else, so **`tests/cli.rs` was
+not touched by the split** -- its seven thousand lines are held to the new
+layer without knowing it exists, which makes every one of them an assertion
+that the words have not moved.
 
-**Stated plainly: the larger beneficiary is downstream.** A graphical wallet
-cannot parse those strings responsibly, so without this it re-derives the
-orchestration that carries I1 and I4, and two copies of that reasoning drift
-with nothing holding them together. The `board` script's own header names that
-failure class.
+All sixteen commands are through it. The escape hatch that carried the
+unconverted ones during the work is gone from the enum rather than left
+standing, and two checks keep it that way:
 
-#### What has landed under it
+* `the_decision_layer_carries_no_prose` refuses any `String` under
+  `cli/outcome.rs`. One such field and a dependent can no longer tell which
+  variants it may act on and which it may only print.
+* `render::outcome` matches `Outcome` exhaustively, so a variant added with no
+  rendering is a compile error rather than a blank page.
 
-**`ChainPosition::Unlocated` records why a walk stopped (2026-09-20).** The
-variant carried `failed_at: Option<u32>` -- a position and nothing else -- and
-both of its renderings supplied the missing half themselves, one saying the
-walk stopped *on a derivation error* and the other that *deriving index n
-failed*. That was true of every walk that could stop early when it was
-written, and false the moment one could be cancelled.
+**One thing followed rather than being aimed at:** the decision layer does not
+name `Code`. Whether a command exits 0 or 3 is a question about how a program
+reports, and a dependent that is not a command line ignores the answer.
 
-It is the whole item in miniature, which is why it went first: **no renderer
-could have been careful about this**, because the distinction was not in what
-it was handed. The record now carries a `Stopped { at, by }` and the report
-reads it. That is the only arrangement in which the sentence cannot drift from
-the event, and it is what the rest of this item does to `cli/mod.rs` on a
-larger scale.
+#### What the invariant suite caught, because it is worth recording
 
-It also unblocked the diagnostic walk's cancellation, which is why P0-2's
-first remainder is closed above rather than here.
+The route scan refused the split twice before it accepted it, and both were
+real.
 
-#### What is still owed
+**A variant named `Transaction`.** The scan resolves signature-bearing types
+**by name** across the crate, and `tx::wire::Transaction` is bearing, so
+naming an `Outcome` variant `Transaction` made `Outcome` bearing -- and with
+it every `cmd_*` returning one, and `reconcile::Reviewed`, which has a field
+of that type name. `args.rs` records this exact hazard for `Command` and names
+its variant `LookupTransaction` for it; the outcome is `LookedUpTransaction`
+for the same reason.
 
-* **The command layer itself** -- the 96 `Report` sites, unchanged so far.
-* **The signal handler**, folded in from P0-2. It belongs here because it is a
-  decision the command layer takes, not a capability `recon` offers: `recon`
-  now offers the capability and nothing uses it.
+**`run` stopped naming `Wallet`.** Its Entrypoint permission rests on the gate
+being on its path, which the scan checked by looking for `Wallet` in the body
+-- exact while dispatch and wallet were one function. The clause is widened
+rather than waived, and only as far as the property already reaches: name
+`Wallet`, **or** name another allow-listed Entrypoint, whose own permission is
+checked by the same assertions on its own row.
+
+#### The signal handler: decided, and declined
+
+Folded in from P0-2 and answered rather than left open. `std` has no signal
+interface, so a handler needs `libc` -- the first dependency here for
+something that is neither a primitive, a codec nor a check -- and a signal
+handler is `unsafe`, which would be the only `unsafe` under `src/`. What it
+buys is the scrub on a wait an operator chose to abandon, whose length they
+themselves bounded.
+
+The caller `Cancel` is really for has an event loop and a button and watches a
+flag with no handler at all, so the mechanism serves it today. The argument is
+at `Cancel`'s own doc and the gap is in `README.md`'s limits.
 
 ### P0-4 -- decide the trust store
 

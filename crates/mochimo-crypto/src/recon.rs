@@ -537,9 +537,38 @@ fn walked(f: &mut fmt::Formatter<'_>, local: WotsIndex, scope: &ScanScope) -> fm
 /// that can notice the interruption can stop the walk, get an ordinary
 /// `Err(Error::Cancelled)` back, and let every `Drop` between there and the
 /// top run. **It is not itself that answer.** Nothing in this crate and
-/// nothing in the shipped binary installs such a handler, so at the command
-/// line the gap is open and `README.md` says so. What is closed is the part a
-/// library can close: the walk is no longer unstoppable from outside.
+/// nothing in the shipped binary installs a signal handler, so at the command
+/// line the gap stays open and `README.md` says so. What is closed is the part
+/// a library can close: the walk is stoppable from outside it.
+///
+/// # Why the binary does not install one, which is a decision and not an omission
+///
+/// Three things are true together and the trade comes out against it.
+///
+/// **It cannot be done with what is here.** `std` has no signal interface, so
+/// a handler needs `libc` or a wrapper over it -- the first dependency this
+/// crate would carry for something that is neither a cryptographic primitive,
+/// a codec, nor a check. Every other entry in the manifest is argued against
+/// its alternatives; this one would be argued against a `README` paragraph.
+///
+/// **It costs the `unsafe` count, which is currently nought.** A signal
+/// handler is `unsafe` in Rust and is bound by what is async-signal-safe: no
+/// allocation, no locks, a relaxed store to a flag and nothing else. The
+/// handler that would be written here is a safe one to write -- and it would
+/// still be the only `unsafe` block under `src/`, introduced to shorten a
+/// wait.
+///
+/// **What it buys is narrower than it looks.** The scrub it would save is on
+/// a path an operator reaches by not wanting to wait, and the wait it
+/// shortens is bounded by the scope they themselves named. The caller this
+/// type is really for is the one with an event loop and a button, which
+/// watches a flag without needing a handler at all -- so the mechanism serves
+/// that caller today, while the handler would serve only the terminal, at the
+/// price of both lines above.
+///
+/// The gap is therefore recorded rather than closed: `README.md` carries it
+/// in the limits section, beside the paragraph about memory not being locked,
+/// which is the same subject and the same kind of answer.
 ///
 /// # The predicate's obligations
 ///

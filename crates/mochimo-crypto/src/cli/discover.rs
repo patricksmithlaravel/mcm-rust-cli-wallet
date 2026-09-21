@@ -49,6 +49,7 @@ use crate::mesh::{LedgerEntry, MeshClient, Transport};
 use crate::{Error, Secret};
 
 /// What the node said about one account index, and what this store holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sighting {
     pub account: u32,
     pub tag: Tag,
@@ -65,6 +66,7 @@ pub struct Sighting {
 
 /// One sweep's whole result. `to` is the extent that was actually searched,
 /// so a caller cannot print a range the sweep did not reach.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sweep {
     /// Indices `0..=to` were searched.
     pub to: u32,
