@@ -81,7 +81,7 @@ use crate::error::{Error, Result};
 use crate::keystore::{KeyAccess, Keystore, Medium, SpendAddresses};
 use crate::mesh::spend::{SignedTransaction, SpendPlan};
 use crate::mesh::{MeshClient, Transport, TxId};
-use crate::recon::{self, AccountStatus, Divergence, Reservation, ScanScope};
+use crate::recon::{self, AccountStatus, Cancel, Divergence, Reservation, ScanScope};
 
 /// The acknowledgement type lives in `recon` -- the CLI's `reconcile` runs
 /// before a `Wallet` exists and the gate is the acknowledgement, not this
@@ -306,7 +306,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         tag: &Tag,
         access: &KeyAccess<'_>,
     ) -> core::result::Result<AccountStatus, Divergence> {
-        self.status_with(tag, access, &ScanScope::DIAGNOSTIC)
+        self.status_with(tag, access, &ScanScope::DIAGNOSTIC, &Cancel::NEVER)
     }
 
     /// [`Wallet::status`] with a caller-set diagnostic scope — a raised
@@ -317,8 +317,9 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         tag: &Tag,
         access: &KeyAccess<'_>,
         scope: &ScanScope,
+        cancel: &Cancel<'_>,
     ) -> core::result::Result<AccountStatus, Divergence> {
-        recon::reconcile_account_with(&self.store, &self.client, tag, access, scope)
+        recon::reconcile_account_with(&self.store, &self.client, tag, access, scope, cancel)
     }
 
     /// The addresses a spend from `tag` is built for.
@@ -543,6 +544,9 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
                     tag,
                     access,
                     &comparison_only,
+                    // Nothing to stop: `comparison_only` has ceiling 0, so
+                    // this reconciles by comparison and walks no positions.
+                    &Cancel::NEVER,
                 );
                 return Err(match status {
                     Ok(AccountStatus::SpendLanded {
@@ -592,7 +596,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         access: &KeyAccess<'_>,
         ack: OperatorAcknowledgement,
     ) -> Result<AdvanceReceipt> {
-        self.advance_after_operator_review_with(tag, access, ack, &ScanScope::DIAGNOSTIC)
+        self.advance_after_operator_review_with(tag, access, ack, &ScanScope::DIAGNOSTIC, &Cancel::NEVER)
     }
 
     /// [`Wallet::advance_after_operator_review`] under a caller-set scope,
@@ -604,6 +608,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         access: &KeyAccess<'_>,
         ack: OperatorAcknowledgement,
         scope: &ScanScope,
+        cancel: &Cancel<'_>,
     ) -> Result<AdvanceReceipt> {
         // **Not gated on the partition, and it is the one method that must not
         // be.** Acting on a diverged account is what this is for: the
@@ -615,7 +620,15 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         // diverged set for the life of this wallet and its spend operations go
         // on refusing. Reopening is what re-reconciles, which is what the
         // command line does on every invocation.
-        recon::advance_after_operator_review(&mut self.store, &self.client, tag, access, ack, scope)
+        recon::advance_after_operator_review(
+            &mut self.store,
+            &self.client,
+            tag,
+            access,
+            ack,
+            scope,
+            cancel,
+        )
     }
 
     /// Take the halves back. The wallet's claim ends here: whoever holds the

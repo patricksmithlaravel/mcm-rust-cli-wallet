@@ -44,7 +44,7 @@ use mochimo_crypto::keystore::{Disk, Figures, Keystore, Pending};
 use mochimo_crypto::mesh::MeshClient;
 use mochimo_crypto::recon::{
     self, AccountStatus, Cancel, ChainPosition, Diagnosis, Divergence, Expiry, Reservation,
-    RestoreFailure, ScanScope, DIVERGENCE_WINDOW, RECOVERY_CEILING,
+    RestoreFailure, ScanScope, StoppedBy, DIVERGENCE_WINDOW, RECOVERY_CEILING,
 };
 use mochimo_crypto::tx::wire::Destination;
 use mochimo_crypto::wallet::{OperatorAcknowledgement, Settlement, StartupRefusal, Wallet};
@@ -243,6 +243,112 @@ fn the_cancel_is_asked_once_per_position_and_the_walk_ends_where_it_says() {
         asked.get(),
         STOP_AFTER + 1,
         "the predicate is asked once per position, up to and including the one that says stop"
+    );
+}
+
+/// The diagnostic walk is stoppable too, and the divergence is still
+/// reported when it is stopped -- with its position uncharacterised rather
+/// than with the report suppressed. Cancelling a diagnostic is not the same
+/// act as cancelling a restore: a restore cancelled did nothing, and this ran
+/// far enough to know the account diverges and not far enough to say where.
+#[test]
+fn a_cancelled_diagnostic_still_reports_the_divergence_it_had_already_found() {
+    let (_d, ks) = store("recon-cancel-diagnostic");
+    let m = master();
+    let mut alien = addr_at(0);
+    alien[ADDR_TAG_LEN] ^= 0x01;
+    let scope = ScanScope::DIAGNOSTIC.with_ceiling(WALKED);
+
+    let stop = || true;
+    let d = recon::reconcile_account_with(
+        &ks,
+        &MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 1))])),
+        &TAG,
+        &access(&m),
+        &scope,
+        &Cancel::when(&stop),
+    )
+    .expect_err("a diverged account must be reported whether or not the diagnostic finished");
+
+    assert!(
+        matches!(
+            d,
+            Divergence::IndexMismatch {
+                found: ChainPosition::Unlocated { .. },
+                ..
+            }
+        ),
+        "{d:?}"
+    );
+}
+
+/// The property the `failed_at` reshape exists for, and the one this commit
+/// is really about: the record carries **what** stopped the walk, so the
+/// report reads a cause instead of supplying one.
+///
+/// Before, `Unlocated` carried a position alone and both of its renderings
+/// filled in the rest themselves -- *on a derivation error*, *deriving index
+/// n failed*. That was true of every walk that could stop early when it was
+/// written and false the moment one could be cancelled, and no renderer could
+/// have been careful about it, because the distinction was not in what it was
+/// handed.
+#[test]
+fn a_stopped_diagnostic_records_the_cause_rather_than_leaving_it_to_the_report() {
+    let (_d, ks) = store("recon-stop-cause");
+    let m = master();
+    let mut alien = addr_at(0);
+    alien[ADDR_TAG_LEN] ^= 0x01;
+    let scope = ScanScope::DIAGNOSTIC.with_ceiling(WALKED);
+
+    // (1) The control: a walk that reaches the scope's end records no stop.
+    let finished = recon::reconcile_account_with(
+        &ks,
+        &MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 1))])),
+        &TAG,
+        &access(&m),
+        &scope,
+        &Cancel::NEVER,
+    )
+    .expect_err("an alien address must diverge");
+    match &finished {
+        Divergence::IndexMismatch {
+            found: ChainPosition::Unlocated { stopped, .. },
+            ..
+        } => assert_eq!(*stopped, None, "a walk that finished recorded a stop"),
+        other => panic!("{other:?}"),
+    }
+
+    // (2) The same chain and the same scope, stopped: the cause is in the
+    // record, and it is not the one the old rendering assumed.
+    let stop = || true;
+    let cancelled = recon::reconcile_account_with(
+        &ks,
+        &MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 1))])),
+        &TAG,
+        &access(&m),
+        &scope,
+        &Cancel::when(&stop),
+    )
+    .expect_err("an alien address must diverge");
+    match &cancelled {
+        Divergence::IndexMismatch {
+            found: ChainPosition::Unlocated { stopped, .. },
+            ..
+        } => {
+            let s = stopped.expect("a cancelled walk must record that it stopped");
+            assert_eq!(s.by, StoppedBy::Cancelled, "a cancel was recorded as another cause");
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // (3) And the words follow the record. `Derivation` is the only cause
+    // this report may call a failure.
+    let text = cancelled.to_string();
+    assert!(!text.contains("deriving index"), "a cancel rendered as a fault: {text}");
+    assert!(!text.contains("derivation error"), "a cancel rendered as a fault: {text}");
+    assert!(
+        text.contains("stopped at index"),
+        "a stopped diagnostic does not say it stopped: {text}"
     );
 }
 
@@ -492,6 +598,7 @@ fn the_wallet_refuses_to_open_on_every_unreconcilable_account() {
         &TAG,
         &access(&m),
         &ScanScope::DIAGNOSTIC.with_ceiling(WALKED),
+        &Cancel::NEVER,
     )
     .expect_err("an alien address must diverge");
     assert!(matches!(
@@ -1344,7 +1451,7 @@ fn store_at(name: &str, local: u32) -> (ScratchDir, Keystore) {
 fn diagnose(name: &str, local: u32, chain: u32, scope: &ScanScope) -> Divergence {
     let (_dir, ks) = store_at(name, local);
     let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(chain), 1))]));
-    recon::reconcile_account_with(&ks, &client, &TAG, &access(&master()), scope)
+    recon::reconcile_account_with(&ks, &client, &TAG, &access(&master()), scope, &Cancel::NEVER)
         .expect_err("local and chain differ, so this must be a divergence")
 }
 
@@ -1461,14 +1568,14 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     let (dir, mut ks) = store_at("recon-named-default", 0);
     let client = chain_at_100();
     let short = ScanScope::DIAGNOSTIC.with_ceiling(WALKED);
-    let d = recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &short).expect_err("diverged");
+    let d = recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &short, &Cancel::NEVER).expect_err("diverged");
     assert!(matches!(d, Divergence::IndexMismatch { found: ChainPosition::Unlocated { .. }, .. }), "{d:?}");
     assert!(OperatorAcknowledgement::of(&d).is_none(), "an unlocated address produced an acknowledgement");
 
     // Naming 99: the walk covers 0..=99, the chain is at 100, nothing found,
     // nothing acknowledged, nothing written.
     let named_99 = ScanScope::DIAGNOSTIC.with_ceiling(100);
-    let d99 = recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_99).expect_err("diverged");
+    let d99 = recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_99, &Cancel::NEVER).expect_err("diverged");
     assert!(matches!(d99, Divergence::IndexMismatch { found: ChainPosition::Unlocated { .. }, .. }), "{d99:?}");
     assert!(OperatorAcknowledgement::of(&d99).is_none(), "naming 99 produced an acknowledgement");
     assert!(format!("{d99}").contains("indices 0 through 99"), "the raised walk is not reported:\n{d99}");
@@ -1477,14 +1584,14 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     // yields names 100 -- the typed number is not the answer.
     let named_5000 = ScanScope::DIAGNOSTIC.with_ceiling(5001);
     let d5000 =
-        recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_5000).expect_err("diverged");
+        recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_5000, &Cancel::NEVER).expect_err("diverged");
     let ack5000 = OperatorAcknowledgement::of(&d5000).unwrap_or_else(|| panic!("100 lies under 5000: {d5000:?}"));
     assert_eq!(ack5000.target(), pos(100), "the acknowledgement names the typed number, not the found index");
 
     // Naming 100: found, acknowledged, advanced, and the account reconciles.
     let named_100 = ScanScope::DIAGNOSTIC.with_ceiling(101);
     let d100 =
-        recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_100).expect_err("diverged");
+        recon::reconcile_account_with(&ks, &client, &TAG, &access(&m), &named_100, &Cancel::NEVER).expect_err("diverged");
     assert!(matches!(d100, Divergence::IndexMismatch { found: ChainPosition::Ahead { gap: 100, .. }, .. }), "{d100:?}");
     let ack = OperatorAcknowledgement::of(&d100).unwrap_or_else(|| panic!("ahead has a target"));
     assert_eq!(ack.target(), pos(100));
@@ -1497,10 +1604,10 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     // it names -- the mechanism working rather than failing. What the arm is
     // the re-confirmation, so the narrow scope is named.
     assert!(matches!(
-        recon::advance_after_operator_review(&mut ks, &client, &TAG, &access(&m), ack, &short),
+        recon::advance_after_operator_review(&mut ks, &client, &TAG, &access(&m), ack, &short, &Cancel::NEVER),
         Err(Error::AcknowledgementDoesNotMatch)
     ), "an acknowledgement was applied under a scope that cannot re-confirm its index");
-    let r = recon::advance_after_operator_review(&mut ks, &client, &TAG, &access(&m), ack, &named_100)
+    let r = recon::advance_after_operator_review(&mut ks, &client, &TAG, &access(&m), ack, &named_100, &Cancel::NEVER)
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(r.index(), pos(100));
     assert!(matches!(
@@ -1517,7 +1624,7 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     alien[ADDR_TAG_LEN] ^= 0x01;
     let (_d2, ks2) = store_at("recon-named-alien", 0);
     let client2 = MeshClient::new(Chain::new(&[(TAG, ChainState::At(alien, 1))]));
-    let da = recon::reconcile_account_with(&ks2, &client2, &TAG, &access(&m), &ScanScope::DIAGNOSTIC.with_ceiling(200))
+    let da = recon::reconcile_account_with(&ks2, &client2, &TAG, &access(&m), &ScanScope::DIAGNOSTIC.with_ceiling(200), &Cancel::NEVER)
         .expect_err("diverged");
     assert!(matches!(da, Divergence::IndexMismatch { found: ChainPosition::Unlocated { .. }, .. }), "{da:?}");
     assert!(OperatorAcknowledgement::of(&da).is_none());
@@ -1526,7 +1633,7 @@ fn an_operator_named_index_is_verified_against_the_chain_never_trusted() {
     // report says which way it is -- not that the number failed to match.
     let (_d3, ks3) = store_at("recon-named-behind", 22);
     let client3 = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(20), 1))]));
-    let db = recon::reconcile_account_with(&ks3, &client3, &TAG, &access(&m), &ScanScope::DIAGNOSTIC.with_ceiling(21))
+    let db = recon::reconcile_account_with(&ks3, &client3, &TAG, &access(&m), &ScanScope::DIAGNOSTIC.with_ceiling(21), &Cancel::NEVER)
         .expect_err("diverged");
     assert!(matches!(db, Divergence::IndexMismatch { found: ChainPosition::Behind { gap: 2, .. }, .. }), "{db:?}");
     assert!(OperatorAcknowledgement::of(&db).is_none(), "a behind divergence produced an acknowledgement");

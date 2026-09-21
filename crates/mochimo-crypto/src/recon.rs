@@ -424,11 +424,11 @@ pub enum ChainPosition {
     /// fewer times.
     Behind { index: WotsIndex, gap: u32 },
     /// No position the walk reached reproduces the chain's address. `scope`
-    /// is what was walked around `local`, and `failed_at` is the position
-    /// whose derivation failed when the walk did not finish, so the report
-    /// can say exactly that and nothing more: the account may have spent more
-    /// times than the walk reaches, this seed may not own this tag, or the
-    /// wallet may be on another chain, and this arm cannot tell which.
+    /// is what was walked around `local`, and `stopped` is `Some` when the
+    /// walk ended before the scope did, so the report can say exactly that
+    /// and nothing more: the account may have spent more times than the walk
+    /// reaches, this seed may not own this tag, or the wallet may be on
+    /// another chain, and this arm cannot tell which.
     ///
     /// A name like `NotThisSeed` asserts at type level the one explanation a
     /// bounded walk cannot support, and every `match` arm on it then reads
@@ -436,7 +436,7 @@ pub enum ChainPosition {
     Unlocated {
         local: WotsIndex,
         scope: ScanScope,
-        failed_at: Option<u32>,
+        stopped: Option<Stopped>,
     },
 }
 
@@ -459,13 +459,22 @@ impl fmt::Display for ChainPosition {
             ChainPosition::Unlocated {
                 local,
                 scope,
-                failed_at,
+                stopped,
             } => {
                 write!(f, "no key index this scan walked reproduces the chain's address (walked: ")?;
                 walked(f, *local, scope)?;
                 f.write_str(")")?;
-                if let Some(p) = failed_at {
-                    write!(f, "; the walk stopped at index {p} on a derivation error and did not finish")?;
+                match stopped {
+                    Some(Stopped { at, by: StoppedBy::Derivation }) => write!(
+                        f,
+                        "; the walk stopped at index {at} on a derivation error and did not finish"
+                    )?,
+                    Some(Stopped { at, by: StoppedBy::Cancelled }) => write!(
+                        f,
+                        "; the walk was stopped at index {at} before it finished, so this says \
+                         less than a completed one would"
+                    )?,
+                    None => {}
                 }
                 Ok(())
             }
@@ -559,6 +568,42 @@ impl<'a> Cancel<'a> {
     fn stop(&self) -> bool {
         matches!(self.0, Some(asked) if asked())
     }
+}
+
+/// A walk that ended before its scope did: where it stopped, and what stopped
+/// it.
+///
+/// # Why the cause is recorded and not inferred
+///
+/// This was `failed_at: Option<u32>` -- a position and nothing else -- and
+/// both renderings of it supplied the missing half themselves, one saying the
+/// walk stopped *on a derivation error* and the other that *deriving index
+/// n failed*. That was true of every walk that could stop early at the time
+/// it was written, and it stopped being true the moment a walk could be
+/// cancelled: the same field then carried an operator's decision and the
+/// report called it a fault.
+///
+/// A renderer cannot be careful about this, because the distinction is not in
+/// what it was handed. So the record carries the cause and the report reads
+/// it, which is the only arrangement in which the sentence cannot drift from
+/// the event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stopped {
+    /// The position the walk had reached.
+    pub at: u32,
+    /// What ended it.
+    pub by: StoppedBy,
+}
+
+/// What ended a walk early. Two things can, and they are not the same news.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoppedBy {
+    /// Deriving that position's address failed. The walk says less than it
+    /// would have, and the reason is a fault worth reporting.
+    Derivation,
+    /// A [`Cancel`] said to stop. Nothing failed, and the report should not
+    /// suggest anything is to be fixed.
+    Cancelled,
 }
 
 /// Why the wallet will not start. Every variant renders a report naming what
@@ -772,17 +817,24 @@ impl fmt::Display for Divergence {
                     ChainPosition::Unlocated {
                         local,
                         scope,
-                        failed_at,
+                        stopped,
                     } => {
                         f.write_str("  NO key index this scan walked reproduces the chain's address (walked: ")?;
                         walked(f, *local, scope)?;
                         f.write_str(").")?;
-                        if let Some(p) = failed_at {
-                            write!(
+                        match stopped {
+                            Some(Stopped { at, by: StoppedBy::Derivation }) => write!(
                                 f,
-                                " The walk did not finish: deriving index {p} failed, so this says \
+                                " The walk did not finish: deriving index {at} failed, so this says \
                                  less than it would."
-                            )?;
+                            )?,
+                            Some(Stopped { at, by: StoppedBy::Cancelled }) => write!(
+                                f,
+                                " The walk did not finish: it was stopped at index {at}, so this \
+                                 says less than it would. Nothing failed and nothing is owed but \
+                                 the search."
+                            )?,
+                            None => {}
                         }
                         f.write_str(
                             " Three things produce that and this report cannot tell them apart: \
@@ -1234,7 +1286,7 @@ pub fn reconcile_account<M: Medium, T: Transport>(
     tag: &Tag,
     access: &KeyAccess<'_>,
 ) -> core::result::Result<AccountStatus, Divergence> {
-    reconcile_account_with(store, client, tag, access, &ScanScope::DIAGNOSTIC)
+    reconcile_account_with(store, client, tag, access, &ScanScope::DIAGNOSTIC, &Cancel::NEVER)
 }
 
 /// [`reconcile_account`] with a caller-set diagnostic scope — a raised
@@ -1249,6 +1301,7 @@ pub fn reconcile_account_with<M: Medium, T: Transport>(
     tag: &Tag,
     access: &KeyAccess<'_>,
     scope: &ScanScope,
+    cancel: &Cancel<'_>,
 ) -> core::result::Result<AccountStatus, Divergence> {
     let view = match store.view(tag) {
         Ok(Some(v)) => v,
@@ -1294,7 +1347,7 @@ pub fn reconcile_account_with<M: Medium, T: Transport>(
                     balance: entry.balance,
                 });
             }
-            let found = locate(&entry.address, view.wots_index, scope, at);
+            let found = locate(&entry.address, view.wots_index, scope, cancel, at);
             // The retained settled block is the report's when -- and only
             // when -- the chain sits at exactly the index it settled. A
             // `Behind` at another index, an `Ahead`, an
@@ -1377,7 +1430,7 @@ pub fn reconcile_account_with<M: Medium, T: Transport>(
                 chain_address: entry.address,
                 balance: entry.balance,
                 stream,
-                found: locate(&entry.address, view.wots_index, scope, at),
+                found: locate(&entry.address, view.wots_index, scope, cancel, at),
             })
         }
     }
@@ -1415,11 +1468,12 @@ pub fn advance_after_operator_review<M: Medium, T: Transport>(
     access: &KeyAccess<'_>,
     ack: OperatorAcknowledgement,
     scope: &ScanScope,
+    cancel: &Cancel<'_>,
 ) -> Result<AdvanceReceipt> {
     if ack.tag != *tag {
         return Err(Error::AcknowledgementDoesNotMatch);
     }
-    match reconcile_account_with(store, client, tag, access, scope) {
+    match reconcile_account_with(store, client, tag, access, scope, cancel) {
         Ok(_) => Err(Error::NothingToReconcile),
         Err(d) => {
             if d.advance_target() != Some(ack.target) {
@@ -1435,11 +1489,25 @@ pub fn advance_after_operator_review<M: Medium, T: Transport>(
 /// position it stopped at, rather than propagated: this runs on a path that
 /// is already refusing, and a diagnostic that fails to compute must not
 /// replace the refusal it was decorating.
-fn locate<F>(chain: &Address, local: WotsIndex, scope: &ScanScope, address_at: F) -> ChainPosition
+/// The diagnostic walk, and the one place the wrapper that makes it
+/// cancellable lives -- both call sites would otherwise carry a copy of it.
+fn locate<F>(
+    chain: &Address,
+    local: WotsIndex,
+    scope: &ScanScope,
+    cancel: &Cancel<'_>,
+    mut address_at: F,
+) -> ChainPosition
 where
     F: FnMut(WotsIndex) -> Result<Address>,
 {
-    match walk(chain, scope, Some(local), address_at) {
+    let walked = walk(chain, scope, Some(local), |p| {
+        if cancel.stop() {
+            return Err(Error::Cancelled);
+        }
+        address_at(p)
+    });
+    match walked {
         Walk::Found(i) if i.get() > local.get() => ChainPosition::Ahead {
             index: i,
             gap: i.get() - local.get(),
@@ -1451,12 +1519,21 @@ where
         Walk::NotFound => ChainPosition::Unlocated {
             local,
             scope: *scope,
-            failed_at: None,
+            stopped: None,
         },
-        Walk::Failed { at, .. } => ChainPosition::Unlocated {
+        // The cause is mapped here and not carried whole: `ChainPosition` is
+        // `Copy` and `Error` is not, and the report needs the distinction
+        // rather than the variant.
+        Walk::Failed { at, cause } => ChainPosition::Unlocated {
             local,
             scope: *scope,
-            failed_at: Some(at),
+            stopped: Some(Stopped {
+                at,
+                by: match cause {
+                    Error::Cancelled => StoppedBy::Cancelled,
+                    _ => StoppedBy::Derivation,
+                },
+            }),
         },
     }
 }

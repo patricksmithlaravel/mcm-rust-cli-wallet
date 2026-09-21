@@ -56,10 +56,7 @@ extraction invisible to `tests/keystore.rs`.
 implementation behind it, no `cfg` and no trait, and a non-unix build still
 fails at `lib.rs`'s `compile_error!` and again at `keystore`'s.
 
-### P0-2 -- cooperative cancellation, and the signal gap **(the restore walk done, 2026-09-20)**
-
-Two parts. The second is the reason the first is worth having here rather than
-downstream.
+### P0-2 -- cooperative cancellation, and the signal gap **(both walks done, 2026-09-20)**
 
 **The gap, which is a defect of this wallet on Unix today.** Nothing in this
 tree addresses signals -- not the source, not the documents, not `Cargo.toml`.
@@ -69,28 +66,20 @@ process without unwinding, so **no destructor runs and the seed is not
 overwritten.** That is the argument the root `Cargo.toml` makes against
 `panic = "abort"`, reaching a signal that argument does not mention.
 
-**The mechanism, done for the restore walk.** `recon::Cancel` is asked once
-per position; a cancel is `Error::Cancelled`, which is deliberately not the
-`Ok(None)` an exhausted bound returns, because those two say opposite things.
-The check sits in the derivation closure `restore_account_index_with` already
-builds, so neither `walk` nor `scan_for_address` grew a parameter. `README.md`
-records the open half in its limits section.
+**The mechanism.** `recon::Cancel` is asked once per position; a cancel is
+`Error::Cancelled`, deliberately not the `Ok(None)` an exhausted bound
+returns, because those two say opposite things. Both long walks take it now --
+the restore scan and the divergence diagnostic -- under one rule: **a caller
+that may say how far a walk goes may also say whether it keeps going**, so the
+parameter travels wherever `&ScanScope` does and nowhere else. `README.md`
+records the half that is still open.
 
-**Still open, and both deliberately.**
-
-* **The diagnostic walk.** `reconcile_account_with` reaches the same ceiling
-  through `locate` and is not cancellable. It cannot be without reshaping
-  `ChainPosition`: `Unlocated` records a stopped walk in `failed_at` and its
-  `Display` says the walk stopped *on a derivation error*, which of a cancel is
-  false. That is a public enum whose every variant carries an argument, and the
-  reshape belongs in a commit whose subject is the reshape. The two walks also
-  differ in kind -- cancel a restore and nothing happened; cancel a diagnostic
-  and the divergence is still reported, with its position uncharacterised -- so
-  the right answer may differ too.
-* **A signal handler.** Nothing installs one and the binary passes
-  `Cancel::NEVER`, so at the command line the gap is open. A wallet that
-  catches a signal is a wallet with a new path through its own shutdown, and
-  that path owes the fault injection every other path here owes.
+**What remains is not a walk, and it is P0-3's.** Nothing installs a signal
+handler and the binary passes `Cancel::NEVER`, so at the command line the gap
+stays open. A wallet that catches a signal is a wallet with a new path through
+its own shutdown, and that path owes the fault injection every other path here
+owes -- it is a change to what the command layer *does* rather than to what
+`recon` *offers*, which is why it now sits in the item below.
 
 ### P0-3 -- separate the decision from its rendering
 
@@ -107,8 +96,33 @@ must come out byte-identical.
 cannot parse those strings responsibly, so without this it re-derives the
 orchestration that carries I1 and I4, and two copies of that reasoning drift
 with nothing holding them together. The `board` script's own header names that
-failure class. If Rep-0 is to stay strictly self-justifying, this item moves to
-Rep-1 -- at the cost of diverging the largest file in the tree at a fork point.
+failure class.
+
+#### What has landed under it
+
+**`ChainPosition::Unlocated` records why a walk stopped (2026-09-20).** The
+variant carried `failed_at: Option<u32>` -- a position and nothing else -- and
+both of its renderings supplied the missing half themselves, one saying the
+walk stopped *on a derivation error* and the other that *deriving index n
+failed*. That was true of every walk that could stop early when it was
+written, and false the moment one could be cancelled.
+
+It is the whole item in miniature, which is why it went first: **no renderer
+could have been careful about this**, because the distinction was not in what
+it was handed. The record now carries a `Stopped { at, by }` and the report
+reads it. That is the only arrangement in which the sentence cannot drift from
+the event, and it is what the rest of this item does to `cli/mod.rs` on a
+larger scale.
+
+It also unblocked the diagnostic walk's cancellation, which is why P0-2's
+first remainder is closed above rather than here.
+
+#### What is still owed
+
+* **The command layer itself** -- the 96 `Report` sites, unchanged so far.
+* **The signal handler**, folded in from P0-2. It belongs here because it is a
+  decision the command layer takes, not a capability `recon` offers: `recon`
+  now offers the capability and nothing uses it.
 
 ### P0-4 -- decide the trust store
 

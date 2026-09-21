@@ -4210,6 +4210,7 @@ fn startup_refuses_to_start_on_index_divergence() {
         &TAG,
         &mochimo_crypto::keystore::KeyAccess::Master(&m),
         &SS::DIAGNOSTIC.with_ceiling(WALK),
+        &recon_api::Cancel::NEVER,
     )
     .expect_err("an alien address must diverge");
     assert!(matches!(div3, D::IndexMismatch { found: CP::Unlocated { .. }, .. }), "{div3:?}");

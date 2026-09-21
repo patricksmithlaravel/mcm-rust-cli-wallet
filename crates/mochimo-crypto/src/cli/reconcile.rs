@@ -81,7 +81,7 @@ pub fn account_status<M: Medium, T: Transport>(
     scan_to: Option<u32>,
 ) -> core::result::Result<AccountStatus, Divergence> {
     let access = recon::access_for(store, tag, master)?;
-    recon::reconcile_account_with(store, client, tag, &access, &scope_to(scan_to))
+    recon::reconcile_account_with(store, client, tag, &access, &scope_to(scan_to), &recon::Cancel::NEVER)
 }
 
 /// What `reconcile` decided, after reading the whole store.
@@ -154,6 +154,7 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
                 t,
                 &access,
                 if this { &scope } else { &ScanScope::DIAGNOSTIC },
+                &recon::Cancel::NEVER,
             ),
         };
         if let Err(d) = &result {
@@ -205,7 +206,7 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
             return Ok(reviewed);
         }
     };
-    let receipt = recon::advance_after_operator_review(store, client, tag, &access, ack, &scope)?;
+    let receipt = recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, &recon::Cancel::NEVER)?;
     reviewed.outcome = Outcome::Advanced {
         index: receipt.index().get(),
     };
