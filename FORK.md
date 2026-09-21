@@ -181,13 +181,77 @@ different things, and one answer would be chosen for whichever of them came to
 mind. What this item produces is the reasoning, written down, and Rep-0's
 answer -- so that a fork diverges deliberately rather than by drift.
 
-### P0-5 -- fork hygiene
+### P0-5 -- fork hygiene **(done, 2026-09-20)**
 
-Tag the fork point. Write down what Rep-1 is permitted to change and how Rep-0
-changes flow down. Cheap now; the alternative is discovering the policy at the
-third merge.
+The fork point is the tag `fork-point-1`. Everything below is what a fork is
+for and against.
 
----
+#### What Rep-1 may change
+
+**Four files, and the release apparatus.** The four are what
+`the_unix_surface_is_confined_to_the_files_a_port_would_touch` enumerates,
+and the check is what keeps that list honest rather than remembered:
+
+| file | what a port does to it |
+| --- | --- |
+| `keystore/perms.rs` | adds the `cfg(windows)` arm beside the mode bits |
+| `keystore/medium.rs` | the durability primitives -- `fsync_dir` above all |
+| `bin/mcm-wallet.rs` | the console device and the platform generator |
+| `lib.rs`, `keystore/mod.rs` | the two `compile_error!` gates become a per-platform statement |
+
+`medium.rs` is in the table and not in the check, because its sites are
+`std::fs` calls that compile everywhere and behave differently -- which is
+exactly why R1-3 is the item to fear. A check cannot find those by name.
+
+The release apparatus -- `board`, `RELEASE.md`, `deny.toml`, CI -- is Rep-1's
+to widen, because what it is widening is the platform list.
+
+#### What Rep-1 may not change
+
+**Anything else.** A change Rep-1 wants outside that set is a Rep-0 change:
+make it in Rep-0, let it flow down. That is not a courtesy to upstream, it is
+the only thing that keeps the merge cheap -- a structural edit made downstream
+conflicts with every later Rep-0 commit that touches the same region, forever.
+
+The one exception is a change Rep-0 would refuse on its own terms, which in
+practice means anything that only makes sense with Windows in the tree. That
+goes in Rep-1 and is written into the table above as a permanent delta, so the
+list of things the two trees disagree about stays knowable.
+
+#### How Rep-0 changes flow down
+
+Rep-0 is upstream and never merges from anywhere. Rep-1 merges from Rep-0;
+Rep-2 merges from Rep-0 and takes Rep-1's Windows delta as its own merge when
+it is ready. Nothing merges upward.
+
+**The measure of whether this is working is the size of the diff at each
+boundary**, and it is worth taking that measurement rather than assuming it:
+`git diff fork-point-1..HEAD -- crates/` on Rep-1 should touch the four files
+above and little else. If it is touching the command layer or `recon`, the
+policy has already been broken and the next merge is where it will be felt.
+
+#### What holds the thinness, besides this document
+
+Three checks, and they are the reason Phase 0 was worth doing in this order:
+
+* `the_unix_surface_is_confined_to_the_files_a_port_would_touch` -- a fifth
+  file naming the Unix API is a fifth place a port has to find.
+* `the_decision_layer_carries_no_prose` -- the command layer's split survives
+  only while a page cannot travel through the type that says it is a decision.
+* `no_wallet_visible_fn_hands_out_a_wots_signature` -- I1, which a fork
+  inherits whole and which its delegation clause now lets a dispatch satisfy
+  one call away.
+
+None of them knows about forking. That is the point: they hold properties the
+fork depends on, which is stronger than a document asking for the same thing.
+
+#### What this does not cover
+
+This file is not checked. `documented_counts_match_the_artifacts` reads
+`AGENT.md` and the crate manifest and would catch a figure drifting there; it
+does not read this, and nothing else does either. A table above that stops
+matching the tree turns nothing red, and the check named beside it is what
+would.
 
 ## Fork point 1 -- Rep-0 to Rep-1
 

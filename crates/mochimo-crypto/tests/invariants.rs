@@ -2026,6 +2026,79 @@ fn key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent() {
 /// The paired half is structural and needs no test: `render::outcome`
 /// matches `Outcome` exhaustively, so a variant added without a rendering is
 /// a compile error rather than a silent blank page.
+/// **The Unix surface is four files, and a port touches no others.**
+///
+/// This crate refuses to build off Unix, and says so twice -- `lib.rs` names
+/// the three interfaces it cannot do without and `keystore` names the storage
+/// guarantees it rests on. That refusal is a claim about the whole tree, and
+/// while the sites behind it can be anywhere it is prose checked against
+/// nothing: a mode bit added in a fifth file leaves both statements reading
+/// exactly the same.
+///
+/// So the surface is enumerated here rather than described. Four files, each
+/// for a different reason:
+///
+/// * `keystore/perms.rs` -- the only user of `std::os::unix`, which is the
+///   whole of the permission model. This is what `perms` exists for and the
+///   check that keeps it true.
+/// * `bin/mcm-wallet.rs` -- the device paths and the `stty` subprocess. The
+///   library reaches neither: entropy is a parameter and the prompts go
+///   through `cli::create::Terminal`, so this half of the surface is the
+///   binary's alone.
+/// * `lib.rs` and `keystore/mod.rs` -- the two `compile_error!` gates.
+///
+/// `lib.rs` appears twice because its gate's MESSAGE names the device paths
+/// it is refusing to do without. That is prose inside a string rather than a
+/// site, and the check counts it anyway: an enumeration that quietly forgave
+/// one kind of occurrence would be one nobody could read against a grep.
+///
+/// # What this is for
+///
+/// A downstream tree that wants another platform edits these four files and
+/// no others. That is worth having as a checked property rather than a
+/// remembered one, because the cost of it going stale is not a broken build
+/// -- it is a port that takes a week instead of an afternoon, discovered by
+/// whoever is doing the porting.
+#[test]
+fn the_unix_surface_is_confined_to_the_files_a_port_would_touch() {
+    const PERMS: &str = "crates/mochimo-crypto/src/keystore/perms.rs";
+    const BIN: &str = "crates/mochimo-crypto/src/bin/mcm-wallet.rs";
+    const LIB: &str = "crates/mochimo-crypto/src/lib.rs";
+    const KEYSTORE: &str = "crates/mochimo-crypto/src/keystore/mod.rs";
+    const SURFACE: [(&str, &[&str]); 4] = [
+        ("std::os::unix", &[PERMS]),
+        ("/dev/", &[BIN, LIB]),
+        ("\"stty\"", &[BIN]),
+        ("cfg(not(unix))", &[KEYSTORE, LIB]),
+    ];
+
+    let files = crate_sources();
+    assert!(
+        files.len() >= 10,
+        "the walk of crates/*/src found only {} files; an enumeration taken over it is vacuous",
+        files.len()
+    );
+
+    for (needle, expected) in SURFACE {
+        let mut found: Vec<&str> = files
+            .iter()
+            .filter(|(_, code)| code.contains(needle))
+            .map(|(name, _)| name.as_str())
+            .collect();
+        found.sort_unstable();
+        let mut want: Vec<&str> = expected.to_vec();
+        want.sort_unstable();
+        assert_eq!(
+            found, want,
+            "the Unix surface moved: `{needle}` is named by a different set of files than this \
+             check enumerates.\n  found:    {found:?}\n  expected: {want:?}\nA new file here is \
+             a fifth place a port has to find. Either put the site behind `keystore::perms` (for \
+             the library) or the binary's own terminal and entropy code, or add the file to this \
+             list with the reason it cannot go in either."
+        );
+    }
+}
+
 #[test]
 fn the_decision_layer_carries_no_prose() {
     let src = code_only(&read_crate_file("crates/mochimo-crypto/src/cli/outcome.rs"));
