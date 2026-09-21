@@ -141,11 +141,45 @@ The caller `Cancel` is really for has an event loop and a button and watches a
 flag with no handler at all, so the mechanism serves it today. The argument is
 at `Cancel`'s own doc and the gap is in `README.md`'s limits.
 
-### P0-4 -- decide the trust store
+### P0-4 -- decide the trust store **(decided, 2026-09-20: `webpki-roots`)**
 
-`webpki-roots` or the platform verifier. It changes what this wallet trusts, so
-it is a decision here, and making it once is cheaper than making it three
-times.
+Rep-0 keeps the bundled Mozilla store. The argument is written where the
+provider is chosen, in `crates/mochimo-crypto/Cargo.toml` beside the
+`mesh-https` feature, because a default is not a decision -- the rule the root
+manifest already applies to the release profile.
+
+Two reasons and one cost, in short:
+
+* **The parser stays in safe Rust.** `lib.rs`'s head rests this feature's
+  trusted computing base on where the `unsafe` is *not*: `rustls-webpki` reads
+  the X.509 and the ASN.1, which is the hostile input on this path. Handing
+  verification to CryptoAPI or Security.framework moves that parser into C on
+  two of the three platforms a fork targets.
+* **The same roots everywhere, so a failure reproduces.** `RELEASE.md` asks
+  for a green board on more than one platform at one commit, and that
+  comparison holds only if the trust anchors are held still across it. A store
+  read from the host makes a handshake failure a property of the machine
+  rather than of the commit, and no row of the board would notice.
+* **The cost:** the roots are frozen at build time, and nothing on this path
+  asks about revocation. What bounds it is that TLS here keeps the node's
+  answers *the named node's rather than the network's* -- it is not what makes
+  them true. A lying node is not a case this feature addresses, and `--node`
+  has no default precisely because the operator chooses whom to believe.
+
+**Rep-2 should weigh this again and will probably answer differently.** An
+installed application outlives its roots, meets corporate middleboxes, and has
+a user who expects the machine's own trust decisions to be honoured.
+`rustls-native-certs` is the form that costs no verifier -- it supplies roots
+and leaves rustls to verify -- and it owes a written rule for the store that
+enumerates nothing. `rustls-platform-verifier` is the form that does cost the
+verifier, and the first reason above is the argument against it.
+
+**A correction to how this item was first written.** It said the decision was
+cheaper made once than three times. That is right about the *reasoning* and
+wrong about the *answer*: a command-line operator and a desktop user want
+different things, and one answer would be chosen for whichever of them came to
+mind. What this item produces is the reasoning, written down, and Rep-0's
+answer -- so that a fork diverges deliberately rather than by drift.
 
 ### P0-5 -- fork hygiene
 

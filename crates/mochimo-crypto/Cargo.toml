@@ -59,6 +59,50 @@ mesh-http = ["native", "dep:ureq"]
 # test target, and never in the configuration Miri interprets. Every other
 # configuration of this crate is pure Rust, and this feature is the one place
 # a C toolchain is needed.
+#
+# THE ROOT STORE IS A DECISION AND NOT A DEFAULT, which is why it is written
+# out here. `webpki-roots` is Mozilla's store compiled in as data; the
+# alternatives are the platform's, either enumerated (`rustls-native-certs`,
+# which keeps rustls as the verifier) or trusted to verify (`rustls-platform-
+# verifier`, which does not). This wallet takes the bundled store, for two
+# reasons and against one real cost.
+#
+# ONE: THE PARSER STAYS IN SAFE RUST. `lib.rs`'s head argues that what makes
+# this feature's trusted computing base defensible is where the `unsafe` is
+# NOT -- `rustls-webpki` reads X.509 and its ASN.1, which is the hostile input
+# on this path, and has none of it. Handing verification to CryptoAPI or to
+# Security.framework moves that parser into C on two of the three platforms a
+# downstream fork would target, and TLS failures are historically parser
+# failures. `rustls-native-certs` does not make that trade -- it supplies
+# roots and leaves the verifier alone -- so it is the alternative to weigh, on
+# the second reason rather than the first.
+#
+# TWO: THE SAME ROOTS EVERYWHERE, SO A FAILURE REPRODUCES. `RELEASE.md` asks
+# for a green board on more than one platform AT THE SAME COMMIT, and the
+# comparison it asks a reader to make only carries weight if the thing being
+# compared is held still across it -- the argument `rust-toolchain.toml` makes
+# about the compiler, reaching the trust anchors. A store read from the host
+# makes a handshake failure a property of the machine rather than of the
+# commit, and there is no row of the board that would notice.
+#
+# THE COST, stated rather than discounted: these roots are frozen at build
+# time. A certificate authority removed for mis-issuance stays trusted here
+# until this crate is rebuilt and the operator installs the result, and
+# nothing on this path asks about revocation. What bounds that cost is who
+# the transport is trusted against. It carries a signed public image and
+# JSON, never key material -- but the node's answers DO steer decisions: the
+# ledger entry is the chain-address guard's comparand in `mesh/spend.rs`, the
+# scan target in `recon`'s restore, and the balance the plan computes change
+# from. TLS is what keeps those answers the named node's rather than the
+# network's. It is not what makes them true: a node that lies is not a case
+# this feature addresses, and `--node` has no default precisely because the
+# operator chooses whom to believe.
+#
+# A LONG-RUNNING CONSUMER SHOULD WEIGH THIS AGAIN, and would likely answer
+# differently: an installed application outlives its roots, meets corporate
+# middleboxes, and has a user who expects the machine's own trust decisions to
+# be honoured. `rustls-native-certs` is the answer that costs no verifier, and
+# it owes a written rule for the store that enumerates nothing.
 mesh-https = ["mesh-http", "ureq/rustls"]
 
 [dependencies]
