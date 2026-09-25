@@ -1041,6 +1041,8 @@ If any step fails, the handle is poisoned: every later call that reads or writes
 
 This relies on POSIX rename atomicity, directory `fsync` and `flock`. Two limits are stated rather than detected: it does not survive an `fsync` that lies, and rename atomicity is not detectable from the standard library on FAT, exFAT or FUSE. The build is Unix-only and refuses to compile elsewhere.
 
+**The four steps stop at the store directory.** The directory `fsync` makes the renamed snapshot's entry durable inside the store directory; nothing makes the store directory's own entry in its parent durable. `create` makes the directory, when it is absent, with no flush of the parent, and no commit flushes one. After a power loss, on a filesystem that had not yet committed that entry by another route, the whole store can therefore be absent although `create` returned and every commit inside it completed its four steps — and with it go the position I2 calls durable and the reservation I3 keeps whole: a key that has signed, with nothing on disk to say so. The seed survives, because the operator holds the phrase before `create` writes anything, but a restore reads the position off the chain, where a spend that has not landed does not appear. POSIX promises nothing about whether a directory's own `fsync` commits its entry in the parent, and nothing here asks the filesystem. The crash model I2 and I3 state, a kill at a syscall boundary, cannot reach this, because the kernel keeps what `mkdir` did.
+
 ### The captured images
 
 Five real files are kept and read by the test suite. They are recordings of what this crate's encoders wrote, not oracle data, and they are never re-captured.

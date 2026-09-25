@@ -46,6 +46,24 @@
 //! [`Keystore::commit`]. `tests/invariants.rs::durable_witness_has_one_construction_site`
 //! holds that count at one. Error paths cannot mint by construction.
 //!
+//! **What the witness attests stops at the store directory.** The four steps
+//! make the snapshot and its entry *in* the store directory durable; nothing
+//! makes the store directory's own entry in its parent durable. `create`
+//! makes the directory, when it is absent, with a bare `mkdir` and flushes no
+//! parent, and no commit flushes one either. After a power loss, on a
+//! filesystem that had not yet committed that entry by another route, the
+//! whole store can therefore be absent although `create` returned and every
+//! commit inside it returned its witness -- and with it go the position I2
+//! calls durable and the reservation I3 keeps whole: a key that has signed,
+//! with nothing on disk to say so. The seed survives, since the operator holds
+//! the phrase before `create` writes anything, but a restore reads the
+//! position off the chain, where a spend that has not landed does not appear.
+//! POSIX promises nothing about whether a directory's own `fsync` commits its
+//! entry in the parent, and this crate asks no filesystem. A kill cannot reach
+//! any of this -- the kernel keeps what `mkdir` did -- so the crash tests below
+//! cannot see it. `docs/specification.md`, *How a file is replaced*, states the
+//! same gap.
+//!
 //! # The lock
 //!
 //! `keystore.lock` is created once, never unlinked, and held with
@@ -348,7 +366,9 @@ pub fn occupied(dir: &Path) -> Option<&'static str> {
 impl Keystore<Disk> {
     /// Create a new keystore in `dir` (created `0700` if absent). Refuses a
     /// directory that already holds a snapshot, and a live holder of its lock
-    /// (`Locked`); a lock file nobody holds is walked through.
+    /// (`Locked`); a lock file nobody holds is walked through. Nothing here
+    /// flushes `dir`'s own entry in its parent; the module doc says what that
+    /// leaves after a power loss.
     pub fn create(dir: &Path, init: &Init<'_>) -> Result<Self> {
         Self::create_with(dir, Disk, init)
     }
