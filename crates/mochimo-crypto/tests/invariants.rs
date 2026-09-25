@@ -9264,6 +9264,16 @@ const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
          add, the generation reads, the reopen and the view.",
     ),
     (
+        "crates/mochimo-crypto/src/keystore/medium.rs",
+        "assert_eq!",
+        6,
+        "inside the #[cfg(test)] unit-test module: `parent_of`'s six shapes -- a \
+         bare name, the same with the slash shell completion adds, `./name`, a \
+         relative and an absolute path with a parent, and the root. Test-only; the \
+         medium's non-test code contains no panicking construct, and every failure \
+         of its primitives is an `Error::Io` naming the step.",
+    ),
+    (
         "crates/mochimo-crypto/src/keystore/format.rs",
         ".expect()",
         40,

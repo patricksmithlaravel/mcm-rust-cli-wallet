@@ -12,6 +12,18 @@
 //! implement it, which is what makes "the durability contract is I2's clause"
 //! a property rather than a promise.
 //!
+//! # One primitive outside the commit
+//!
+//! [`Medium::fsync_parent`] flushes the directory that holds the store
+//! directory -- where the store directory's own entry lives, which none of
+//! the four steps reaches. `Keystore::create` calls it once, before its first
+//! commit, and no commit calls it; it takes and returns no token, because it
+//! has no place in the commit's order to hold. [`Instrumented`] records it
+//! with the parent's path, so a flush aimed at the store directory instead --
+//! a wrong path that would leave every count green -- shows in the recorded
+//! sequence. The keystore's module doc says what the flush does and does not
+//! reach.
+//!
 //! # The typestate
 //!
 //! Each step returns a token the next step consumes: `write_temp -> Written`,
@@ -73,10 +85,28 @@ pub trait Medium: sealed::Sealed {
     fn fsync_file(&mut self, written: Written) -> Result<Synced>;
     fn rename(&mut self, synced: Synced, dir: &Path) -> Result<Renamed>;
     fn fsync_dir(&mut self, renamed: Renamed, dir: &Path) -> Result<()>;
+    /// Flush the directory holding `dir`, which is where `dir`'s own entry
+    /// lives. Not a commit step; see the module doc.
+    fn fsync_parent(&mut self, dir: &Path) -> Result<()>;
 }
 
 fn io(op: &'static str) -> impl Fn(std::io::Error) -> Error {
     move |e| Error::Io { op, kind: e.kind() }
+}
+
+/// The directory holding `dir`: its parent, `.` for a bare relative name, and
+/// `dir` itself for a root, which has no parent to hold its entry.
+///
+/// `Path::parent` answers `Some("")` for `wallet` and for `wallet/` -- the
+/// second is what shell completion types -- and opening the empty path
+/// fails, so that answer is read as the working directory it means. Without
+/// the mapping, `create --dir wallet` would be refused at its flush.
+fn parent_of(dir: &Path) -> &Path {
+    match dir.parent() {
+        Some(p) if p.as_os_str().is_empty() => Path::new("."),
+        Some(p) => p,
+        None => dir,
+    }
 }
 
 /// The real filesystem.
@@ -129,6 +159,15 @@ impl Medium for Disk {
             .sync_all()
             .map_err(io("fsync_dir"))
     }
+
+    fn fsync_parent(&mut self, dir: &Path) -> Result<()> {
+        // The same call as `fsync_dir`, one directory up: `sync_all` on a
+        // directory descriptor, `F_FULLFSYNC` on Apple targets.
+        File::open(parent_of(dir))
+            .map_err(io("fsync_parent open"))?
+            .sync_all()
+            .map_err(io("fsync_parent"))
+    }
 }
 
 /// One recorded primitive call, with the arguments that matter.
@@ -138,6 +177,8 @@ pub enum Call {
     FsyncFile { path: PathBuf },
     Rename { from: PathBuf, to: PathBuf },
     FsyncDir { dir: PathBuf },
+    /// The directory flushed, which is the store directory's parent.
+    FsyncParent { dir: PathBuf },
 }
 
 /// A recording, optionally interrupting decorator over any medium.
@@ -221,5 +262,33 @@ impl<M: Medium> Medium for Instrumented<M> {
         });
         self.inner.fsync_dir(renamed, dir)?;
         self.interrupt_here("fsync_dir")
+    }
+
+    fn fsync_parent(&mut self, dir: &Path) -> Result<()> {
+        self.calls.push(Call::FsyncParent {
+            dir: parent_of(dir).to_path_buf(),
+        });
+        self.inner.fsync_parent(dir)?;
+        self.interrupt_here("fsync_parent")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parent_of;
+    use std::path::Path;
+
+    /// The directory `create` flushes, for every shape `--dir` arrives in.
+    /// The bare name, with or without the slash shell completion adds, is the
+    /// case that matters: without its mapping to `.`, `create --dir wallet`
+    /// would be refused at the flush.
+    #[test]
+    fn parent_of_names_the_directory_holding_the_store_in_every_shape() {
+        assert_eq!(parent_of(Path::new("wallet")), Path::new("."));
+        assert_eq!(parent_of(Path::new("wallet/")), Path::new("."));
+        assert_eq!(parent_of(Path::new("./wallet")), Path::new("."));
+        assert_eq!(parent_of(Path::new("stores/wallet")), Path::new("stores"));
+        assert_eq!(parent_of(Path::new("/home/op/wallet")), Path::new("/home/op"));
+        assert_eq!(parent_of(Path::new("/")), Path::new("/"));
     }
 }

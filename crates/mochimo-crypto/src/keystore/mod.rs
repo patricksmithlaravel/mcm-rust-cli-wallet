@@ -46,23 +46,31 @@
 //! [`Keystore::commit`]. `tests/invariants.rs::durable_witness_has_one_construction_site`
 //! holds that count at one. Error paths cannot mint by construction.
 //!
-//! **What the witness attests stops at the store directory.** The four steps
-//! make the snapshot and its entry *in* the store directory durable; nothing
-//! makes the store directory's own entry in its parent durable. `create`
-//! makes the directory, when it is absent, with a bare `mkdir` and flushes no
-//! parent, and no commit flushes one either. After a power loss, on a
-//! filesystem that had not yet committed that entry by another route, the
-//! whole store can therefore be absent although `create` returned and every
-//! commit inside it returned its witness -- and with it go the position I2
-//! calls durable and the reservation I3 keeps whole: a key that has signed,
-//! with nothing on disk to say so. The seed survives, since the operator holds
-//! the phrase before `create` writes anything, but a restore reads the
+//! **The store directory's own entry is flushed once, by `create`.** The four
+//! steps make the snapshot and its entry *in* the store directory durable;
+//! the store directory's own entry lives in its parent, which none of them
+//! touches. Left unflushed, a power loss on a filesystem that had not yet
+//! committed that entry could take the whole store although `create` returned
+//! and every commit inside it returned its witness -- and with it the position
+//! I2 calls durable and the reservation I3 keeps whole: a key that has signed,
+//! with nothing on disk to say so, since a restore from the phrase reads the
 //! position off the chain, where a spend that has not landed does not appear.
-//! POSIX promises nothing about whether a directory's own `fsync` commits its
-//! entry in the parent, and this crate asks no filesystem. A kill cannot reach
-//! any of this -- the kernel keeps what `mkdir` did -- so the crash tests below
-//! cannot see it. `docs/specification.md`, *How a file is replaced*, states the
-//! same gap.
+//! So `create` flushes the parent through [`Medium::fsync_parent`] before its
+//! first commit, whether it made the directory or found it, and refuses
+//! rather than go on if the parent cannot be opened or flushed; the first
+//! witness exists only after that flush has returned.
+//! `tests/keystore.rs::create_flushes_the_store_directory_parent_before_its_first_commit`
+//! pins the sequence and the path flushed.
+//!
+//! What the flush does not reach, stated: the parent's own entry and every
+//! directory above it, which are the operator's -- a store placed in a
+//! directory made a moment before is only as durable as that directory's
+//! entry. Whether a flush that returned has committed anything is the
+//! filesystem's to honour, as every `fsync` here is; a flush of the directory
+//! holding the entry is the route Linux's `fsync(2)` documents, and no power
+//! was cut to test it. A kill cannot reach any of this -- the kernel keeps
+//! what `mkdir` did -- so the crash tests below cannot see it either way.
+//! `docs/specification.md`, *How a file is replaced*, says the same.
 //!
 //! # The lock
 //!
@@ -366,9 +374,10 @@ pub fn occupied(dir: &Path) -> Option<&'static str> {
 impl Keystore<Disk> {
     /// Create a new keystore in `dir` (created `0700` if absent). Refuses a
     /// directory that already holds a snapshot, and a live holder of its lock
-    /// (`Locked`); a lock file nobody holds is walked through. Nothing here
-    /// flushes `dir`'s own entry in its parent; the module doc says what that
-    /// leaves after a power loss.
+    /// (`Locked`); a lock file nobody holds is walked through. Before the
+    /// first commit it flushes `dir`'s parent, so `dir`'s own entry is flushed
+    /// before any witness exists; the module doc says what that does not
+    /// reach.
     pub fn create(dir: &Path, init: &Init<'_>) -> Result<Self> {
         Self::create_with(dir, Disk, init)
     }
@@ -429,6 +438,16 @@ impl<M: Medium> Keystore<M> {
             on_disk_version: format::VERSION,
         };
         let image = ks.seal(&[], 0)?;
+        // **`dir`'s own entry, flushed before the first commit.** The four
+        // steps reach the snapshot and its entry inside `dir`; `dir`'s entry
+        // lives in its parent, which none of them touches, so the first
+        // witness is minted only after this flush has returned. It runs
+        // whether or not this call made `dir`: a directory the operator made
+        // a moment ago is no more durable than one made here, and one flush
+        // per store is the whole cost. A failure refuses `create` rather than
+        // leave the entry unflushed, the same class of residue a failed first
+        // commit leaves.
+        ks.medium.fsync_parent(dir)?;
         let _durable: Durable = ks.commit(&image)?;
         Ok(ks)
     }

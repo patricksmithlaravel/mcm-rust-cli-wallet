@@ -836,6 +836,37 @@ fn medium_sequence_is_exactly_the_four_steps_with_their_arguments() {
     );
 }
 
+/// **`create` flushes the store directory's parent, once, before its first
+/// commit**, whether it made the directory or found it. The sequence a fresh
+/// `create` records is that flush, naming the directory that holds the store,
+/// and then the commit's four steps unchanged. The parent's path is the
+/// argument that matters: a flush of the store directory in its place would
+/// keep the count at five and show only here.
+#[test]
+fn create_flushes_the_store_directory_parent_before_its_first_commit() {
+    let made = ScratchDir::new("parent-flush-made");
+    let found = ScratchDir::new("parent-flush-found");
+    std::fs::create_dir(found.path()).unwrap_or_else(|e| panic!("cannot make {}: {e}", found.path().display()));
+    for (dir, how) in [(&made, "a directory create made"), (&found, "a directory create found")] {
+        let ks = Keystore::create_with(dir.path(), Instrumented::new(Disk), &keystore_harness::init()).unwrap_or_else(|e| panic!("{how}: {e}"));
+        let parent = dir.path().parent().unwrap_or_else(|| panic!("{how}: a scratch directory has a parent")).to_path_buf();
+        let tmp = dir.path().join("accounts.mks.tmp");
+        let snap = dir.path().join("accounts.mks");
+        let len = read_snapshot(dir).len();
+        assert_eq!(
+            ks.medium().calls(),
+            &[
+                Call::FsyncParent { dir: parent },
+                Call::WriteTemp { path: tmp.clone(), len },
+                Call::FsyncFile { path: tmp.clone() },
+                Call::Rename { from: tmp, to: snap },
+                Call::FsyncDir { dir: dir.path().to_path_buf() },
+            ],
+            "{how}: create's recorded sequence"
+        );
+    }
+}
+
 /// The image's own geometry, derived from the layout `src/keystore/format.rs`
 /// documents rather than typed as numbers here — `format`'s constants are
 /// `pub(crate)` and this is an external crate, so the derivation is written
