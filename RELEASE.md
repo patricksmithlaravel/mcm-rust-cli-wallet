@@ -14,7 +14,39 @@ run, on both platforms, at the commit being tagged.
 
 - [ ] The working tree is clean and the commit to be tagged is the one in hand.
       `git status --short` prints nothing.
-- [ ] `./board verify` is **green on Linux**. Record the run below.
+- [ ] `./board verify` is **green on Linux**, in its three parts, each at
+      the commit being tagged. Only the first has to run on Linux, so the
+      three may come from three runs rather than one -- `./board verify`
+      run whole on an x86_64 Linux host is all three at once. Record them
+      in one row below, each with where it ran:
+
+      - `./board check`, green on Linux: on a Linux host, or the workflow's
+        Linux job (below). It is the one part that runs anything on Linux
+        -- the keystore's lock, flushes and mode bits on a Linux kernel and
+        filesystem, the binary under util-linux `script(1)`, and `ring`'s C
+        and assembly built for the target -- and so the one part no other
+        host can stand in for.
+      - `cargo deny check`, green on any host. `deny.toml` leaves `targets`
+        unset and sets `all-features`, so the graph whose licences,
+        advisories, bans and sources it judges is the whole lockfile's and
+        not a host's; the `macos` row's own run at this commit is this part
+        too.
+      - Miri for the Linux target, green on any host, with MIRIFLAGS
+        unset as the board leaves it:
+
+            cargo +nightly miri test -p mochimo-crypto --target x86_64-unknown-linux-gnu
+
+        On an x86_64 Linux host that is `./board verify`'s Miri row;
+        anywhere else the target has to be named. Miri interprets the
+        target it is given whatever the host -- its README calls this
+        cross-interpretation -- and with MIRIFLAGS unset its isolation is
+        on, which the README says replaces entropy, environment variables
+        and clocks with deterministic fakes, and which refuses the file
+        system. The same README says isolation is not a sandbox, and that
+        a gap in it is a Miri bug.
+
+      The third part reaches less than its name suggests: *What this
+      checklist does not reach* says what.
 - [ ] `./board verify` is **green on macOS**. Record the run below.
 - [ ] The board's figures in `AGENT.md` match the run that just happened --
       the per-target counts and the wall time, re-derived from the run being
@@ -31,6 +63,13 @@ run, on both platforms, at the commit being tagged.
 
           cargo +1.89.0 check --workspace
           cargo +1.89.0 check -p mochimo-crypto --features mesh-https
+
+      On both platforms, and not once: a dependency's code for one target
+      compiles only for that target -- `sha2`'s backends, and `ring`'s C and
+      assembly, among it -- so one host's check says nothing about the
+      other's. The workflow's `msrv` job runs both commands on Linux and
+      macOS, reading the version from `Cargo.toml`; a green run of it is
+      evidence for this box, and a person still ticks it.
 
       The version is written out twice here and once in `Cargo.toml`. If
       either moves, this line moves with it -- a version number in a checklist
@@ -72,6 +111,48 @@ A green board on one platform is evidence about that platform. Running it on
 the other is not duplication; it is the only thing that makes the second claim
 true.
 
+## Hosts this repository does not have
+
+The gates above ask for two platforms, and this tree is developed on one,
+macOS. `.github/workflows/board.yml` runs `./board check` on GitHub's Linux
+and macOS runners at one commit, and in a job of its own the MSRV check
+above, when a person pushes a branch whose name begins `board/`, on its own
+-- the workflow's head says why alone -- or, once the workflow is on the
+default branch, dispatches it. Its runs are listed at the end of this
+section. It is a way to reach a platform, and it changes nothing above:
+
+- **It gates nothing.** No pull request waits on it and no check is required
+  of one.
+- **It runs `check`, not `verify`.** A green run is evidence about the board
+  on that platform, and the record below is for `verify`. A green Linux job
+  is the first of the three parts the `linux` row is assembled from, and the
+  gate says why the other two need no Linux host. A green macOS job is no
+  part of the `macos` row, which is `./board verify` run whole on a macOS
+  host. Whether the Miri run finishes inside a hosted job's six hours has not
+  been measured.
+- **It writes nothing here.** The run's log is the transcript, GitHub deletes
+  it when its retention period ends, and the record is what a person copies
+  out of it before then.
+- **A runner is one host.** The section above calls the lock's meaning and
+  the mode-bit refusal properties of a host -- its filesystem and its umask
+  -- and not of this source, and a runner measures its own. The workflow
+  prints each job's image and kernel before the board, so a reader can tell
+  which host a result is about.
+
+The workflow's head carries the rest of its argument: why it clones under the
+user's profile rather than into the runner's workspace, why it uses no
+actions, and why its images are `-latest`. The Windows fork's copy of it came
+first; this one is its Linux and macOS half.
+
+**Its runs.** Each figure is summed from that job's own seventeen result
+lines, read with `gh run view --repo patricksmithlaravel/mcm-rust-cli-wallet
+--job <job> --log`, and each host is the one that job printed. Append a run;
+like the record below, a row is never edited.
+
+| run | commit | Linux `check` | macOS `check` | `msrv`, Linux and macOS |
+| --- | --- | --- | --- | --- |
+| _(no run recorded yet)_ | | | | |
+
 ## What this checklist does not reach
 
 Stated here for the same reason `AGENT.md` states it of the board: a gate that
@@ -91,6 +172,30 @@ narrow.
   denies that lint. Read the row's output rather than trusting its status.
 - A green board means every row that runs passes. `AGENT.md`'s rule holds
   here: check by name, not by count.
+- **Miri for the Linux target runs the tests a macOS host's run does.**
+  Measured at `c2b08ce` on this repository's arm64 macOS host,
+  `cargo +nightly miri test -p mochimo-crypto -- --list` and the same
+  command with `--target x86_64-unknown-linux-gnu` name the same 54 tests,
+  counted by their `: test` lines and compared by name: the library's 35,
+  `derive`'s 7, `mesh`'s 4, `net`'s 3, `txwire`'s 3 and `miri`'s 2. The
+  other ten targets list none -- `cli`, `keystore` and `invariants` among
+  them -- and isolation refuses the file system, so none of the keystore's
+  locking, flushing or renaming is under either target. What the Linux
+  target adds is Linux's `std` beneath the same tests, on x86_64, with Miri
+  itself answering the calls `std` makes to the system: no Linux kernel is
+  beneath it, and the keystore's calls to one are the `check` part's. Nor is
+  there `unsafe` of the library's own to reach: `src/` has none, and
+  `unsafe_is_confined_to_declared_files` holds it to none with an empty
+  allow-list. This tree's own `unsafe` is the test tree's -- three blocks in
+  the drop witness, `tests/support/drop_witness.rs`, which
+  `secret_drop_witness_is_sound_under_miri` runs under Miri for either
+  target -- and every other `unsafe` Miri walks is `std`'s or a
+  dependency's.
+- The TLS graph is built on each platform's own host. `ring` compiles C and
+  assembly for its target, and `mesh-https` is in no configuration Miri
+  interprets, so a platform's `mesh-https` rows -- `clippy: mesh-https`,
+  `build: shipped`, and the binary the pty harness builds -- are its
+  `check` part's and nothing else's.
 
 ## The record
 
@@ -111,6 +216,11 @@ rustc's exact diagnostic wording and a toolchain bump can turn it red with no
 change to the property it checks. The stable half should now equal the channel
 in `rust-toolchain.toml`; recording it anyway is what would show that someone
 had overridden the pin, which a row reading only "pinned" never could.
+
+A `linux` row may be assembled, as its gate says. Its `OS / kernel` is then
+the Linux host `./board check` ran on, and its `./board verify` cell names
+each part and where it ran: the check by its host or its workflow run,
+`cargo deny` by its host, and Miri by its host and target.
 
 A tag needs one green `linux` row and one green `macos` row at the commit
 being tagged. Two rows at different commits are two half-verifications.

@@ -1,0 +1,226 @@
+# The board, on the hosts this repository's development machine is not.
+#
+# RELEASE.md asks for a green board on Linux and macOS at the commit being
+# tagged, and this tree is developed on one macOS host. This workflow rents
+# the platform that host is not, and macOS beside it so that both run the
+# same commit on the same day. Each runs `./board check` -- the script
+# unchanged -- and the job's status is the board's. Beside it, on the same
+# two, a second job runs the check RELEASE.md asks for of the declared minimum
+# compiler; its own head, at the foot of this file, says why it is a job
+# apart. RELEASE.md, under "Hosts this repository does not have", records the
+# runs and what they have established and what they have not.
+#
+# THE WINDOWS FORK'S COPY OF THIS FILE CAME FIRST, and this is its Linux and
+# macOS half: its jobs, its steps and its argument, less the Windows matrix
+# entries and the steps and reasons only Windows needs. The fork's FORK.md,
+# under R1-6, says a workflow Rep-0 takes is made here and flows down, and
+# the lines this file shares with the fork's are kept as the fork wrote them,
+# so that a merge down meets the fork's Windows lines and few others.
+#
+# IT GATES NOTHING, AND IT RUNS ONLY WHEN A PERSON ASKS. RELEASE.md calls itself
+# the manual replacement for automated verification, and this does not replace
+# it. There is no `pull_request` trigger and no required check; nothing here
+# writes the record, and a green run is not a row in it -- the record is for
+# `verify`, of which a green Linux job is one part of three, the part that
+# needs Linux. A run starts when someone pushes a branch whose name begins
+# `board/`, which works before this file reaches the default branch, or
+# dispatches the workflow from the Actions tab, which works only after. What a
+# run leaves is a log. A person reads it and writes down what it says; GitHub
+# deletes the log when its retention period ends, which is one more reason the
+# record is kept in RELEASE.md and not here.
+#
+# A GREEN macOS JOB IS NO PART OF THE RECORD. The `macos` row is
+# `./board verify` run whole on a macOS host, which this tree is developed on.
+# The macOS job is the same commit's board, built cold on a machine that is
+# not that one, beside Linux's for a reader to compare.
+#
+# PUSH THE `board/` BRANCH ON ITS OWN. Measured on the Windows fork: one
+# `git push` that moved `phase-1` and created `board/phase-1` together started
+# nothing -- no run, no check suite -- while each push of a `board/` branch by
+# itself, whether it created the branch or moved it, started a run within
+# seconds. Why the combined push started nothing is not established; that
+# pushing the branch alone works is.
+#
+# `check`, NOT `verify`. `verify` adds `cargo deny check` and the Miri run,
+# which AGENT.md puts at hours rather than minutes. A hosted job is stopped
+# at six hours, and whether Miri on these runners finishes inside that has not
+# been measured. RELEASE.md's tag gate still asks for `verify` on each
+# platform, and takes the Linux one in its parts: this workflow's Linux
+# job for `check`, and `cargo deny` and Miri for the Linux target from any
+# host, since neither's verdict depends on the host that runs it. Its gate
+# says why, and what Miri for that target does and does not reach.
+#
+# NO ACTIONS. Every step is a command against tools the runner image already
+# carries: git, rustup, a C compiler for `ring`. A `uses:` line is another
+# repository's code, run inside this job beside the tree -- pinned by tag it
+# can move, and pinned by hash it is still code nobody here has read -- and
+# nothing this job needs is something `git clone` and `rustup` do not supply.
+# The cost is stated rather than hidden: no dependency cache, so every run
+# builds cold; and no uploaded artifact, so the transcript is the job log.
+#
+# WHAT A GREEN RUN DOES NOT SAY. Everything RELEASE.md says a green board
+# does not say, and anything about a host but the one it ran on. The lock and
+# the mode-bit refusal rest on the filesystem and the umask a host gives them,
+# which RELEASE.md calls properties of the host and not of the source, and a
+# runner measures its own. The step before the board prints the image and the
+# kernel, so a reader can tell which host a result is about.
+
+name: board
+
+on:
+  push:
+    branches: ['board/**']
+  workflow_dispatch:
+
+# Each job reads a public repository and writes nothing, so the token is given
+# no permission at all. The clones below are anonymous: if the repository stops
+# being public, they fail by name rather than this line being widened.
+permissions: {}
+
+jobs:
+  check:
+    name: board check, ${{ matrix.os }}
+    strategy:
+      # A red platform does not cancel the other. That one is what a reader
+      # compares it with, which is the board's own reason for running its test
+      # row `--no-fail-fast`, one level up.
+      fail-fast: false
+      matrix:
+        # `-latest` rather than a pinned image. What the record needs is the
+        # host a run happened on, and the job prints that -- the image by name
+        # and version below, and the kernel after it. A pinned
+        # image stops starting when GitHub retires it, which is a red run no
+        # commit caused; `-latest` moves without a commit instead, and the
+        # printed image is what makes two runs comparable either way.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # A cold build and the whole board on the slower of the two, with room
+    # for the pty harness's worst case -- every one of its eighteen tests
+    # running out its 300-second step -- to end in the harness's own failure
+    # and let the rows after it report. A hang past that ends here, as a
+    # failure, rather than at the six-hour cap.
+    timeout-minutes: 120
+    defaults:
+      run:
+        # Named, so that every step runs as `bash --noprofile --norc -e -o
+        # pipefail`, which is what the log prints for a named `bash`.
+        shell: bash
+    steps:
+      - name: Clone the commit under the user's profile
+        # Under the profile, where the fork's copy of this file clones for a
+        # reason only Windows has: a store directory a test makes there
+        # inherits its ancestors' access list, and a folder outside the
+        # profile can inherit a grant to other users. Here the reason does
+        # not arise -- the mode-bit check stats the store directory alone,
+        # and a directory a test makes takes its mode from the umask, not
+        # from where the tree sits -- so the tree goes where the fork's does,
+        # and the two files get it one way.
+        run: |
+          base=$HOME
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$base/mcm"
+          git -C "$base/mcm" checkout --quiet --detach "$GITHUB_SHA"
+          echo "MCM=$base/mcm" >> "$GITHUB_ENV"
+
+      - name: Name the commit, the host and the toolchain
+        # What a row of RELEASE.md's record needs, printed before the board so
+        # it is in the log whatever the board does. `rustup toolchain install`
+        # with no argument installs the toolchain `rust-toolchain.toml` pins
+        # and nothing else, and the versions printed are what would show that
+        # another compiler ran. `--no-self-update`, because by default the
+        # same command also replaces rustup itself when a newer one exists,
+        # and the image's installer is not what this run measures.
+        run: |
+          cd "$MCM"
+          rustup toolchain install --no-self-update
+          echo "commit  $(git rev-parse HEAD)"
+          echo "date    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "image   ${ImageOS:-unnamed} ${ImageVersion:-unversioned}"
+          echo "host    $(uname -srm)"
+          rustc -vV
+          cargo -V
+
+      - name: ./board check
+        run: |
+          cd "$MCM"
+          ./board check
+
+  # THE DECLARED MINIMUM COMPILER, on every platform. `rust-toolchain.toml`
+  # pins the board to one compiler, so no board row compiles this tree on the
+  # `rust-version` the workspace declares, and RELEASE.md carries the two
+  # commands that do as a gate before a tag -- on every platform, because the
+  # code a dependency has for one target compiles only for that target --
+  # `sha2`'s backends, and `ring`'s C and assembly -- and one host's check
+  # says nothing about another's. This job runs those two commands and
+  # nothing else.
+  #
+  # A JOB APART, and not two more steps of `check`, so that the board's job
+  # keeps meaning the board: a red here is a finding about the manifest's
+  # minimum, not a board row that failed, and it should not read like one.
+  #
+  # THE VERSION IS READ FROM THE MANIFEST. RELEASE.md writes it out twice and
+  # says nothing holds either copy to `Cargo.toml`; a third copy here would be
+  # the same drift once more. `rust-version = "1.89"` admits 1.89.0 and every
+  # release after it, so 1.89.0 -- the oldest compiler the claim covers -- is
+  # the one a claim about a minimum is checked on, and a two-part version is
+  # given its `.0`.
+  msrv:
+    name: msrv, ${{ matrix.os }}
+    strategy:
+      # As for `check`, and for the same reason.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # A compiler to install and two `cargo check`s: a fraction of the board.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Clone the commit under the user's profile
+        # As `check` clones, so that this file has one way of getting the
+        # tree; a `cargo check` does not care where the tree sits.
+        run: |
+          base=$HOME
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$base/mcm"
+          git -C "$base/mcm" checkout --quiet --detach "$GITHUB_SHA"
+          echo "MCM=$base/mcm" >> "$GITHUB_ENV"
+
+      - name: Install the compiler the manifest declares
+        # Exactly one `rust-version` key, or the job stops by name: a version
+        # this step had to guess at would be a check of the guess.
+        run: |
+          cd "$MCM"
+          if [ "$(grep -c '^rust-version = ' Cargo.toml)" != 1 ]; then
+            echo "Cargo.toml does not declare exactly one rust-version, so there is no one minimum to check." >&2
+            exit 1
+          fi
+          declared=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          case "$declared" in
+            [0-9]*.[0-9]*.[0-9]*) msrv=$declared ;;
+            [0-9]*.[0-9]*) msrv=$declared.0 ;;
+            *)
+              echo "Cargo.toml declares rust-version \"$declared\", which is not a version this job can install." >&2
+              exit 1
+              ;;
+          esac
+          rustup toolchain install "$msrv" --profile minimal --no-self-update
+          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+          echo "commit    $(git rev-parse HEAD)"
+          echo "image     ${ImageOS:-unnamed} ${ImageVersion:-unversioned}"
+          echo "host      $(uname -srm)"
+          echo "declared  rust-version \"$declared\", checked on $msrv"
+          rustc "+$msrv" -vV
+
+      - name: cargo +MSRV check --workspace
+        run: |
+          cd "$MCM"
+          cargo "+$MSRV" check --workspace
+
+      - name: cargo +MSRV check -p mochimo-crypto --features mesh-https
+        # Whatever the command above did, as the board runs every row: the
+        # two are separate claims, and one red should not hide the other.
+        if: ${{ !cancelled() }}
+        run: |
+          cd "$MCM"
+          cargo "+$MSRV" check -p mochimo-crypto --features mesh-https
