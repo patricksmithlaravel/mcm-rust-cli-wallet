@@ -8,14 +8,15 @@ unasked question is not.
 
 Work down it before a tag. Nothing here is new verification -- every gate is
 one the repository already has. What this document adds is that they were all
-run, on both platforms, at the commit being tagged.
+run, on both platforms, at one commit, and recorded in that commit's child,
+which is the one tagged. *Two commits and a tag*, below, says why it is two.
 
 ## The gates
 
-- [ ] The working tree is clean and the commit to be tagged is the one in hand.
-      `git status --short` prints nothing.
+- [ ] The working tree is clean and the commit to be verified is the one in
+      hand. `git status --short` prints nothing.
 - [ ] `./board verify` is **green on Linux**, in its three parts, each at
-      the commit being tagged. Only the first has to run on Linux, so the
+      the commit verified. Only the first has to run on Linux, so the
       three may come from three runs rather than one -- `./board verify`
       run whole on an x86_64 Linux host is all three at once. Record them
       in one row below, each with where it ran:
@@ -48,12 +49,17 @@ run, on both platforms, at the commit being tagged.
       The third part reaches less than its name suggests: *What this
       checklist does not reach* says what.
 - [ ] `./board verify` is **green on macOS**. Record the run below.
-- [ ] The board's figures in `AGENT.md` match the run that just happened --
-      the per-target counts and the wall time, re-derived from the run being
-      reported. AGENT.md's own rule governs: the total is summed from that
-      run's result lines, never carried forward from a previous one, and a
-      figure that moved is re-read rather than adjusted.
-- [ ] `AGENT.md`'s board section names the commit being tagged.
+- [ ] The board's figures in `AGENT.md` are a fresh `./board check`'s at the
+      commit verified -- the per-target counts, the total and the wall time,
+      re-derived from that run. AGENT.md's own rule governs: the total is
+      summed from that run's result lines, never carried forward from a
+      previous one, and a figure that moved is re-read rather than adjusted.
+- [ ] `AGENT.md`'s board section names the commit verified, by its hash.
+- [ ] **The commit tagged is the commit verified's child, and changes only
+      the two documents that record it.** `git diff --stat <verified>
+      <tagged>` lists `AGENT.md` and `RELEASE.md` and no other file, and the
+      commit tagged is green on its own pre-commit `./board check` with the
+      same per-target counts.
 - [ ] The version in `crates/mochimo-crypto/Cargo.toml` is the version being
       tagged.
 - [ ] **The declared MSRV still builds.** `rust-toolchain.toml` pins the board
@@ -79,6 +85,41 @@ run, on both platforms, at the commit being tagged.
 test* in `AGENT.md` -- followed by `cargo deny check` and the Miri run. It
 takes hours, most of it Miri. `./board check` alone is the pre-commit gate and
 takes minutes; it is not sufficient here.
+
+## Two commits and a tag
+
+Two of the gates above cannot be met by the commit they are about.
+`AGENT.md`'s board section names its run by hash, and a commit cannot contain
+its own hash, so the section cannot name the commit it is in. The record's
+rows are written after the runs they record, so they cannot be in the commit
+the runs ran at. A release is therefore two commits and a tag, in this order:
+
+1. **The commit verified.** Everything the release ships, the version in
+   `crates/mochimo-crypto/Cargo.toml` included, committed with the board
+   green like any other commit. Every run the gates ask for is at this
+   commit, and a fresh `./board check` there is the one `AGENT.md`'s figures
+   are taken from.
+2. **The commit tagged**, the commit verified's child. It writes those
+   figures into `AGENT.md`'s board section, which names the commit verified
+   by its hash, and appends the record's rows, and any run of the workflow,
+   to this file. It changes nothing else:
+
+       git diff --stat <verified> <tagged>
+
+   lists `AGENT.md` and `RELEASE.md` and no other file. Its own pre-commit
+   `./board check` is green with the same per-target counts, and that is
+   measured rather than assumed, because `AGENT.md` is not only read by
+   people: `documented_counts_match_the_artifacts` reads it too.
+3. **The tag**, on the commit tagged, so that the tree a tag names carries
+   the record of its own verification, and figures that are not a previous
+   release's.
+
+`AGENT.md`'s own rule is what carries the figures across the one step: a
+reader runs `git diff` against the commit named and, if nothing outside the
+documents moved, the figures are still theirs. Tagging the commit verified
+instead would name exactly the commit that ran, and leave the tag's
+`AGENT.md` with the previous release's figures and its record without the
+rows that justify it.
 
 ## Why both platforms, and not as a formality
 
@@ -234,4 +275,5 @@ each part and where it ran: the check by its host or its workflow run,
 `cargo deny` by its host, and Miri by its host and target.
 
 A tag needs one green `linux` row and one green `macos` row at the commit
-being tagged. Two rows at different commits are two half-verifications.
+verified, appended by the commit tagged. Two rows at different commits are
+two half-verifications.

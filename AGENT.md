@@ -244,8 +244,10 @@ hash**: a sentence that says *this commit* is true when it is written and
 false at the next one. A reader runs `git diff 5e0726b` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
-these numbers forward. The figure to compare across runs is the per-target
-one: lib 44, cli 111, compile_fail 1,
+these numbers forward. At a release the commit named is the one `RELEASE.md`
+verifies, and this section is written in that commit's child, which the tag
+names: *Two commits and a tag* there says why. The figure to compare across
+runs is the per-target one: lib 44, cli 111, compile_fail 1,
 derive 10, invariants 68, kat 18, keystore 33, mesh 13, mesh_http 10, miri 2,
 net 3, recon 29, signing 17, spend 19, txwire 3, wots_internals 4,
 doc-tests 0.
