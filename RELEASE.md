@@ -193,6 +193,7 @@ like the record below, a row is never edited.
 | run | commit | Linux `check` | macOS `check` | `msrv`, Linux and macOS |
 | --- | --- | --- | --- | --- |
 | 36213678705 | `b293a6d` | green, 395 passed; `ubuntu24` 20260920.314.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 395 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
+| 36216653269 | `da9ed86` | green, 395 passed; `ubuntu24` 20260920.314.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 395 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
 
 The first run, on 2026-09-26, is of the commit that added the workflow. The
 push of `linux-gate` that carried it started no run, as the trigger says, and
@@ -204,6 +205,13 @@ mesh_http 10, miri 2, net 3, recon 35, signing 17, spend 19, txwire 3,
 wots_internals 4, doc-tests 0. The eighteen `pty::` tests passed on Linux
 under the runner's `script`, which Ubuntu takes from util-linux, and on macOS
 under BSD's. Each `msrv` job compiled `ring`'s C for its own target.
+
+The second, on 2026-09-26, is of `da9ed86`, the commit 1.1.0 verifies,
+started by the push of `board/release-1.1.0` on its own. Its Linux job,
+108333823905, is the `check` part of the record's `linux` row below; its
+`msrv` jobs are the MSRV box's evidence on both platforms. The per-target
+figures are the first run's, on both runners, and the eighteen `pty::` tests
+passed on each again.
 
 ## What this checklist does not reach
 
@@ -260,7 +268,8 @@ red, the row says red and a later row says green.
 
 | date | commit | platform | OS / kernel | toolchain | `./board verify` | by |
 | --- | --- | --- | --- | --- | --- | --- |
-| _(no verification recorded yet)_ | | | | | | |
+| 2026-09-26 | `da9ed86` | macos | macOS 26.6.2 (25G83), Darwin 25.6.0 arm64 | 1.98.0 (88d9e12ae 2026-08-18); nightly 1.100.0 (fd7ed57df 2026-08-29) | green, run whole on this repository's macOS host: check 395 passed, 0 failed, 0 ignored; `cargo deny check` advisories, bans, licenses and sources ok; Miri 54 passed, 0 failed, 0 ignored, in 14 h 04 m 25 s beside the `linux` row's; 14 h 09 m 15 s in all | patricksmithlaravel |
+| 2026-09-26 | `da9ed86` | linux | Linux 6.17.0-1022-azure x86_64, `ubuntu24` 20260920.314.1 | 1.98.0 on the runner; nightly 1.100.0 (fd7ed57df 2026-08-29) on the macOS host | green, assembled: `./board check` in workflow run 36216653269, job 108333823905, 395 passed, 0 failed, 0 ignored; `cargo deny check` on the macOS host, the `macos` row's run; Miri for `x86_64-unknown-linux-gnu` on the macOS host, MIRIFLAGS unset, 54 passed, 0 failed, 0 ignored, in 14 h 04 m 24 s beside the `macos` row's | patricksmithlaravel |
 
 `platform` is `linux` or `macos`. `toolchain` is the stable version the board
 ran on and the nightly Miri ran on, since the `compile_fail` target pins
