@@ -251,9 +251,11 @@ net 3, recon 29, signing 17, spend 19, txwire 3, wots_internals 4,
 doc-tests 0.
 
 Three things about running it. The `cli` target's eighteen `pty::` tests build
-the shipped binary with `--features mesh-https` and drive it under BSD
-`script(1)`; they need `cargo` on the path and a host whose `script` accepts
-`-q /dev/null cmd args`, and the count is whatever `cargo test -q -p
+the shipped binary with `--features mesh-https` and drive it under
+`script(1)`, in the two forms `tests/cli.rs`'s `script_command` knows: BSD's
+on macOS, which takes `-q /dev/null cmd args`, and util-linux's on Linux,
+which takes the command as one string after `-q -e -c`. They need `cargo` on
+the path and one of those two, and the count is whatever `cargo test -q -p
 mochimo-crypto --test cli -- --list | grep -c 'pty::'` prints. The
 `invariants` target's census spawns `cargo test --workspace --no-run` and the
 sibling binaries, so it has to be run *by* `cargo test` and never by invoking

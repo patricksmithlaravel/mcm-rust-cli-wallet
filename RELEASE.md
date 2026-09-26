@@ -151,7 +151,18 @@ like the record below, a row is never edited.
 
 | run | commit | Linux `check` | macOS `check` | `msrv`, Linux and macOS |
 | --- | --- | --- | --- | --- |
-| _(no run recorded yet)_ | | | | |
+| 36213678705 | `b293a6d` | green, 395 passed; `ubuntu24` 20260920.314.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 395 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
+
+The first run, on 2026-09-26, is of the commit that added the workflow. The
+push of `linux-gate` that carried it started no run, as the trigger says, and
+the push of `board/linux-gate` on its own, after it, started this one.
+Nothing was ignored on either runner, and both passed the same figure per
+target as this repository's macOS host at the same tree: lib 45, cli 111,
+compile_fail 1, derive 10, invariants 70, kat 18, keystore 34, mesh 13,
+mesh_http 10, miri 2, net 3, recon 35, signing 17, spend 19, txwire 3,
+wots_internals 4, doc-tests 0. The eighteen `pty::` tests passed on Linux
+under the runner's `script`, which Ubuntu takes from util-linux, and on macOS
+under BSD's. Each `msrv` job compiled `ring`'s C for its own target.
 
 ## What this checklist does not reach
 
