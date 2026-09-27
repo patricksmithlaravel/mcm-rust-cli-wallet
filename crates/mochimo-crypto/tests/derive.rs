@@ -37,15 +37,28 @@ use std::path::PathBuf;
 #[path = "support/derivation_walk.rs"]
 mod derivation_walk;
 
-use derivation_walk::{Plain, Vector as _};
-use mochimo_crypto::account::WotsIndex;
-use mochimo_crypto::consts::{ADDR_TAG_LEN, SEED_LEN, WOTS_ADDR_LEN};
+use derivation_walk::Plain;
+use mochimo_crypto::consts::SEED_LEN;
 use mochimo_crypto::derive::{self, DigestRandomGenerator};
+
+// Used only by the index mapping and the wordlist pin, and Miri runs neither.
+// The imports carry their users' gate, so the Miri build compiles none it
+// would not use and no lint is turned off to keep it quiet.
+#[cfg(not(miri))]
+use derivation_walk::Vector as _;
+#[cfg(not(miri))]
+use mochimo_crypto::account::WotsIndex;
+#[cfg(not(miri))]
+use mochimo_crypto::consts::{ADDR_TAG_LEN, WOTS_ADDR_LEN};
+#[cfg(not(miri))]
 use mochimo_crypto::{addr, mnemonic, Secret};
 
 const FILE: &str = "group_f_derivation.json";
 
 /// The backend `wots::pkgen` resolves to, for the evidence line. There is one.
+/// Only the replay through the selected backend prints that line, and Miri
+/// runs the subset in its place, so the name carries that replay's gate.
+#[cfg(not(miri))]
 const BACKEND: &str = "native";
 
 #[cfg_attr(miri, allow(dead_code))]

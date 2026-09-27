@@ -25,11 +25,23 @@ use std::path::PathBuf;
 #[path = "support/mesh_walk.rs"]
 mod mesh_walk;
 
-use mesh_walk::Plain;
-use mochimo_crypto::mesh::{codec, hex, max_response_bytes, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES, MAX_REQUEST_BYTES};
+use mochimo_crypto::mesh::{codec, hex, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES};
 use mochimo_crypto::Error;
 
+// Used only by the two group replays, the request cap and the endpoint table,
+// and Miri runs none of them. The imports carry their users' gate, so the
+// Miri build compiles none it would not use and no lint is turned off to keep
+// it quiet.
+#[cfg(not(miri))]
+use mesh_walk::Plain;
+#[cfg(not(miri))]
+use mochimo_crypto::mesh::{max_response_bytes, MAX_REQUEST_BYTES};
+
 const N_FILE: &str = "group_n_mesh_live.json";
+// Group M is not embedded for Miri -- the `fixture_json` compiled there takes
+// group N alone -- so its file name carries the gate of the one replay that
+// reads it.
+#[cfg(not(miri))]
 const M_FILE: &str = "group_m_mesh_client.json";
 
 #[cfg_attr(miri, allow(dead_code))]
