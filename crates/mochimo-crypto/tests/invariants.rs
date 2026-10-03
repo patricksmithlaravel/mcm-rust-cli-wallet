@@ -1953,21 +1953,23 @@ fn key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent() {
     );
 }
 
-/// **The Unix surface is four files, and a port touches no others.**
+/// **Direct Unix APIs and platform gates are confined to five files.**
 ///
 /// This crate refuses to build off Unix, and says so twice -- `lib.rs` names
 /// the three interfaces it cannot do without and `keystore` names the storage
 /// guarantees it rests on. That refusal is a claim about the whole tree, and
 /// while the sites behind it can be anywhere it is prose checked against
-/// nothing: a mode bit added in a fifth file leaves both statements reading
+/// nothing: a mode bit added in another file leaves both statements reading
 /// exactly the same.
 ///
-/// So the surface is enumerated here rather than described. Four files, each
+/// So the surface is enumerated here rather than described. Five files, each
 /// for a different reason:
 ///
-/// * `keystore/perms.rs` -- the only user of `std::os::unix`, which is the
-///   whole of the permission model. This is what `perms` exists for and the
-///   check that keeps it true.
+/// * `keystore/perms.rs` -- Unix metadata, creation modes and the effective
+///   user ID used to check the opened directory's owner.
+/// * `keystore/directory.rs` -- `rustix` directory-relative operations that
+///   keep every store access attached to the verified directory handle.
+///   The `rustix::` row covers both this module and the permission model.
 /// * `bin/mcm-wallet.rs` -- the device paths and the `stty` subprocess. The
 ///   library reaches neither: entropy is a parameter and the prompts go
 ///   through `cli::create::Terminal`, so this half of the surface is the
@@ -1981,19 +1983,21 @@ fn key_signs_once_per_keystore_with_the_raw_signer_crate_private_not_absent() {
 ///
 /// # What this is for
 ///
-/// A downstream tree that wants another platform edits these four files and
-/// no others. That is worth having as a checked property rather than a
-/// remembered one, because the cost of it going stale is not a broken build
-/// -- it is a port that takes a week instead of an afternoon, discovered by
-/// whoever is doing the porting.
+/// A downstream port can find the direct platform dependencies here. This
+/// check does not claim that those are the only files a port must change:
+/// the storage primitives also rely on platform-specific durability semantics
+/// behind standard-library APIs. It does prevent a new direct Unix API from
+/// silently moving outside the declared boundary.
 #[test]
 fn the_unix_surface_is_confined_to_the_files_a_port_would_touch() {
     const PERMS: &str = "crates/mochimo-crypto/src/keystore/perms.rs";
+    const DIRECTORY: &str = "crates/mochimo-crypto/src/keystore/directory.rs";
     const BIN: &str = "crates/mochimo-crypto/src/bin/mcm-wallet.rs";
     const LIB: &str = "crates/mochimo-crypto/src/lib.rs";
     const KEYSTORE: &str = "crates/mochimo-crypto/src/keystore/mod.rs";
-    const SURFACE: [(&str, &[&str]); 4] = [
+    const SURFACE: [(&str, &[&str]); 5] = [
         ("std::os::unix", &[PERMS]),
+        ("rustix::", &[DIRECTORY, PERMS]),
         ("/dev/", &[BIN, LIB]),
         ("\"stty\"", &[BIN]),
         ("cfg(not(unix))", &[KEYSTORE, LIB]),
@@ -2019,9 +2023,9 @@ fn the_unix_surface_is_confined_to_the_files_a_port_would_touch() {
             found, want,
             "the Unix surface moved: `{needle}` is named by a different set of files than this \
              check enumerates.\n  found:    {found:?}\n  expected: {want:?}\nA new file here is \
-             a fifth place a port has to find. Either put the site behind `keystore::perms` (for \
-             the library) or the binary's own terminal and entropy code, or add the file to this \
-             list with the reason it cannot go in either."
+             another place a port has to find. Put permission checks in `keystore::perms`, \
+             directory operations in `keystore::directory`, or terminal and entropy code in \
+             the binary; otherwise add the file here with the reason it needs a separate boundary."
         );
     }
 }
@@ -9072,6 +9076,29 @@ fn no_native_endian_conversions_anywhere_in_the_crate() {
 /// walk reports every row missing rather than passing over nothing.
 const DECLARED_PANIC_SITES: &[(&str, &str, usize, &str)] = &[
     (
+        "crates/mochimo-crypto/src/keystore/directory.rs",
+        ".unwrap()",
+        9,
+        "inside the test-only parent-directory durability regression: setup, \
+         descriptor inspection, flush and cleanup failures must fail the test. \
+         The production directory operations return errors.",
+    ),
+    (
+        "crates/mochimo-crypto/src/keystore/directory.rs",
+        "assert_eq!",
+        2,
+        "inside the same test-only module: compare the held parent's device \
+         and inode to the actual parent of the store, and check a parent \
+         flush is refused on a handle opened without a parent.",
+    ),
+    (
+        "crates/mochimo-crypto/src/keystore/directory.rs",
+        "assert!",
+        1,
+        "inside the same test-only module: an existing-store open retains \
+         no parent handle, so it needs no read permission on the parent.",
+    ),
+    (
         "crates/mochimo-crypto/src/backend/native.rs",
         "assert!",
         3,
@@ -13344,4 +13371,3 @@ fn no_comment_under_the_crate_narrates_its_own_development() {
         found.len()
     );
 }
-
