@@ -227,30 +227,31 @@ section and the specification's *Open items* table. That is the reason the
 rule above is worth stating: the board's green does not reach them.
 
 And **the total is summed, never carried.** Where this section writes one it
-is the sum of that run's own result lines -- seventeen of them, one per
+is the sum of that run's own result lines -- eighteen of them, one per
 target -- added up from the run being reported. It is never a previous
 figure with the latest deltas added to it. **No check reads the total**:
 `documented_counts_match_the_artifacts` walks this file for vector counts and
 `cfg` site counts and never for the board, and nothing else in the tree names
 it, so a person adding the line up is the only check there will ever be.
 
-The board on commit `da9ed86`, cargo's exit read from its own process: exit 0,
-**395 passed** -- summed from its own seventeen result lines -- 0 failed, 0
-ignored, 17 result lines, 4 m 45 s on a warm `target/`, read from `./board`'s
-own total -- it brackets the run with `date`, so the figure is wall clock
+The board on commit `2f57e5a`, cargo's exit read from its own process: exit 0,
+**407 passed** -- summed from its own eighteen result lines -- 0 failed, 0
+ignored, 18 result lines, 9 m 55 s on a warm `target/` on an x86_64 Linux host,
+read from `./board`'s own total -- it brackets the run with `date`, so the
+figure is wall clock
 around the run being reported rather than estimated from a previous one. **The commit is named
 by its hash rather than pointed at, because a commit cannot contain its own
 hash**: a sentence that says *this commit* is true when it is written and
-false at the next one. A reader runs `git diff da9ed86` and, if nothing
+false at the next one. A reader runs `git diff 2f57e5a` and, if nothing
 outside the documents moved, these figures are still theirs; if something did,
 the remedy is to run the board and write down what it says, never to carry
 these numbers forward. At a release the commit named is the one `RELEASE.md`
 verifies, and this section is written in that commit's child, which the tag
 names: *Two commits and a tag* there says why. The figure to compare across
-runs is the per-target one: lib 45, cli 111, compile_fail 1,
-derive 10, invariants 70, kat 18, keystore 34, mesh 13, mesh_http 10, miri 2,
-net 3, recon 35, signing 17, spend 19, txwire 3, wots_internals 4,
-doc-tests 0.
+runs is the per-target one: lib 46, cli 114, compile_fail 1,
+derive 10, invariants 70, kat 18, keystore 38, keystore_fifo 1, mesh 13,
+mesh_http 10, miri 2, net 3, recon 38, signing 17, spend 19, txwire 3,
+wots_internals 4, doc-tests 0.
 
 Three things about running it. The `cli` target's eighteen `pty::` tests build
 the shipped binary with `--features mesh-https` and drive it under
@@ -261,8 +262,8 @@ the path and one of those two, and the count is whatever `cargo test -q -p
 mochimo-crypto --test cli -- --list | grep -c 'pty::'` prints. The
 `invariants` target's census spawns `cargo test --workspace --no-run` and the
 sibling binaries, so it has to be run *by* `cargo test` and never by invoking
-the test binary directly. And `kat.rs` replays all 5,364 vectors twice, 108 s
-of the run above in a debug build -- over a third of it, and the reason the
+the test binary directly. And `kat.rs` replays all 5,364 vectors twice, 186 s
+of the run above in a debug build -- nearly a third of it, and the reason the
 board is minutes rather than seconds.
 
 The shipped binary builds with `--features mesh-https`, and the four clippy
