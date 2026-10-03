@@ -129,6 +129,11 @@ pub enum Error {
     UnsafePermissions {
         mode: u32,
     },
+    /// The path's last component is a symbolic link. Refused rather than
+    /// followed, so a link placed where the store is named cannot point the
+    /// wallet at another directory the operator owns; the operator passes
+    /// the directory it points to instead.
+    StoreDirectoryIsLink,
     /// A key is reserved for an unsettled spend; no further advance until
     /// `persist_settled`.
     PendingUnresolved {
@@ -525,6 +530,11 @@ impl fmt::Display for Error {
                 f,
                 "keystore directory mode {mode:o} is group- or other-writable; refusing to \
                  hold key material there"
+            ),
+            Error::StoreDirectoryIsLink => f.write_str(
+                "keystore directory is a symbolic link; a store is never opened through one, so \
+                 that a link planted at the store's name cannot point the wallet at another \
+                 directory. Pass the directory the link points to",
             ),
             Error::PendingUnresolved { spent_index } => write!(
                 f,
