@@ -30,6 +30,31 @@
 //! `tests/cli.rs` runs it under a pseudo-terminal -- so everything above is
 //! linked and loaded on every board run. But no test completes a handshake,
 //! so nothing here exercises that stack against a peer.
+//!
+//! # What the keystore's directory handle adds, on every Unix build
+//!
+//! `keystore`'s store directory is held open through `rustix`, and that is
+//! compiled into every build, not only the binary's: a dependent that never
+//! turns on `mesh-https` links it, and so does every test target. On Linux it
+//! brings `rustix`, `linux-raw-sys` and `bitflags`; on macOS `rustix`, `errno`
+//! and `bitflags` over `libc`, which `cpufeatures` already brings on Apple
+//! silicon and which is new on an Intel Mac. Counted as the figures above are
+//! -- every occurrence of the word in each crate's sources -- the current
+//! lockfile's `linux-raw-sys` carries 6,932 `unsafe` occurrences, `rustix`
+//! 1,660, `libc` 676, `errno` 12 and `bitflags` 3. The two largest
+//! figures overstate what one build compiles: `linux-raw-sys` is
+//! generated bindings for some twenty architectures at about 340 occurrences
+//! each (345 for x86_64), and `rustix` splits 697 in its Linux system-call
+//! backend from 486 in its `libc` backend, of which a build compiles one.
+//! These too are figures read off one lockfile; re-measure them rather than
+//! carrying them forward.
+//!
+//! **Where that `unsafe` is.** `rustix`'s Linux backend makes its system
+//! calls in inline assembly, which is where most of its `unsafe` sits, and
+//! `linux-raw-sys` is the kernel's types and constants, most of its `unsafe`
+//! the accessors its generator writes for them. Neither parses input from the
+//! network: what this crate hands them is the path the operator named, the
+//! fixed names of the store's own files, and descriptors it opened itself.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
