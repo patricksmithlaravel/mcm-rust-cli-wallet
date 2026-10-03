@@ -197,7 +197,7 @@ and the check is what keeps that list honest rather than remembered:
 | --- | --- |
 | `keystore/perms.rs` | adds the `cfg(windows)` arm beside the mode bits |
 | `keystore/medium.rs` | the durability primitives -- `fsync_dir` above all |
-| `bin/mcm-wallet.rs` | the console device and the platform generator |
+| `bin/tawara.rs` | the console device and the platform generator |
 | `lib.rs`, `keystore/mod.rs` | the two `compile_error!` gates become a per-platform statement |
 
 `medium.rs` is in the table and not in the check, because its sites are

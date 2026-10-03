@@ -1,9 +1,9 @@
-# mcm-wallet
+# Tawara
 
 A Rust wallet for Mochimo v3: WOTS+ one-time signatures, 40-byte `tag || hash`
 addresses, an encrypted keystore whose key index only ever moves forward, and
 a client for the Mesh API. One crate, `crates/mochimo-crypto`, and one binary,
-`mcm-wallet`. The crate and every test target are pure Rust; the shipped
+`tawara`. The crate and every test target are pure Rust; the shipped
 binary is not -- `--features mesh-https` links `ring`'s C and assembly for
 TLS, and both the board's last row and `tests/cli.rs`'s pty harness build it.
 
@@ -34,7 +34,7 @@ cargo clippy --workspace -- -D warnings                                         
 cargo clippy -p mochimo-crypto --features mesh-https --all-targets -- -D warnings    # the binary's graph
 cargo clippy --manifest-path crates/mochimo-crypto/ui/downstream/Cargo.toml --bin pass -- -D warnings
 cargo doc --workspace --no-deps                                                      # zero warnings; see the note below
-cargo build --features mesh-https --bin mcm-wallet                                   # the shipped binary (TLS)
+cargo build --features mesh-https --bin tawara                                       # the shipped binary (TLS)
 cargo +nightly miri test -p mochimo-crypto      # not part of the board; MIRIFLAGS unset; hours, not minutes
 ```
 
@@ -66,7 +66,7 @@ use and not in that one.
 | --- | --- | --- |
 | `native` | yes | the whole crate: primitives, keystore, derivation, mesh codec, CLI |
 | `mesh-http` | no | the HTTP transport (`ureq`, no TLS); on for every test target through the dev-dependency on the crate itself |
-| `mesh-https` | no | TLS (rustls, `ring`); required by the `mcm-wallet` binary and the `mesh_probe` example |
+| `mesh-https` | no | TLS (rustls, `ring`); required by the `tawara` binary and the `mesh_probe` example |
 | `raw-backend` | no | makes the primitive layer nameable; on for the test targets only, never for a dependent |
 
 ## The fixture corpus
