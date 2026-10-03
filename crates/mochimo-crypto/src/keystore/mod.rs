@@ -112,9 +112,13 @@
 //!
 //! # What `open` refuses, and why
 //!
-//! A directory owned by another user or writable by group/others. Unix
-//! checks the opened directory and keeps it for every subsequent operation;
-//! no-follow opens refuse symbolic links for the store, lock and snapshot.
+//! A directory owned by another user or writable by group/others. The
+//! check is asked of the opened directory, which is kept for every
+//! subsequent operation; why the owner is asked before the mode is argued in
+//! `perms`. A store directory named by a **symbolic link** is refused as
+//! [`Error::StoreDirectoryIsLink`] rather than followed, and `directory`
+//! says what that keeps a link from doing; the lock and the snapshot are
+//! opened without following a link and must be regular files.
 //! A **missing snapshot** — an absent file is not an empty store;
 //! treating it as one is I5's index-zero assumption reached through the
 //! filesystem, so a genuinely new store goes through [`Keystore::create`]. A
@@ -166,9 +170,7 @@ compile_error!(
 );
 
 pub(crate) mod crypt;
-#[cfg(unix)]
 mod directory;
-#[cfg(unix)]
 pub use directory::Directory;
 pub mod format;
 pub mod medium;
@@ -248,7 +250,6 @@ enum State {
 #[must_use]
 pub struct Keystore<M: Medium = Disk> {
     dir: PathBuf,
-    #[cfg(unix)]
     directory: Directory,
     _lock: File,
     medium: M,
@@ -337,7 +338,6 @@ fn io(op: &'static str) -> impl Fn(std::io::Error) -> Error {
     move |e| Error::Io { op, kind: e.kind() }
 }
 
-#[cfg(unix)]
 fn take_lock(dir: &Directory) -> Result<File> {
     let file = dir.open_lock(LOCK_NAME).map_err(io("open lock"))?;
     match file.try_lock() {
@@ -379,7 +379,6 @@ pub fn occupied(dir: &Path) -> Option<&'static str> {
     None
 }
 
-#[cfg(unix)]
 fn occupied_at(dir: &Directory) -> Result<Option<&'static str>> {
     Ok(dir.exists(SNAPSHOT_NAME).map_err(io("stat snapshot"))?.then_some("snapshot"))
 }
@@ -406,14 +405,11 @@ impl<M: Medium> Keystore<M> {
     /// [`Keystore::create`] over an explicit medium (tests inject
     /// [`Instrumented`]).
     pub fn create_with(dir: &Path, medium: M, init: &Init<'_>) -> Result<Self> {
-        #[cfg(unix)]
         let directory = Directory::open(dir, true)?;
-        #[cfg(unix)]
-        let store_dir = &directory;
-        if let Some(what) = occupied_at(store_dir)? {
+        if let Some(what) = occupied_at(&directory)? {
             return Err(Error::Exists { what });
         }
-        let lock = take_lock(store_dir)?;
+        let lock = take_lock(&directory)?;
         // **Asked again under the lock**. The check above
         // runs before the lock, so a second `create` can pass it while a
         // first holds the lock with its snapshot not yet renamed in, and then
@@ -425,7 +421,7 @@ impl<M: Medium> Keystore<M> {
         // directly -- nothing can be injected between two adjacent
         // statements without a hook -- but a fault-injection row removed the
         // check above and this one still refused an existing store, so it is live.
-        if let Some(what) = occupied_at(store_dir)? {
+        if let Some(what) = occupied_at(&directory)? {
             return Err(Error::Exists { what });
         }
         // Derived before the first write, so a store that exists is a store
@@ -434,7 +430,6 @@ impl<M: Medium> Keystore<M> {
         let key = crypt::derive_key(init.password, &init.salt, kdf)?;
         let mut ks = Keystore {
             dir: dir.to_path_buf(),
-            #[cfg(unix)]
             directory,
             _lock: lock,
             medium,
@@ -462,7 +457,6 @@ impl<M: Medium> Keystore<M> {
         // per store is the whole cost. A failure refuses `create` rather than
         // leave the entry unflushed, the same class of residue a failed first
         // commit leaves.
-        #[cfg(unix)]
         ks.medium.fsync_parent(&ks.directory)?;
         let _durable: Durable = ks.commit(&image)?;
         Ok(ks)
@@ -703,7 +697,6 @@ impl<M: Medium> Keystore<M> {
     /// path, so what a kill at that boundary would leave is what the
     /// interrupted step left.
     fn commit(&mut self, image: &[u8]) -> Result<Durable> {
-
         let outcome = (|| -> Result<()> {
             let written = self.medium.write_temp(&self.directory, image)?;
             let synced = self.medium.fsync_file(written)?;
