@@ -185,15 +185,17 @@ user's profile rather than into the runner's workspace, why it uses no
 actions, and why its images are `-latest`. The Windows fork's copy of it came
 first; this one is its Linux and macOS half.
 
-**Its runs.** Each figure is summed from that job's own seventeen result
-lines, read with `gh run view --repo patricksmithlaravel/mcm-rust-cli-wallet
---job <job> --log`, and each host is the one that job printed. Append a run;
-like the record below, a row is never edited.
+**Its runs.** Each figure is summed from that job's own result lines --
+seventeen in the first two runs, eighteen from the third -- read with `gh run
+view --repo patricksmithlaravel/mcm-rust-cli-wallet --job <job> --log`, or for
+the third from the same job log through GitHub's API, and each host is the one
+that job printed. Append a run; like the record below, a row is never edited.
 
 | run | commit | Linux `check` | macOS `check` | `msrv`, Linux and macOS |
 | --- | --- | --- | --- | --- |
 | 36213678705 | `b293a6d` | green, 395 passed; `ubuntu24` 20260920.314.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 395 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
 | 36216653269 | `da9ed86` | green, 395 passed; `ubuntu24` 20260920.314.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 395 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
+| 37146519899 | `2f57e5a` | green, 407 passed; `ubuntu24` 20260927.320.1, Linux 6.17.0-1022-azure x86_64, rustc 1.98.0 | green, 407 passed; `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, rustc 1.98.0 | green on both: 1.89.0, read from `"1.89"`, both commands exit 0 |
 
 The first run, on 2026-09-26, is of the commit that added the workflow. The
 push of `linux-gate` that carried it started no run, as the trigger says, and
@@ -212,6 +214,18 @@ started by the push of `board/release-1.1.0` on its own. Its Linux job,
 `msrv` jobs are the MSRV box's evidence on both platforms. The per-target
 figures are the first run's, on both runners, and the eighteen `pty::` tests
 passed on each again.
+
+The third, on 2026-10-03, is of `2f57e5a`, the commit 2.0.0 verifies,
+dispatched from the Actions tab now that the workflow is on the default
+branch. Its Linux job, 111271488238, is the `check` part of the record's
+`linux` row below; its `msrv` jobs, 111271487915 and 111271488211, are the MSRV
+box's evidence on both platforms. Both board jobs passed the same figure per
+target as each other and as the release's own Linux host: lib 46, cli 114,
+compile_fail 1, derive 10, invariants 70, kat 18, keystore 38,
+keystore_fifo 1, mesh 13, mesh_http 10, miri 2, net 3, recon 38, signing 17,
+spend 19, txwire 3, wots_internals 4, doc-tests 0. The eighteen `pty::` tests
+passed on each. Its macOS job, 111271488101, is green and, as above, no part
+of the `macos` row.
 
 ## What this checklist does not reach
 
@@ -270,6 +284,8 @@ red, the row says red and a later row says green.
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-09-26 | `da9ed86` | macos | macOS 26.6.2 (25G83), Darwin 25.6.0 arm64 | 1.98.0 (88d9e12ae 2026-08-18); nightly 1.100.0 (fd7ed57df 2026-08-29) | green, run whole on this repository's macOS host: check 395 passed, 0 failed, 0 ignored; `cargo deny check` advisories, bans, licenses and sources ok; Miri 54 passed, 0 failed, 0 ignored, in 14 h 04 m 25 s beside the `linux` row's; 14 h 09 m 15 s in all | patricksmithlaravel |
 | 2026-09-26 | `da9ed86` | linux | Linux 6.17.0-1022-azure x86_64, `ubuntu24` 20260920.314.1 | 1.98.0 on the runner; nightly 1.100.0 (fd7ed57df 2026-08-29) on the macOS host | green, assembled: `./board check` in workflow run 36216653269, job 108333823905, 395 passed, 0 failed, 0 ignored; `cargo deny check` on the macOS host, the `macos` row's run; Miri for `x86_64-unknown-linux-gnu` on the macOS host, MIRIFLAGS unset, 54 passed, 0 failed, 0 ignored, in 14 h 04 m 24 s beside the `macos` row's | patricksmithlaravel |
+| 2026-10-03 | `2f57e5a` | linux | Linux 6.18.44-fc-v64 x86_64; and `ubuntu24` 20260927.320.1, Linux 6.17.0-1022-azure x86_64 | 1.98.0 (88d9e12ae 2026-08-18); no nightly, Miri not run | **not green: Miri not run.** Two of its three parts: `./board check` on an x86_64 Linux host, 407 passed, 0 failed, 0 ignored, and in workflow run 37146519899, job 111271488238, the same; `cargo deny check` on that host, cargo-deny 0.20.2, advisories, bans, licenses and sources ok. Miri for `x86_64-unknown-linux-gnu` was not run | patricksmithlaravel |
+| 2026-10-03 | `2f57e5a` | macos | -- | -- | **not run.** No macOS host ran `./board verify` at this commit. The workflow's macOS `check` job, 111271488101, is green, 407 passed, on `macos26` 20260907.0351.1, Darwin 25.6.0 arm64, and is no part of this row | patricksmithlaravel |
 
 `platform` is `linux` or `macos`. `toolchain` is the stable version the board
 ran on and the nightly Miri ran on, since the `compile_fail` target pins
@@ -286,3 +302,20 @@ each part and where it ran: the check by its host or its workflow run,
 A tag needs one green `linux` row and one green `macos` row at the commit
 verified, appended by the commit tagged. Two rows at different commits are
 two half-verifications.
+
+**2.0.0 was tagged with neither row green, by the owner's decision on
+2026-10-03.** The `linux` row lacks its Miri part, which took 14 h on the
+macOS host for 1.1.0, and the `macos` row was not run, no macOS host being
+available to run it that day. The owner chose to tag regardless.
+
+What the 2.0.0 tag rests on, all at `2f57e5a`: `./board check` green on an
+x86_64 Linux host and on the workflow's Linux and macOS runners, `cargo deny
+check` green, and the declared MSRV green on Linux and macOS. What it does not
+rest on: any Miri run at this commit, for either target, and any run on the
+macOS host this repository is developed on. So the directory flush, the lock
+and the mode-bit refusal that *Why both platforms* names were measured on
+macOS only by a hosted runner, which *Hosts this repository does not have*
+says is one host and no part of the record.
+
+The rule above is unchanged. This records an exception to it; a later pair of
+rows at a later commit, green on both platforms, is what closes it.
