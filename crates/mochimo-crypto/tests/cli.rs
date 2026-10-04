@@ -7194,24 +7194,36 @@ fn paying_the_emptied_account_from_its_sibling_lets_it_settle() {
 // The long operations, cancelled
 // ---------------------------------------------------------------------------
 
-/// Counts its askings and says stop from the `at`-th on, counted from zero,
-/// so a test can land a cancel at a chosen point and read how often it was
-/// asked. `u32::MAX` never says stop, which is how a run measures its own
-/// askings.
+/// Counts its askings and says stop at the `at`-th, counted from zero, so a
+/// test can land a cancel at a chosen point and read how often it was asked.
+/// `new` keeps saying stop from there on; `once` says it at that asking alone
+/// and `false` after, which `Cancel::when` allows -- a flag cleared as it is
+/// read answers that way -- and which an operation that asks again rather
+/// than remembering what its walk heard would misread. `u32::MAX` never says
+/// stop, which is how a run measures its own askings.
 struct StopAt {
     at: u32,
+    once: bool,
     asked: std::cell::Cell<u32>,
 }
 
 impl StopAt {
     fn new(at: u32) -> StopAt {
-        StopAt { at, asked: std::cell::Cell::new(0) }
+        StopAt { at, once: false, asked: std::cell::Cell::new(0) }
+    }
+
+    fn once(at: u32) -> StopAt {
+        StopAt { at, once: true, asked: std::cell::Cell::new(0) }
     }
 
     fn ask(&self) -> bool {
         let n = self.asked.get();
         self.asked.set(n + 1);
-        n >= self.at
+        if self.once {
+            n == self.at
+        } else {
+            n >= self.at
+        }
     }
 }
 
@@ -7223,7 +7235,8 @@ impl StopAt {
 /// the node, at positions 0, 1 and 2, and before the one commit. That run is
 /// measured first and is the control: it adds the account at index 2. Then a
 /// cancel is landed at each of the five askings in turn, on a fresh store
-/// each time: the first asks the node nothing, the last is the one between
+/// each time, once as a cancel that stays raised and once as one said a
+/// single time: the first asks the node nothing, the last is the one between
 /// the scan's answer and the commit, and every one leaves the snapshot the
 /// same bytes and the account absent.
 #[test]
@@ -7246,10 +7259,9 @@ fn a_restore_cancelled_at_any_point_writes_nothing() {
     let askings = measure.asked.get();
     assert_eq!(askings, 5, "a restore found at position 2 asked its cancel {askings} time(s), not 5");
 
-    for at in 0..askings {
+    for (at, stop) in (0..askings).flat_map(|at| [(at, StopAt::new(at)), (at, StopAt::once(at))]) {
         let (dir, mut ks) = store("cli-restore-cancel");
         let before = dir.snapshot_bytes();
-        let stop = StopAt::new(at);
         let ask = || stop.ask();
         let client = MeshClient::new(chain());
         let result = restore::restore_account_with(&mut ks, &client, &m, 1, Some(4), &Cancel::when(&ask));
@@ -7293,8 +7305,7 @@ fn a_sweep_cancelled_before_any_index_asks_no_further_and_writes_nothing() {
     assert_eq!(client.transport().calls(), 4);
     assert_eq!(never.asked.get(), 4, "the cancel was not asked once per index");
 
-    for at in 0..4u32 {
-        let stop = StopAt::new(at);
+    for (at, stop) in (0..4u32).flat_map(|at| [(at, StopAt::new(at)), (at, StopAt::once(at))]) {
         let ask = || stop.ask();
         let client = MeshClient::new(chain());
         let result = discover::sweep_with(&ks, &client, &m, 3, &Cancel::when(&ask));
@@ -7314,8 +7325,10 @@ fn a_sweep_cancelled_before_any_index_asks_no_further_and_writes_nothing() {
 /// the control advances to 3. A cancel landed in that second walk leaves the
 /// account unlocated, which no acknowledgement names, and the re-check
 /// refuses it as not matching; that refusal is the cancel's, and it comes
-/// back as `Cancelled`. Every landing leaves the snapshot the same bytes and
-/// the stored index at 0.
+/// back as `Cancelled` -- for a cancel said a single time as well, which
+/// answers `false` if it is asked again once the walk has stopped. Every
+/// landing, of either kind, leaves the snapshot the same bytes and the
+/// stored index at 0.
 #[test]
 fn a_reconcile_cancelled_at_any_point_writes_nothing() {
     use mochimo_crypto::cli::reconcile;
@@ -7334,10 +7347,9 @@ fn a_reconcile_cancelled_at_any_point_writes_nothing() {
     let askings = measure.asked.get();
     assert_eq!(askings, 10, "the reconcile asked its cancel {askings} time(s), not 10");
 
-    for at in 0..askings {
+    for (at, stop) in (0..askings).flat_map(|at| [(at, StopAt::new(at)), (at, StopAt::once(at))]) {
         let (dir, mut ks) = store("cli-reconcile-cancel");
         let before = dir.snapshot_bytes();
-        let stop = StopAt::new(at);
         let ask = || stop.ask();
         let client = MeshClient::new(chain());
         let result = reconcile::advance_acknowledged_with(&mut ks, &client, &TAG, Some(&m), 3, &Cancel::when(&ask));

@@ -634,6 +634,32 @@ impl<E> From<E> for Unfinished<E> {
     }
 }
 
+/// Run `walk` under a [`Cancel`] that asks `cancel` and remembers whether it
+/// ever said stop, and return that beside the walk's result.
+///
+/// For a caller that meets a cancel only as a refusal it cannot tell from
+/// another, because the walk's own record of it stays inside the call.
+/// [`Cancel::when`] asks only that a stop be answered once, so asking the
+/// predicate again afterwards may hear `false` from one that already ended
+/// the walk -- a flag cleared as it is read, or a predicate that says stop
+/// exactly once -- and read the cancel's refusal as a finding. `NEVER` runs
+/// as it is, unasked, and says no.
+pub(crate) fn remembered<R>(cancel: &Cancel<'_>, walk: impl FnOnce(&Cancel<'_>) -> R) -> (R, bool) {
+    if cancel.0.is_none() {
+        return (walk(cancel), false);
+    }
+    let said_stop = core::cell::Cell::new(false);
+    let asked = || {
+        let stop = cancel.stop();
+        if stop {
+            said_stop.set(true);
+        }
+        stop
+    };
+    let result = walk(&Cancel::when(&asked));
+    (result, said_stop.get())
+}
+
 /// A walk that ended before its scope did: where it stopped, and what stopped
 /// it.
 ///

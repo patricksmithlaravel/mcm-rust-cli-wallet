@@ -2096,26 +2096,42 @@ fn an_open_cancelled_between_accounts_stops_before_the_next_one() {
 /// walk runs, and the cancel stops it at its second position, short of index
 /// 3. The report it leaves records `StoppedBy::Cancelled`: true, and
 /// incomplete. A refusal carrying it would name this account for the
-/// caller's own stop. The control opens the same store with nobody
+/// caller's own stop. It holds for a cancel that stays raised and for one
+/// said at that position alone, since the open reads the walk's record and
+/// does not ask again. The control opens the same state with nobody
 /// cancelling and is refused, by the divergence found at 3, so the cancel is
 /// what turned a refusal into `Cancelled`.
 #[test]
 fn an_open_cancelled_inside_a_walk_is_cancelled_and_not_a_refusal() {
     let m = master();
     let chain = || Chain::new(&[(TAG, ChainState::At(addr_at(3), 1))]);
-    let (dir, ks) = store("recon-open-cancel-walk");
-    let before = dir.snapshot_bytes();
-    // Asked once before the account, then once per position.
-    let asked = std::cell::Cell::new(0u32);
-    let at_the_second_position = || {
-        let n = asked.get();
-        asked.set(n + 1);
-        n >= 2
-    };
-    let result = Wallet::open_with(ks, MeshClient::new(chain()), Some(&m), &Cancel::when(&at_the_second_position));
-    assert_eq!(result.err(), Some(Unfinished::Cancelled), "a cancelled walk reached the caller as something else");
-    assert_eq!(asked.get(), 3, "the walk was not stopped at the position the cancel fired on");
-    assert_eq!(dir.snapshot_bytes(), before, "a cancelled open changed the snapshot");
+    // Asked once before the account, then once per position. The cancel
+    // stays raised from the second position on in the first run, and is
+    // said at that position alone in the second: the walk's own record of
+    // it is what the open reads, not a second asking.
+    let (dir, _) = store("recon-open-cancel-walk-control");
+    for stays_raised in [true, false] {
+        let (walked, ks) = store("recon-open-cancel-walk");
+        let before = walked.snapshot_bytes();
+        let asked = std::cell::Cell::new(0u32);
+        let at_the_second_position = || {
+            let n = asked.get();
+            asked.set(n + 1);
+            if stays_raised {
+                n >= 2
+            } else {
+                n == 2
+            }
+        };
+        let result = Wallet::open_with(ks, MeshClient::new(chain()), Some(&m), &Cancel::when(&at_the_second_position));
+        assert_eq!(
+            result.err(),
+            Some(Unfinished::Cancelled),
+            "a cancelled walk reached the caller as something else (stays raised: {stays_raised})"
+        );
+        assert_eq!(asked.get(), 3, "the walk was not stopped at the position the cancel fired on");
+        assert_eq!(walked.snapshot_bytes(), before, "a cancelled open changed the snapshot");
+    }
 
     let ks = reopen("open control", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
     match Wallet::open_with(ks, MeshClient::new(chain()), Some(&m), &Cancel::NEVER).err() {

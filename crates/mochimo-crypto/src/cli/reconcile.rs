@@ -255,13 +255,17 @@ fn review_asking<M: Medium, T: Transport, E: From<Error>>(
     if cancel.stop() {
         cancelled()?;
     }
-    let receipt = match recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, cancel) {
+    let (advanced, stopped) = recon::remembered(cancel, |cancel| {
+        recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, cancel)
+    });
+    let receipt = match advanced {
         Ok(receipt) => receipt,
         // It reconciles once more under `scope` before it writes, and a
         // cancel that ends that walk leaves the account unlocated, which no
         // acknowledgement names: the refusal is the cancel's, not a finding,
-        // and nothing was written.
-        Err(Error::AcknowledgementDoesNotMatch) if cancel.stop() => {
+        // and nothing was written. Whether the cancel said stop is what the
+        // walk heard, remembered, and not asked again.
+        Err(Error::AcknowledgementDoesNotMatch) if stopped => {
             cancelled()?;
             return Err(Error::AcknowledgementDoesNotMatch.into());
         }
