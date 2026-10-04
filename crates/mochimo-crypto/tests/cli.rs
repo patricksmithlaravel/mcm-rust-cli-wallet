@@ -7369,3 +7369,102 @@ fn a_reconcile_cancelled_at_any_point_writes_nothing() {
         assert_eq!(stored_index(&dir), 0, "a cancel at asking {at} moved the index");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The long operations, watched
+// ---------------------------------------------------------------------------
+
+/// **A restore reports once before it asks the node, and then every
+/// `PROGRESS_EVERY` positions of its scan**, each figure counted from the
+/// scan rather than predicted.
+///
+/// The chain holds account 1 at position `PROGRESS_EVERY - 1`, so the scan
+/// reaches exactly `PROGRESS_EVERY` positions and reports once on the way,
+/// against the ceiling the operator's `--scan-to` sets. The first report is
+/// made before any request and the second after the one; the account is
+/// added where the plain restore would add it.
+#[test]
+fn a_restore_reports_before_the_node_and_every_progress_interval_of_its_scan() {
+    use mochimo_crypto::cli::restore;
+    use mochimo_crypto::recon::{Cancel, Progress, PROGRESS_EVERY};
+    let m = master();
+    let tag1 = mochimo_crypto::derive::derive_account_tag(&m, 1);
+    let last = PROGRESS_EVERY - 1;
+    let at = mochimo_crypto::recon::derived_address_at(&m, 1, chain::pos(last));
+    let (_dir, mut ks) = store("cli-restore-progress");
+    let client = MeshClient::new(Chain::new(&[(tag1, ChainState::At(at, 3_000))]));
+    let mut seen: Vec<(Progress, usize)> = Vec::new();
+    let scan_to = PROGRESS_EVERY + 100;
+    let restored = restore::restore_account_with_progress(&mut ks, &client, &m, 1, Some(scan_to), &Cancel::NEVER, &mut |p| {
+        seen.push((p, client.transport().calls()));
+    })
+    .unwrap_or_else(|e| panic!("an uncancelled restore failed: {e:?}"));
+    assert_eq!(restored.found.index.get(), last);
+    let ceiling = scan_to + 1;
+    assert_eq!(
+        seen,
+        vec![
+            (Progress { account: 0, accounts: 1, position: 0, ceiling }, 0),
+            (Progress { account: 0, accounts: 1, position: PROGRESS_EVERY, ceiling }, 1),
+        ],
+        "the restore's reports were not one before the node and one per interval of its scan"
+    );
+}
+
+/// **A sweep reports each index before it asks the node about it**, with no
+/// walk to count: position and ceiling are zero, and the reports are the
+/// indices searched, in order.
+#[test]
+fn a_sweep_reports_each_index_before_it_asks_the_node_about_it() {
+    use mochimo_crypto::cli::discover;
+    use mochimo_crypto::recon::{Cancel, Progress};
+    let m = master();
+    let (_dir, ks) = store("cli-sweep-progress");
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(0), 5_000_000))]));
+    let mut seen: Vec<(Progress, usize)> = Vec::new();
+    let swept = discover::sweep_with_progress(&ks, &client, &m, 3, &Cancel::NEVER, &mut |p| {
+        seen.push((p, client.transport().calls()));
+    })
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(swept.to, 3);
+    let expected: Vec<(Progress, usize)> = (0..4u32)
+        .map(|account| (Progress { account, accounts: 4, position: 0, ceiling: 0 }, account as usize))
+        .collect();
+    assert_eq!(seen, expected, "the sweep did not report each index once, before its node call");
+}
+
+/// **A reconcile reports each account before it is reconciled, and the named
+/// one again before the write's re-check walks it a second time.**
+///
+/// The store is at 0, the chain at 3, and the operator names 3: the walk
+/// reaches 3 in four positions, short of an interval, so the reports are the
+/// two starts. Their ceiling is what a walk under `--advance-to 3` reaches
+/// around the stored position -- the window, which holds the raised ceiling
+/// inside it.
+#[test]
+fn a_reconcile_reports_each_account_and_the_named_one_again_before_the_write() {
+    use mochimo_crypto::cli::reconcile;
+    use mochimo_crypto::recon::{Cancel, Progress, ScanScope, DIVERGENCE_WINDOW};
+    let m = master();
+    let (dir, mut ks) = store("cli-reconcile-progress");
+    let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(3), 1_000))]));
+    let mut seen: Vec<(Progress, usize)> = Vec::new();
+    let reviewed = reconcile::advance_acknowledged_with_progress(&mut ks, &client, &TAG, Some(&m), 3, &Cancel::NEVER, &mut |p| {
+        seen.push((p, client.transport().calls()));
+    })
+    .unwrap_or_else(|e| panic!("an uncancelled reconcile failed: {e:?}"));
+    assert_eq!(reviewed.outcome, reconcile::Outcome::Advanced { index: 3 });
+    drop(ks);
+    assert_eq!(stored_index(&dir), 3);
+    // Window positions 0 through 20 hold the raised ceiling's 0 through 3.
+    let ceiling = DIVERGENCE_WINDOW + 1;
+    assert_eq!(ScanScope::DIAGNOSTIC.window, Some(DIVERGENCE_WINDOW));
+    assert_eq!(
+        seen,
+        vec![
+            (Progress { account: 0, accounts: 1, position: 0, ceiling }, 0),
+            (Progress { account: 0, accounts: 1, position: 0, ceiling }, 1),
+        ],
+        "the reconcile did not report its account, and again before the re-check"
+    );
+}

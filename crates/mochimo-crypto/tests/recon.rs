@@ -2149,3 +2149,37 @@ fn an_open_cancelled_inside_a_walk_is_cancelled_and_not_a_refusal() {
         other => panic!("the uncancelled control was not refused by its divergence: {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Progress through an open
+// ---------------------------------------------------------------------------
+
+/// **`open_with_progress` reports each account before it asks the node about
+/// it, and nothing else when no walk runs.**
+///
+/// Both accounts are in sync, so neither walks: the reports are one per
+/// account, at position zero, each made while the node has been asked about
+/// the accounts before it and not yet about this one. The ceiling is what a
+/// diagnostic walk around the stored position would reach.
+#[test]
+fn an_open_reports_each_account_before_it_asks_the_node_about_it() {
+    use mochimo_crypto::recon::Progress;
+    let m = master();
+    let (_dir, ks, chain) = two_in_sync("recon-open-progress");
+    let calls = chain.call_count();
+    let mut seen: Vec<(Progress, usize)> = Vec::new();
+    let w = Wallet::open_with_progress(ks, MeshClient::new(chain), Some(&m), &Cancel::NEVER, &mut |p| {
+        seen.push((p, calls.get()));
+    })
+    .unwrap_or_else(|e| panic!("an uncancelled open failed: {e:?}"));
+    assert_eq!(w.accounts().len(), 2);
+    let ceiling = ScanScope::DIAGNOSTIC.ceiling;
+    assert_eq!(
+        seen,
+        vec![
+            (Progress { account: 0, accounts: 2, position: 0, ceiling }, 0),
+            (Progress { account: 1, accounts: 2, position: 0, ceiling }, 1),
+        ],
+        "the open did not report each account, once, before asking about it"
+    );
+}

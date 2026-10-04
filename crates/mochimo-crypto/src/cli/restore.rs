@@ -40,7 +40,7 @@
 use crate::account::{Account, WotsIndex};
 use crate::keystore::{Keystore, Medium};
 use crate::mesh::{MeshClient, Transport};
-use crate::recon::{self, Cancel, RestoreFailure, RestoredAccount, ScanScope, Unfinished};
+use crate::recon::{self, Cancel, Progress, RestoreFailure, RestoredAccount, ScanScope, Unfinished};
 
 use crate::consts::SEED_LEN;
 use crate::{Error, Secret};
@@ -69,7 +69,7 @@ pub fn restore_account<M: Medium, T: Transport>(
 ) -> core::result::Result<Restored, RestoreFailure> {
     // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
     // answer that ends nothing.
-    restore_asking(store, client, master, account_index, scan_to, &Cancel::NEVER, || Ok(()))
+    restore_asking(store, client, master, account_index, scan_to, &Cancel::NEVER, None, || Ok(()))
 }
 
 /// [`restore_account`], stoppable from outside: `cancel` is asked before the
@@ -88,11 +88,31 @@ pub fn restore_account_with<M: Medium, T: Transport>(
     scan_to: Option<u32>,
     cancel: &Cancel<'_>,
 ) -> core::result::Result<Restored, Unfinished<RestoreFailure>> {
-    restore_asking(store, client, master, account_index, scan_to, cancel, || Err(Unfinished::Cancelled))
+    restore_asking(store, client, master, account_index, scan_to, cancel, None, || Err(Unfinished::Cancelled))
 }
 
-/// The one restore both forms run. `cancelled` is what a cancel ends the call
-/// with, and it is called only once `cancel` has said stop.
+/// [`restore_account_with`], telling `progress` how far the scan has got:
+/// once before the node is asked, and every [`recon::PROGRESS_EVERY`]
+/// positions ([`Progress`], one account of one, against the scan's
+/// ceiling).
+pub fn restore_account_with_progress<M: Medium, T: Transport>(
+    store: &mut Keystore<M>,
+    client: &MeshClient<T>,
+    master: &Secret<SEED_LEN>,
+    account_index: u32,
+    scan_to: Option<u32>,
+    cancel: &Cancel<'_>,
+    progress: &mut dyn FnMut(Progress),
+) -> core::result::Result<Restored, Unfinished<RestoreFailure>> {
+    restore_asking(store, client, master, account_index, scan_to, cancel, Some(progress), || Err(Unfinished::Cancelled))
+}
+
+/// The one restore the three forms run. `cancelled` is what a cancel ends
+/// the call with, and it is called only once `cancel` has said stop.
+///
+/// Eight arguments: the restore's own five, and the three that say whether
+/// it may be stopped, who watches it, and what a stop returns.
+#[allow(clippy::too_many_arguments)]
 fn restore_asking<M: Medium, T: Transport, E: From<RestoreFailure>>(
     store: &mut Keystore<M>,
     client: &MeshClient<T>,
@@ -100,6 +120,7 @@ fn restore_asking<M: Medium, T: Transport, E: From<RestoreFailure>>(
     account_index: u32,
     scan_to: Option<u32>,
     cancel: &Cancel<'_>,
+    mut progress: Option<&mut dyn FnMut(Progress)>,
     cancelled: impl Fn() -> core::result::Result<(), E>,
 ) -> core::result::Result<Restored, E> {
     if cancel.stop() {
@@ -110,7 +131,19 @@ fn restore_asking<M: Medium, T: Transport, E: From<RestoreFailure>>(
         Some(m) => ScanScope::RESTORE.with_ceiling(m.saturating_add(1)),
         None => ScanScope::RESTORE,
     };
-    let found = match recon::restore_account_index_with(client, master, account_index, &scope, cancel) {
+    let at = Progress {
+        account: 0,
+        accounts: 1,
+        position: 0,
+        ceiling: scope.reach(None),
+    };
+    if let Some(report) = progress.as_deref_mut() {
+        report(at);
+    }
+    let scanned = recon::watched(cancel, progress, at, |cancel| {
+        recon::restore_account_index_with(client, master, account_index, &scope, cancel)
+    });
+    let found = match scanned {
         Ok(found) => found,
         // The scan's own record of a cancel. Handed on unchanged when
         // `cancelled` ends nothing, which is only the uncancellable form,
