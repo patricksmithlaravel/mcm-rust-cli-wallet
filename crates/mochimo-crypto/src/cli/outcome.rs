@@ -58,6 +58,7 @@
 //! moved.
 
 use crate::account::WotsIndex;
+use crate::mesh::spend::SpendPlan;
 use crate::mesh::{codec, ChainTip, TxId};
 use crate::tx::wire::Destination;
 use crate::addr::{Address, Tag};
@@ -167,6 +168,20 @@ pub enum Outcome {
     Settled {
         settlement: Settlement,
         upgraded: Upgraded,
+    },
+    /// A spend laid out and **not signed**: the page a person reads before
+    /// deciding whether it is. No verb of this command line decides it --
+    /// `send` signs what it plans -- so it is built with [`Outcome::planned`]
+    /// by a caller that asks first, and rendered like every other outcome.
+    Planned {
+        source: Tag,
+        /// In the order that goes on the wire, as [`SpendPlan::dsts`] holds
+        /// them.
+        destinations: Vec<Destination>,
+        send_total: u64,
+        fee_total: u64,
+        change_total: u64,
+        blk_to_live: u64,
     },
     /// `send` planned, reserved, signed and wrote.
     Sent {
@@ -318,4 +333,25 @@ pub enum Outcome {
     HandledBeforeTheWallet,
     /// `run_explorer` was handed a command that is not one of its four.
     NotAReadOnlyVerb { command: Box<Command> },
+}
+
+impl Outcome {
+    /// The [`Outcome::Planned`] a spend from `source` is shown by before it
+    /// is signed: `plan`'s destinations in wire order, its totals and its
+    /// block-to-live, and nothing else.
+    ///
+    /// It reads the plan and nothing more -- no store, no node -- so building
+    /// it reserves no key and moves no index, and the plan can still be
+    /// signed or dropped afterwards.
+    #[must_use]
+    pub fn planned(source: &Tag, plan: &SpendPlan) -> Outcome {
+        Outcome::Planned {
+            source: *source,
+            destinations: plan.dsts().to_vec(),
+            send_total: plan.send_total(),
+            fee_total: plan.fee_total(),
+            change_total: plan.change_total(),
+            blk_to_live: plan.blk_to_live(),
+        }
+    }
 }
