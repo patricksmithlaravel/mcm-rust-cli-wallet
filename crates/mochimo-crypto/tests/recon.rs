@@ -44,7 +44,7 @@ use mochimo_crypto::keystore::{Disk, Figures, Keystore, Pending};
 use mochimo_crypto::mesh::MeshClient;
 use mochimo_crypto::recon::{
     self, AccountStatus, Cancel, ChainPosition, Diagnosis, Divergence, Expiry, Reservation,
-    RestoreFailure, ScanScope, StoppedBy, DIVERGENCE_WINDOW, RECOVERY_CEILING,
+    RestoreFailure, ScanScope, StoppedBy, Unfinished, DIVERGENCE_WINDOW, RECOVERY_CEILING,
 };
 use mochimo_crypto::tx::wire::Destination;
 use mochimo_crypto::wallet::{OperatorAcknowledgement, Settlement, StartupRefusal, Wallet};
@@ -2019,5 +2019,133 @@ fn reservation_preflight_checks_expiry_before_writing() {
             let fresh = w.plan(&TAG, &access(&m), dsts, MFEE, 0).unwrap_or_else(|e| panic!("{e}"));
             assert!(w.reserve_and_sign(&fresh, access(&m)).is_ok());
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cancelling an open
+// ---------------------------------------------------------------------------
+
+/// A store holding derived accounts 0 and 1, both at position 0, and a chain
+/// that holds each at that position, so an open nobody cancels succeeds.
+fn two_in_sync(name: &str) -> (ScratchDir, Keystore, Chain) {
+    let (dir, mut ks) = store(name);
+    ks.add(Account::derive(&master(), 1)).unwrap_or_else(|e| panic!("{e}"));
+    let chain = Chain::new(&[
+        (TAG, ChainState::At(addr_at(0), 9_000)),
+        (tag1(), ChainState::At(recon::derived_address_at(&master(), 1, WotsIndex::ZERO), 4_000)),
+    ]);
+    (dir, ks, chain)
+}
+
+/// **A cancel raised before `open_with` is called stops it before the node is
+/// asked anything**, and it comes back as `Cancelled`, not as a refusal
+/// naming an account it never reached. The snapshot is the same bytes after.
+///
+/// The control is the same store opened with a predicate that never fires:
+/// it opens, and asks the node once per account, so the zero above is a
+/// count of requests and not a counter nothing increments.
+#[test]
+fn an_open_cancelled_before_it_starts_asks_the_node_nothing() {
+    let m = master();
+    let (dir, ks, chain) = two_in_sync("recon-open-cancel-first");
+    let before = dir.snapshot_bytes();
+    let calls = chain.call_count();
+    let stop = || true;
+    let result = Wallet::open_with(ks, MeshClient::new(chain), Some(&m), &Cancel::when(&stop));
+    assert_eq!(result.err(), Some(Unfinished::Cancelled), "a cancel raised first did not end the open as Cancelled");
+    assert_eq!(calls.get(), 0, "a cancelled open asked the node {} time(s)", calls.get());
+    assert_eq!(dir.snapshot_bytes(), before, "a cancelled open changed the snapshot");
+
+    let (_dir, ks, chain) = two_in_sync("recon-open-cancel-first-control");
+    let calls = chain.call_count();
+    let never = || false;
+    let w = Wallet::open_with(ks, MeshClient::new(chain), Some(&m), &Cancel::when(&never))
+        .unwrap_or_else(|e| panic!("a predicate that never fires stopped the open: {e:?}"));
+    assert_eq!(w.accounts().len(), 2);
+    assert_eq!(calls.get(), 2, "the control open did not ask once per account");
+}
+
+/// **A cancel between two accounts stops the open there**: the first account
+/// was asked about, the second was not, and the answer is `Cancelled` rather
+/// than a wallet holding the half it reached.
+#[test]
+fn an_open_cancelled_between_accounts_stops_before_the_next_one() {
+    let m = master();
+    let (dir, ks, chain) = two_in_sync("recon-open-cancel-between");
+    let before = dir.snapshot_bytes();
+    let calls = chain.call_count();
+    // Asked once before each account, and no walk runs: both are in sync.
+    let asked = std::cell::Cell::new(0u32);
+    let second = || {
+        let n = asked.get();
+        asked.set(n + 1);
+        n >= 1
+    };
+    let result = Wallet::open_with(ks, MeshClient::new(chain), Some(&m), &Cancel::when(&second));
+    assert_eq!(result.err(), Some(Unfinished::Cancelled));
+    assert_eq!(asked.get(), 2, "the cancel was not asked once before each account");
+    assert_eq!(calls.get(), 1, "the open asked the node about an account after the cancel");
+    assert_eq!(dir.snapshot_bytes(), before, "a cancelled open changed the snapshot");
+}
+
+/// **A cancel that ends a diagnostic walk ends the open as `Cancelled`, and
+/// not as a refusal built from the walk it stopped.**
+///
+/// The account diverges -- the store is at 0 and the chain at 3 -- so the
+/// walk runs, and the cancel stops it at its second position, short of index
+/// 3. The report it leaves records `StoppedBy::Cancelled`: true, and
+/// incomplete. A refusal carrying it would name this account for the
+/// caller's own stop. It holds for a cancel that stays raised and for one
+/// said at that position alone, since the open reads the walk's record and
+/// does not ask again. The control opens the same state with nobody
+/// cancelling and is refused, by the divergence found at 3, so the cancel is
+/// what turned a refusal into `Cancelled`.
+#[test]
+fn an_open_cancelled_inside_a_walk_is_cancelled_and_not_a_refusal() {
+    let m = master();
+    let chain = || Chain::new(&[(TAG, ChainState::At(addr_at(3), 1))]);
+    // Asked once before the account, then once per position. The cancel
+    // stays raised from the second position on in the first run, and is
+    // said at that position alone in the second: the walk's own record of
+    // it is what the open reads, not a second asking.
+    let (dir, _) = store("recon-open-cancel-walk-control");
+    for stays_raised in [true, false] {
+        let (walked, ks) = store("recon-open-cancel-walk");
+        let before = walked.snapshot_bytes();
+        let asked = std::cell::Cell::new(0u32);
+        let at_the_second_position = || {
+            let n = asked.get();
+            asked.set(n + 1);
+            if stays_raised {
+                n >= 2
+            } else {
+                n == 2
+            }
+        };
+        let result = Wallet::open_with(ks, MeshClient::new(chain()), Some(&m), &Cancel::when(&at_the_second_position));
+        assert_eq!(
+            result.err(),
+            Some(Unfinished::Cancelled),
+            "a cancelled walk reached the caller as something else (stays raised: {stays_raised})"
+        );
+        assert_eq!(asked.get(), 3, "the walk was not stopped at the position the cancel fired on");
+        assert_eq!(walked.snapshot_bytes(), before, "a cancelled open changed the snapshot");
+    }
+
+    let ks = reopen("open control", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+    match Wallet::open_with(ks, MeshClient::new(chain()), Some(&m), &Cancel::NEVER).err() {
+        Some(Unfinished::Refused(refusal)) => assert!(
+            matches!(
+                refusal.diverged[0],
+                Divergence::IndexMismatch {
+                    found: ChainPosition::Ahead { gap: 3, .. },
+                    ..
+                }
+            ),
+            "{:?}",
+            refusal.diverged[0]
+        ),
+        other => panic!("the uncancelled control was not refused by its divergence: {other:?}"),
     }
 }
