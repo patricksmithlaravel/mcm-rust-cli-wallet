@@ -130,6 +130,44 @@ impl fmt::Display for StartupRefusal {
     }
 }
 
+/// What [`Wallet::open_or_return`] gives back when it refuses: the refusal,
+/// and the store and the client it was handed, as they were.
+///
+/// # Why the parts come back
+///
+/// `open` consumes both and drops them with its refusal, which closes the
+/// store and releases its lock. A caller that holds the password only for as
+/// long as the request that brought it cannot then open the store again
+/// without asking for the password again, though some refusals are gone at
+/// the node's next answer: a lookup that failed, a node between blocks.
+/// Handed back, the same store can be opened again as it is.
+///
+/// **This reaches around nothing.** The store is the one the caller handed
+/// in, unreconciled then and unreconciled now; no `Wallet` was built from it,
+/// so no account was confirmed and nothing that rests on the partition
+/// exists. Opening it again goes through the same constructor and the same
+/// reconciliation.
+pub struct Refused<M: Medium, T: Transport> {
+    /// Why the wallet would not start, exactly as [`Wallet::open`] reports it.
+    pub refusal: StartupRefusal,
+    /// The store, still open and still locked.
+    pub store: Keystore<M>,
+    pub client: MeshClient<T>,
+}
+
+impl<M: Medium, T: Transport> fmt::Debug for Refused<M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Refused")
+            .field("refusal", &self.refusal)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Why an open did not produce a wallet, with the store and the client it
+/// was handed: what the one reconciliation every open runs returns short of
+/// a wallet, before each open keeps the parts or drops them.
+type HandedBack<E, M, T> = (E, Keystore<M>, MeshClient<T>);
+
 /// What settling found. Not `Copy`: `StillOutstanding` carries the
 /// reservation's diagnosis, which may hold the error a tip read returned.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -191,7 +229,22 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     ) -> core::result::Result<Wallet<M, T>, StartupRefusal> {
         // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
         // answer that ends nothing.
+        Self::open_asking(store, client, master, &Cancel::NEVER, None, || Ok(())).map_err(|(refusal, _, _)| refusal)
+    }
+
+    /// [`Wallet::open`], handing the store and the client back when it
+    /// refuses ([`Refused`]).
+    ///
+    /// The same reconciliation and the same refusal: `open` is this with the
+    /// parts dropped. A wallet that opens is the wallet `open` returns.
+    #[allow(clippy::result_large_err)]
+    pub fn open_or_return(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+    ) -> core::result::Result<Wallet<M, T>, Refused<M, T>> {
         Self::open_asking(store, client, master, &Cancel::NEVER, None, || Ok(()))
+            .map_err(|(refusal, store, client)| Refused { refusal, store, client })
     }
 
     /// [`Wallet::open`], stoppable from outside: `cancel` is asked before
@@ -211,7 +264,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         master: Option<&Secret<SEED_LEN>>,
         cancel: &Cancel<'_>,
     ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
-        Self::open_asking(store, client, master, cancel, None, || Err(Unfinished::Cancelled))
+        Self::open_asking(store, client, master, cancel, None, || Err(Unfinished::Cancelled)).map_err(|(why, _, _)| why)
     }
 
     /// [`Wallet::open_with`], telling `progress` how far it has got: before
@@ -230,11 +283,14 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         progress: &mut dyn FnMut(Progress),
     ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
         Self::open_asking(store, client, master, cancel, Some(progress), || Err(Unfinished::Cancelled))
+            .map_err(|(why, _, _)| why)
     }
 
-    /// The one reconciliation the three opens run. `cancelled` is what a
-    /// cancel ends the call with, and it is called only once `cancel` has
-    /// said stop or a walk records that it did.
+    /// The one reconciliation every open runs. `cancelled` is what a cancel
+    /// ends the call with, and it is called only once `cancel` has said stop
+    /// or a walk records that it did. Whatever ends the call short of a
+    /// wallet comes back with the store and the client it was handed, for the
+    /// opens that return them; the others drop them there.
     #[allow(clippy::result_large_err)]
     fn open_asking<E: From<StartupRefusal>>(
         store: Keystore<M>,
@@ -243,18 +299,18 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         cancel: &Cancel<'_>,
         mut progress: Option<&mut dyn FnMut(Progress)>,
         cancelled: impl Fn() -> core::result::Result<(), E>,
-    ) -> core::result::Result<Wallet<M, T>, E> {
+    ) -> core::result::Result<Wallet<M, T>, HandedBack<E, M, T>> {
         let tags = match store.tags() {
             Ok(t) => t,
             Err(cause) => {
-                return Err(StartupRefusal {
+                let refusal = StartupRefusal {
                     diverged: vec![Divergence::CannotReconcile {
                         tag: [0u8; 20],
                         cause,
                     }],
                     accounts: 0,
-                }
-                .into())
+                };
+                return Err((refusal.into(), store, client));
             }
         };
         let accounts = tags.len();
@@ -262,7 +318,9 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         let mut diverged: Vec<Divergence> = Vec::new();
         for (n, tag) in tags.into_iter().enumerate() {
             if cancel.stop() {
-                cancelled()?;
+                if let Err(why) = cancelled() {
+                    return Err((why, store, client));
+                }
             }
             let at = Progress {
                 account: u32::try_from(n).unwrap_or(u32::MAX),
@@ -288,7 +346,9 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
                         Ok(status) => ok.push((tag, status)),
                         Err(d) => {
                             if d.stopped_by_cancel() {
-                                cancelled()?;
+                                if let Err(why) = cancelled() {
+                                    return Err((why, store, client));
+                                }
                             }
                             diverged.push(d);
                         }
@@ -304,7 +364,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         // This comparison does not authenticate the node's answer. A store
         // with no accounts in it diverges nowhere and opens, as it always has.
         if ok.is_empty() && !diverged.is_empty() {
-            return Err(StartupRefusal { diverged, accounts }.into());
+            return Err((StartupRefusal { diverged, accounts }.into(), store, client));
         }
         Ok(Wallet {
             store,

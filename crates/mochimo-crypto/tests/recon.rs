@@ -47,7 +47,7 @@ use mochimo_crypto::recon::{
     RestoreFailure, ScanScope, StoppedBy, Unfinished, DIVERGENCE_WINDOW, RECOVERY_CEILING,
 };
 use mochimo_crypto::tx::wire::Destination;
-use mochimo_crypto::wallet::{OperatorAcknowledgement, Settlement, StartupRefusal, Wallet};
+use mochimo_crypto::wallet::{OperatorAcknowledgement, Refused, Settlement, StartupRefusal, Wallet};
 use mochimo_crypto::{addr, derive, Error};
 
 /// A store holding `F-address-widths`' derived account 0, at position 0.
@@ -2227,4 +2227,51 @@ fn a_reconcile_reports_its_ceiling_from_the_scopes_edges() {
             "store at {local}, target {advance_to}: the reported ceiling is not the scope's reach"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// A refused open hands the store back
+// ---------------------------------------------------------------------------
+
+/// **A refused `open_or_return` hands back the store and the client it was
+/// given, the store still open and locked, and its refusal is the one `open`
+/// makes.**
+///
+/// The store is at 0 and the chain at 3, so its one account diverges and the
+/// wallet will not start. What comes back is checked three ways: the refusal
+/// equals `open`'s for the same state; the store is the same store, holding
+/// its lock (a second handle on the directory is refused `Locked`) over the
+/// same snapshot bytes; and once the node answers at the stored position, the
+/// store and the client that came back open as they are, with no second
+/// unlock.
+#[test]
+fn a_refused_open_hands_back_the_store_and_the_client_it_was_given() {
+    let m = master();
+    let behind = || Chain::new(&[(TAG, ChainState::At(addr_at(3), 1))]);
+    let (dir, ks) = store("recon-open-return");
+    let before = dir.snapshot_bytes();
+    let refused = match Wallet::open_or_return(ks, MeshClient::new(behind()), Some(&m)) {
+        Ok(w) => panic!("a store whose one account diverges opened: {w:?}"),
+        Err(r) => r,
+    };
+
+    let (_control, ks) = store("recon-open-return-control");
+    let plain = Wallet::open(ks, MeshClient::new(behind()), Some(&m)).expect_err("the control opened");
+    assert_eq!(refused.refusal, plain, "open_or_return refused differently from open");
+
+    assert_eq!(
+        Keystore::open(dir.path(), &keystore_harness::unlock()).err(),
+        Some(Error::Locked),
+        "the store came back without its lock"
+    );
+    assert_eq!(dir.snapshot_bytes(), before, "a refused open changed the snapshot");
+    let view = refused.store.view(&TAG).unwrap_or_else(|e| panic!("{e}")).unwrap_or_else(|| panic!("the account is gone"));
+    assert_eq!(view.wots_index, WotsIndex::ZERO);
+
+    let Refused { store, client, .. } = refused;
+    client.transport().set(TAG, ChainState::At(addr_at(0), 9_000));
+    let w = Wallet::open_or_return(store, client, Some(&m))
+        .unwrap_or_else(|r| panic!("the store that came back did not open: {}", r.refusal));
+    assert_eq!(w.accounts().len(), 1);
+    assert!(w.diverged().is_empty());
 }
