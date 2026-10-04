@@ -1461,7 +1461,8 @@ fn all_lays_out_the_balance_less_the_fee_and_says_the_account_is_emptied() {
 /// nothing -- the account's record and the store's generation are as they
 /// were, nothing reached the socket, and the plan still signs afterwards.
 /// The control is a spend with change, whose planned page has no emptying
-/// paragraph.
+/// paragraph; and a plan from the imported account names that account as
+/// its source, since the source is read from the plan.
 #[test]
 fn a_planned_spend_shows_sends_lines_and_nothing_that_only_signing_makes() {
     use mochimo_crypto::cli::outcome::{Decided, Outcome};
@@ -1492,7 +1493,7 @@ fn a_planned_spend_shows_sends_lines_and_nothing_that_only_signing_makes() {
         .unwrap_or_else(|e| panic!("plan: {e}"));
     let record = w.store().view(&DERIVED_TAG).unwrap_or_else(|e| panic!("{e}"));
     let generation = w.store().generation().unwrap_or_else(|e| panic!("{e}"));
-    let page = cli::render::render(&Decided { standing: Vec::new(), outcome: Outcome::planned(&DERIVED_TAG, &plan) });
+    let page = cli::render::render(&Decided { standing: Vec::new(), outcome: Outcome::planned(&plan) });
     assert_eq!(page.code, Code::Ok, "{}", page.text);
     assert!(
         page.text.starts_with("NOT SIGNED: a spend of 4999500 nanoMCM to 1 destination(s)"),
@@ -1539,9 +1540,25 @@ fn a_planned_spend_shows_sends_lines_and_nothing_that_only_signing_makes() {
     let plan = w
         .plan(&DERIVED_TAG, &KeyAccess::Master(&master), some, MFEE, 0)
         .unwrap_or_else(|e| panic!("plan: {e}"));
-    let page = cli::render::render(&Decided { standing: Vec::new(), outcome: Outcome::planned(&DERIVED_TAG, &plan) });
+    let page = cli::render::render(&Decided { standing: Vec::new(), outcome: Outcome::planned(&plan) });
     assert!(!page.text.contains("THIS EMPTIES"), "a spend with change is called emptying:\n{}", page.text);
     assert!(page.text.contains("Nothing has been signed yet."), "{}", page.text);
+
+    // The source is the plan's own account. A plan from the imported account
+    // names the imported account in its `from` line, in the same store and
+    // through the same constructor, so there is no tag to pass beside it
+    // that could name another.
+    let some = vec![Destination { tag: payee(0x6b), reference: [0; 16], amount: 1_000 }];
+    let imported = w
+        .plan(&IMPORTED_TAG, &KeyAccess::StoredRoot, some, MFEE, 0)
+        .unwrap_or_else(|e| panic!("plan: {e}"));
+    let outcome = Outcome::planned(&imported);
+    assert!(matches!(outcome, Outcome::Planned { source, .. } if source == IMPORTED_TAG), "{outcome:?}");
+    let page = cli::render::render(&Decided { standing: Vec::new(), outcome });
+    for (tag, named) in [(IMPORTED_TAG, true), (DERIVED_TAG, false)] {
+        let from = format!("  from   {}\n", addr::tag_to_base58(&tag).unwrap_or_else(|e| panic!("{e}")));
+        assert_eq!(page.text.contains(&from), named, "the imported plan's page names the wrong source:\n{}", page.text);
+    }
 }
 
 /// `resign ... all` reproduces while the balance stands, because the amount

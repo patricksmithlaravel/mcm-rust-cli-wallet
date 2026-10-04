@@ -336,17 +336,22 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// The [`Outcome::Planned`] a spend from `source` is shown by before it
-    /// is signed: `plan`'s destinations in wire order, its totals and its
-    /// block-to-live, and nothing else.
+    /// The [`Outcome::Planned`] `plan` is shown by before it is signed: the
+    /// account it spends from, its destinations in wire order, its totals and
+    /// its block-to-live, and nothing else.
+    ///
+    /// The source is the plan's own [`SpendPlan::tag`], the account
+    /// `Wallet::reserve_and_sign` reserves and signs from, and not a tag
+    /// passed beside it: a page naming one account for a plan that spends
+    /// from another is then unrepresentable rather than checked.
     ///
     /// It reads the plan and nothing more -- no store, no node -- so building
     /// it reserves no key and moves no index, and the plan can still be
     /// signed or dropped afterwards.
     #[must_use]
-    pub fn planned(source: &Tag, plan: &SpendPlan) -> Outcome {
+    pub fn planned(plan: &SpendPlan) -> Outcome {
         Outcome::Planned {
-            source: *source,
+            source: plan.tag(),
             destinations: plan.dsts().to_vec(),
             send_total: plan.send_total(),
             fee_total: plan.fee_total(),
