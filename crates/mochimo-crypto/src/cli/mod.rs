@@ -851,14 +851,25 @@ fn spend_destinations(s: &Spend, resolved: u64) -> Vec<Destination> {
 /// and is owed the same warning.
 fn emptying_text(settle_arg: &str) -> String {
     format!(
+        "{}  Keep the artifact below. `submit` writes it to the socket without opening the \
+         store, and is the route to a node while the account reads as not found.\n",
+        emptying_paragraph(settle_arg)
+    )
+}
+
+/// The part of [`emptying_text`] that is true before anything is signed:
+/// what a zero change does to this account and to the rest of the store.
+/// The planned page carries it with its own last sentence, since the
+/// artifact it would point at does not exist yet.
+fn emptying_paragraph(settle_arg: &str) -> String {
+    format!(
         "\nTHIS EMPTIES THE ACCOUNT. The change is zero, so nothing returns to your next key \
          under {settle_arg}.\n  The Mesh reports a tag it holds at zero balance as \"account not \
          found\", which it does not distinguish from never funded or from a failed lookup, so \
          once this lands every operation ON THIS ACCOUNT refuses until it is paid again. Other \
          accounts in this store keep working, and paying this one from another account in the \
          store is the way back. If this is the only account here, the payment has to come from \
-         somewhere else.\n  Keep the artifact below. `submit` writes it to the socket without \
-         opening the store, and is the route to a node while the account reads as not found.\n"
+         somewhere else.\n"
     )
 }
 
