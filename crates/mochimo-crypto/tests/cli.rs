@@ -7189,3 +7189,168 @@ fn paying_the_emptied_account_from_its_sibling_lets_it_settle() {
     assert_eq!(r.code, Code::Ok, "the re-funded account did not settle:\n{}", r.text);
     assert_says(&r, "settled", "settle after the account was paid");
 }
+
+// ---------------------------------------------------------------------------
+// The long operations, cancelled
+// ---------------------------------------------------------------------------
+
+/// Counts its askings and says stop from the `at`-th on, counted from zero,
+/// so a test can land a cancel at a chosen point and read how often it was
+/// asked. `u32::MAX` never says stop, which is how a run measures its own
+/// askings.
+struct StopAt {
+    at: u32,
+    asked: std::cell::Cell<u32>,
+}
+
+impl StopAt {
+    fn new(at: u32) -> StopAt {
+        StopAt { at, asked: std::cell::Cell::new(0) }
+    }
+
+    fn ask(&self) -> bool {
+        let n = self.asked.get();
+        self.asked.set(n + 1);
+        n >= self.at
+    }
+}
+
+/// **A restore cancelled at any point it asks writes nothing, and says
+/// `Cancelled`.**
+///
+/// The store holds account 0 and the chain holds account 1 at position 2,
+/// so an uncancelled restore of account 1 asks its cancel five times: before
+/// the node, at positions 0, 1 and 2, and before the one commit. That run is
+/// measured first and is the control: it adds the account at index 2. Then a
+/// cancel is landed at each of the five askings in turn, on a fresh store
+/// each time: the first asks the node nothing, the last is the one between
+/// the scan's answer and the commit, and every one leaves the snapshot the
+/// same bytes and the account absent.
+#[test]
+fn a_restore_cancelled_at_any_point_writes_nothing() {
+    use mochimo_crypto::cli::restore;
+    use mochimo_crypto::recon::{Cancel, Unfinished};
+    let m = master();
+    let tag1 = mochimo_crypto::derive::derive_account_tag(&m, 1);
+    let at2 = mochimo_crypto::recon::derived_address_at(&m, 1, chain::pos(2));
+    let chain = || Chain::new(&[(tag1, ChainState::At(at2, 3_000))]);
+
+    let (_dir, mut ks) = store("cli-restore-cancel-measure");
+    let measure = StopAt::new(u32::MAX);
+    let ask = || measure.ask();
+    let client = MeshClient::new(chain());
+    let restored = restore::restore_account_with(&mut ks, &client, &m, 1, Some(4), &Cancel::when(&ask))
+        .unwrap_or_else(|e| panic!("an uncancelled restore failed: {e:?}"));
+    assert_eq!(restored.found.index.get(), 2);
+    assert_eq!(restored.held_at, None, "the control did not add the account");
+    let askings = measure.asked.get();
+    assert_eq!(askings, 5, "a restore found at position 2 asked its cancel {askings} time(s), not 5");
+
+    for at in 0..askings {
+        let (dir, mut ks) = store("cli-restore-cancel");
+        let before = dir.snapshot_bytes();
+        let stop = StopAt::new(at);
+        let ask = || stop.ask();
+        let client = MeshClient::new(chain());
+        let result = restore::restore_account_with(&mut ks, &client, &m, 1, Some(4), &Cancel::when(&ask));
+        assert!(
+            matches!(result, Err(Unfinished::Cancelled)),
+            "a cancel at asking {at} came back as {:?}",
+            result.as_ref().map(|r| r.found.index.get())
+        );
+        assert_eq!(dir.snapshot_bytes(), before, "a cancel at asking {at} changed the snapshot");
+        assert!(
+            ks.view(&tag1).unwrap_or_else(|e| panic!("{e}")).is_none(),
+            "a cancel at asking {at} left the account in the store"
+        );
+        let expected = usize::from(at > 0);
+        assert_eq!(client.transport().calls(), expected, "a cancel at asking {at} asked the node the wrong number of times");
+    }
+}
+
+/// **A sweep cancelled before any index's node call stops there, and says
+/// `Cancelled` -- not a sweep of the indices it reached**, which would carry
+/// a short extent as the one asked for.
+///
+/// The control is the same sweep with a cancel that never fires: it equals
+/// `sweep`'s own result and asks once per index, so the counts below are
+/// counts of requests.
+#[test]
+fn a_sweep_cancelled_before_any_index_asks_no_further_and_writes_nothing() {
+    use mochimo_crypto::cli::discover;
+    use mochimo_crypto::recon::{Cancel, Unfinished};
+    let m = master();
+    let chain = || Chain::new(&[(TAG, ChainState::At(addr_at(0), 5_000_000))]);
+    let (dir, ks) = store("cli-sweep-cancel");
+    let before = dir.snapshot_bytes();
+
+    let plain = discover::sweep(&ks, &MeshClient::new(chain()), &m, 3).unwrap_or_else(|e| panic!("{e:?}"));
+    let never = StopAt::new(u32::MAX);
+    let ask = || never.ask();
+    let client = MeshClient::new(chain());
+    let same = discover::sweep_with(&ks, &client, &m, 3, &Cancel::when(&ask)).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(same, plain, "a cancel that never fires changed the sweep");
+    assert_eq!(client.transport().calls(), 4);
+    assert_eq!(never.asked.get(), 4, "the cancel was not asked once per index");
+
+    for at in 0..4u32 {
+        let stop = StopAt::new(at);
+        let ask = || stop.ask();
+        let client = MeshClient::new(chain());
+        let result = discover::sweep_with(&ks, &client, &m, 3, &Cancel::when(&ask));
+        assert!(matches!(result, Err(Unfinished::Cancelled)), "a cancel before index {at} came back as {result:?}");
+        assert_eq!(client.transport().calls(), at as usize, "a cancel before index {at} asked about it anyway");
+    }
+    assert_eq!(dir.snapshot_bytes(), before, "a sweep changed the snapshot");
+}
+
+/// **A reconcile cancelled at any point it asks writes nothing, and says
+/// `Cancelled` -- never `AcknowledgementDoesNotMatch`.**
+///
+/// The store is at 0 and the chain at 3, and the operator names 3. An
+/// uncancelled run asks its cancel before the account, at the four positions
+/// its walk takes to find 3, before the write, and at the four positions of
+/// the walk the write's own re-check makes: ten askings, measured first, and
+/// the control advances to 3. A cancel landed in that second walk leaves the
+/// account unlocated, which no acknowledgement names, and the re-check
+/// refuses it as not matching; that refusal is the cancel's, and it comes
+/// back as `Cancelled`. Every landing leaves the snapshot the same bytes and
+/// the stored index at 0.
+#[test]
+fn a_reconcile_cancelled_at_any_point_writes_nothing() {
+    use mochimo_crypto::cli::reconcile;
+    use mochimo_crypto::recon::{Cancel, Unfinished};
+    let m = master();
+    let chain = || Chain::new(&[(TAG, ChainState::At(addr_at(3), 1_000))]);
+
+    let (dir, mut ks) = store("cli-reconcile-cancel-measure");
+    let measure = StopAt::new(u32::MAX);
+    let ask = || measure.ask();
+    let reviewed = reconcile::advance_acknowledged_with(&mut ks, &MeshClient::new(chain()), &TAG, Some(&m), 3, &Cancel::when(&ask))
+        .unwrap_or_else(|e| panic!("an uncancelled reconcile failed: {e:?}"));
+    assert_eq!(reviewed.outcome, reconcile::Outcome::Advanced { index: 3 }, "the control did not advance");
+    drop(ks);
+    assert_eq!(stored_index(&dir), 3);
+    let askings = measure.asked.get();
+    assert_eq!(askings, 10, "the reconcile asked its cancel {askings} time(s), not 10");
+
+    for at in 0..askings {
+        let (dir, mut ks) = store("cli-reconcile-cancel");
+        let before = dir.snapshot_bytes();
+        let stop = StopAt::new(at);
+        let ask = || stop.ask();
+        let client = MeshClient::new(chain());
+        let result = reconcile::advance_acknowledged_with(&mut ks, &client, &TAG, Some(&m), 3, &Cancel::when(&ask));
+        assert!(
+            matches!(result, Err(Unfinished::Cancelled)),
+            "a cancel at asking {at} came back as {:?}",
+            result.as_ref().map(|r| &r.outcome)
+        );
+        if at == 0 {
+            assert_eq!(client.transport().calls(), 0, "a cancel raised first asked the node");
+        }
+        drop(ks);
+        assert_eq!(dir.snapshot_bytes(), before, "a cancel at asking {at} changed the snapshot");
+        assert_eq!(stored_index(&dir), 0, "a cancel at asking {at} moved the index");
+    }
+}

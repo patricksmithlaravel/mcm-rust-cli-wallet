@@ -51,7 +51,7 @@ use crate::addr::Tag;
 use crate::consts::SEED_LEN;
 use crate::keystore::{Keystore, Medium};
 use crate::mesh::{MeshClient, Transport};
-use crate::recon::{self, AccountStatus, Divergence, OperatorAcknowledgement, ScanScope};
+use crate::recon::{self, AccountStatus, Cancel, Divergence, OperatorAcknowledgement, ScanScope, Unfinished};
 use crate::{Error, Secret};
 
 /// The diagnostic scope an invocation asks for: the default window and
@@ -131,6 +131,44 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
     master: Option<&Secret<SEED_LEN>>,
     advance_to: u32,
 ) -> core::result::Result<Reviewed, Error> {
+    // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
+    // answer that ends nothing.
+    review_asking(store, client, tag, master, advance_to, &Cancel::NEVER, || Ok(()))
+}
+
+/// [`advance_acknowledged`], stoppable from outside: `cancel` is asked
+/// before each account, once per position of each diagnostic walk, and
+/// again before the one write.
+///
+/// A cancel is [`Unfinished::Cancelled`], never an [`Error`] and never a
+/// [`Reviewed`]. A walk it ends leaves a report that is true and incomplete,
+/// and an outcome decided from it would be a decision about an account made
+/// out of the caller's own stop, so the whole call answers `Cancelled`. A
+/// call that returns it wrote nothing; a cancel that arrives after the write
+/// is too late to stop it, and the call returns what it advanced.
+pub fn advance_acknowledged_with<M: Medium, T: Transport>(
+    store: &mut Keystore<M>,
+    client: &MeshClient<T>,
+    tag: &Tag,
+    master: Option<&Secret<SEED_LEN>>,
+    advance_to: u32,
+    cancel: &Cancel<'_>,
+) -> core::result::Result<Reviewed, Unfinished<Error>> {
+    review_asking(store, client, tag, master, advance_to, cancel, || Err(Unfinished::Cancelled))
+}
+
+/// The one review both forms run. `cancelled` is what a cancel ends the call
+/// with, and it is called only once `cancel` has said stop or a walk records
+/// that it did.
+fn review_asking<M: Medium, T: Transport, E: From<Error>>(
+    store: &mut Keystore<M>,
+    client: &MeshClient<T>,
+    tag: &Tag,
+    master: Option<&Secret<SEED_LEN>>,
+    advance_to: u32,
+    cancel: &Cancel<'_>,
+    cancelled: impl Fn() -> core::result::Result<(), E>,
+) -> core::result::Result<Reviewed, E> {
     let tags = store.tags()?;
     let accounts = tags.len();
     let mut reviewed = Reviewed {
@@ -147,6 +185,9 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
     // every other under the default scope.
     let mut named: Option<core::result::Result<AccountStatus, Divergence>> = None;
     for t in &tags {
+        if cancel.stop() {
+            cancelled()?;
+        }
         let this = t == tag;
         let result = match recon::access_for(store, t, master) {
             Err(d) => Err(d),
@@ -156,10 +197,13 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
                 t,
                 &access,
                 if this { &scope } else { &ScanScope::DIAGNOSTIC },
-                &recon::Cancel::NEVER,
+                cancel,
             ),
         };
         if let Err(d) = &result {
+            if d.stopped_by_cancel() {
+                cancelled()?;
+            }
             reviewed.reports.push(d.clone());
         }
         if this {
@@ -208,7 +252,21 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
             return Ok(reviewed);
         }
     };
-    let receipt = recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, &recon::Cancel::NEVER)?;
+    if cancel.stop() {
+        cancelled()?;
+    }
+    let receipt = match recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, cancel) {
+        Ok(receipt) => receipt,
+        // It reconciles once more under `scope` before it writes, and a
+        // cancel that ends that walk leaves the account unlocated, which no
+        // acknowledgement names: the refusal is the cancel's, not a finding,
+        // and nothing was written.
+        Err(Error::AcknowledgementDoesNotMatch) if cancel.stop() => {
+            cancelled()?;
+            return Err(Error::AcknowledgementDoesNotMatch.into());
+        }
+        Err(e) => return Err(e.into()),
+    };
     reviewed.outcome = Outcome::Advanced {
         index: receipt.index().get(),
     };

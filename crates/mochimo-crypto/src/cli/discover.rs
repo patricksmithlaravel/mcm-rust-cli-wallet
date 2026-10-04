@@ -46,6 +46,7 @@ use crate::consts::SEED_LEN;
 use crate::derive;
 use crate::keystore::{Keystore, Medium};
 use crate::mesh::{LedgerEntry, MeshClient, Transport};
+use crate::recon::{Cancel, Unfinished};
 use crate::{Error, Secret};
 
 /// What the node said about one account index, and what this store holds.
@@ -112,8 +113,42 @@ pub fn sweep<M: Medium, T: Transport>(
     master: &Secret<SEED_LEN>,
     to: u32,
 ) -> core::result::Result<Sweep, SweepFailure> {
+    // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
+    // answer that ends nothing.
+    sweep_asking(store, client, master, to, &Cancel::NEVER, || Ok(()))
+}
+
+/// [`sweep`], stoppable from outside: `cancel` is asked before each index's
+/// node call.
+///
+/// A cancel is [`Unfinished::Cancelled`], never a [`SweepFailure`] and never
+/// a [`Sweep`] of the indices asked so far: a short extent carried as a whole
+/// one is the absence by omission this module refuses (module doc).
+pub fn sweep_with<M: Medium, T: Transport>(
+    store: &Keystore<M>,
+    client: &MeshClient<T>,
+    master: &Secret<SEED_LEN>,
+    to: u32,
+    cancel: &Cancel<'_>,
+) -> core::result::Result<Sweep, Unfinished<SweepFailure>> {
+    sweep_asking(store, client, master, to, cancel, || Err(Unfinished::Cancelled))
+}
+
+/// The one sweep both forms run. `cancelled` is what a cancel ends the call
+/// with, and it is called only once `cancel` has said stop.
+fn sweep_asking<M: Medium, T: Transport, E: From<SweepFailure>>(
+    store: &Keystore<M>,
+    client: &MeshClient<T>,
+    master: &Secret<SEED_LEN>,
+    to: u32,
+    cancel: &Cancel<'_>,
+    cancelled: impl Fn() -> core::result::Result<(), E>,
+) -> core::result::Result<Sweep, E> {
     let mut sightings = Vec::new();
     for account in 0..=to {
+        if cancel.stop() {
+            cancelled()?;
+        }
         let tag = derive::derive_account_tag(master, account);
         let entry = match client.resolve_tag(&tag) {
             Ok(e) => Some(e),
@@ -125,7 +160,8 @@ pub fn sweep<M: Medium, T: Transport>(
                     account,
                     searched: account,
                     cause,
-                })
+                }
+                .into())
             }
         };
         sightings.push(Sighting {

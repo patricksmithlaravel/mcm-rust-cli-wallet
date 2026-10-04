@@ -594,8 +594,43 @@ impl<'a> Cancel<'a> {
 
     /// Ask. `NEVER` never asks, so a caller that passes it pays no call at
     /// all rather than a call that returns `false`.
-    fn stop(&self) -> bool {
+    ///
+    /// Crate-visible because the operations that return [`Unfinished`] ask
+    /// it between their steps as well as once per position.
+    pub(crate) fn stop(&self) -> bool {
         matches!(self.0, Some(asked) if asked())
+    }
+}
+
+/// What a cancellable operation returns in place of its result: stopped by
+/// its [`Cancel`], or refused for a reason of its own.
+///
+/// # Why a cancel is a variant here and not inside the refusal
+///
+/// A refusal is a finding -- about an account, the chain or the store -- and
+/// a caller shows it to the person it is about. A cancel is the caller's own
+/// decision coming back, and it found nothing. Carried inside the refusal it
+/// would be one more report for that caller to read and recognise; carried
+/// here it is told apart by a `match`, and a walk that ended
+/// [`StoppedBy::Cancelled`] never reaches a page that names an account.
+///
+/// **A call that returns `Cancelled` wrote nothing.** Each of these
+/// operations that writes asks its `Cancel` again before its one write, so a
+/// call that changed the store returns its result, however late the cancel
+/// arrived.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unfinished<E> {
+    /// The [`Cancel`] said to stop. Nothing was decided and nothing was
+    /// written.
+    Cancelled,
+    /// The operation's own refusal, as the form of it that takes no `Cancel`
+    /// returns it.
+    Refused(E),
+}
+
+impl<E> From<E> for Unfinished<E> {
+    fn from(refusal: E) -> Unfinished<E> {
+        Unfinished::Refused(refusal)
     }
 }
 
@@ -729,6 +764,28 @@ impl Divergence {
                 ..
             } => Some(*index),
             _ => None,
+        }
+    }
+
+    /// Whether this report's diagnostic walk was ended by a [`Cancel`].
+    ///
+    /// Such a report is true -- the comparison had already failed when the
+    /// walk began -- and incomplete, so an operation that returns
+    /// [`Unfinished`] answers it as `Cancelled` rather than handing it on as
+    /// a finding.
+    pub(crate) fn stopped_by_cancel(&self) -> bool {
+        match self {
+            Divergence::IndexMismatch { found, .. } | Divergence::ReservationUnexplained { found, .. } => matches!(
+                found,
+                ChainPosition::Unlocated {
+                    stopped: Some(Stopped {
+                        by: StoppedBy::Cancelled,
+                        ..
+                    }),
+                    ..
+                }
+            ),
+            _ => false,
         }
     }
 }

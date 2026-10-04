@@ -82,7 +82,7 @@ use crate::error::{Error, Result};
 use crate::keystore::{KeyAccess, Keystore, Medium, SpendAddresses};
 use crate::mesh::spend::{SignedTransaction, SpendPlan};
 use crate::mesh::{MeshClient, Transport, TxId};
-use crate::recon::{self, AccountStatus, Cancel, Divergence, Reservation, ScanScope};
+use crate::recon::{self, AccountStatus, Cancel, Divergence, Reservation, ScanScope, Unfinished};
 
 /// The acknowledgement type lives in `recon` -- the CLI's `reconcile` runs
 /// before a `Wallet` exists and the gate is the acknowledgement, not this
@@ -189,6 +189,42 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         client: MeshClient<T>,
         master: Option<&Secret<SEED_LEN>>,
     ) -> core::result::Result<Wallet<M, T>, StartupRefusal> {
+        // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
+        // answer that ends nothing.
+        Self::open_asking(store, client, master, &Cancel::NEVER, || Ok(()))
+    }
+
+    /// [`Wallet::open`], stoppable from outside: `cancel` is asked before
+    /// each account and once per position of each diagnostic walk.
+    ///
+    /// A cancel is [`Unfinished::Cancelled`] and never a refusal. A walk it
+    /// ends leaves a report that is true and incomplete -- the account
+    /// diverged, and where to is unknown -- and a refusal built from it would
+    /// name an account for what was the caller's decision, so the whole call
+    /// answers `Cancelled` instead. Nothing is written either way: opening
+    /// reads the store and asks the node. The store and the client are
+    /// dropped with the call, as they are when `open` refuses.
+    #[allow(clippy::result_large_err)]
+    pub fn open_with(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+        cancel: &Cancel<'_>,
+    ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
+        Self::open_asking(store, client, master, cancel, || Err(Unfinished::Cancelled))
+    }
+
+    /// The one reconciliation both opens run. `cancelled` is what a cancel
+    /// ends the call with, and it is called only once `cancel` has said stop
+    /// or a walk records that it did.
+    #[allow(clippy::result_large_err)]
+    fn open_asking<E: From<StartupRefusal>>(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+        cancel: &Cancel<'_>,
+        cancelled: impl Fn() -> core::result::Result<(), E>,
+    ) -> core::result::Result<Wallet<M, T>, E> {
         let tags = match store.tags() {
             Ok(t) => t,
             Err(cause) => {
@@ -198,19 +234,30 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
                         cause,
                     }],
                     accounts: 0,
-                })
+                }
+                .into())
             }
         };
         let accounts = tags.len();
         let mut ok: Vec<(Tag, AccountStatus)> = Vec::new();
         let mut diverged: Vec<Divergence> = Vec::new();
         for tag in tags {
+            if cancel.stop() {
+                cancelled()?;
+            }
             match Self::access_for(&store, &tag, master) {
                 Err(d) => diverged.push(d),
-                Ok(access) => match recon::reconcile_account(&store, &client, &tag, &access) {
-                    Ok(status) => ok.push((tag, status)),
-                    Err(d) => diverged.push(d),
-                },
+                Ok(access) => {
+                    match recon::reconcile_account_with(&store, &client, &tag, &access, &ScanScope::DIAGNOSTIC, cancel) {
+                        Ok(status) => ok.push((tag, status)),
+                        Err(d) => {
+                            if d.stopped_by_cancel() {
+                                cancelled()?;
+                            }
+                            diverged.push(d);
+                        }
+                    }
+                }
             }
         }
         // **Refused only when nothing is operable.** A wallet whose every
@@ -221,7 +268,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         // This comparison does not authenticate the node's answer. A store
         // with no accounts in it diverges nowhere and opens, as it always has.
         if ok.is_empty() && !diverged.is_empty() {
-            return Err(StartupRefusal { diverged, accounts });
+            return Err(StartupRefusal { diverged, accounts }.into());
         }
         Ok(Wallet {
             store,
