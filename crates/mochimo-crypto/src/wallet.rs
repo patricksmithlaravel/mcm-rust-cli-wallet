@@ -163,6 +163,31 @@ impl<M: Medium, T: Transport> fmt::Debug for Refused<M, T> {
     }
 }
 
+/// What [`Wallet::open_or_return_with`] gives back when it does not open: why
+/// -- refused, or cancelled -- and the store and the client it was handed, as
+/// they were.
+///
+/// [`Refused`] is the uncancellable open's answer and carries a refusal
+/// alone; this carries [`Unfinished`], so a cancel is told apart from a
+/// refusal by its variant here as everywhere else, and both hand the parts
+/// back on the same terms: the store unreconciled, still open and still
+/// locked, with no `Wallet` built from it.
+pub struct Unopened<M: Medium, T: Transport> {
+    /// `Cancelled`, or the refusal [`Wallet::open`] would report.
+    pub why: Unfinished<StartupRefusal>,
+    /// The store, still open and still locked.
+    pub store: Keystore<M>,
+    pub client: MeshClient<T>,
+}
+
+impl<M: Medium, T: Transport> fmt::Debug for Unopened<M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Unopened")
+            .field("why", &self.why)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Why an open did not produce a wallet, with the store and the client it
 /// was handed: what the one reconciliation every open runs returns short of
 /// a wallet, before each open keeps the parts or drops them.
@@ -256,7 +281,8 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     /// name an account for what was the caller's decision, so the whole call
     /// answers `Cancelled` instead. Nothing is written either way: opening
     /// reads the store and asks the node. The store and the client are
-    /// dropped with the call, as they are when `open` refuses.
+    /// dropped with the call, as they are when `open` refuses;
+    /// [`Wallet::open_or_return_with`] hands them back.
     #[allow(clippy::result_large_err)]
     pub fn open_with(
         store: Keystore<M>,
@@ -265,6 +291,25 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         cancel: &Cancel<'_>,
     ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
         Self::open_asking(store, client, master, cancel, None, || Err(Unfinished::Cancelled)).map_err(|(why, _, _)| why)
+    }
+
+    /// [`Wallet::open_with`], handing the store and the client back when it
+    /// is refused or cancelled ([`Unopened`]).
+    ///
+    /// The open a caller runs when it holds the password only for as long as
+    /// the request that brought it, and must be able to stop: a cancel, like
+    /// a refusal, leaves the store open and locked in the caller's hands, so
+    /// it can be opened again, or dropped, without asking for the password
+    /// again.
+    #[allow(clippy::result_large_err)]
+    pub fn open_or_return_with(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+        cancel: &Cancel<'_>,
+    ) -> core::result::Result<Wallet<M, T>, Unopened<M, T>> {
+        Self::open_asking(store, client, master, cancel, None, || Err(Unfinished::Cancelled))
+            .map_err(|(why, store, client)| Unopened { why, store, client })
     }
 
     /// [`Wallet::open_with`], telling `progress` how far it has got: before
@@ -284,6 +329,20 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
         Self::open_asking(store, client, master, cancel, Some(progress), || Err(Unfinished::Cancelled))
             .map_err(|(why, _, _)| why)
+    }
+
+    /// [`Wallet::open_or_return_with`], telling `progress` how far it has
+    /// got, as [`Wallet::open_with_progress`] does.
+    #[allow(clippy::result_large_err)]
+    pub fn open_or_return_with_progress(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+        cancel: &Cancel<'_>,
+        progress: &mut dyn FnMut(Progress),
+    ) -> core::result::Result<Wallet<M, T>, Unopened<M, T>> {
+        Self::open_asking(store, client, master, cancel, Some(progress), || Err(Unfinished::Cancelled))
+            .map_err(|(why, store, client)| Unopened { why, store, client })
     }
 
     /// The one reconciliation every open runs. `cancelled` is what a cancel
