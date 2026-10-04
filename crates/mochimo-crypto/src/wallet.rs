@@ -268,7 +268,12 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
                 account: u32::try_from(n).unwrap_or(u32::MAX),
                 accounts: u32::try_from(accounts).unwrap_or(u32::MAX),
                 position: 0,
-                ceiling: ScanScope::DIAGNOSTIC.reach(store.view(&tag).ok().flatten().map(|v| v.wots_index)),
+                // Read only for a caller that watches: it is the one figure
+                // here that needs the store's view.
+                ceiling: match progress {
+                    Some(_) => ScanScope::DIAGNOSTIC.reach(store.view(&tag).ok().flatten().map(|v| v.wots_index)),
+                    None => 0,
+                },
             };
             if let Some(report) = progress.as_deref_mut() {
                 report(at);

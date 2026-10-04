@@ -209,11 +209,17 @@ fn review_asking<M: Medium, T: Transport, E: From<Error>>(
     // every other under the default scope.
     let mut named: Option<core::result::Result<AccountStatus, Divergence>> = None;
     let of = u32::try_from(accounts).unwrap_or(u32::MAX);
+    // The ceiling is read only for a caller that watches: it is the one
+    // figure here that needs the store's view.
+    let watching = progress.is_some();
     let at = |n: usize, t: &Tag, walked: &ScanScope| Progress {
         account: u32::try_from(n).unwrap_or(u32::MAX),
         accounts: of,
         position: 0,
-        ceiling: walked.reach(store.view(t).ok().flatten().map(|v| v.wots_index)),
+        ceiling: match watching {
+            true => walked.reach(store.view(t).ok().flatten().map(|v| v.wots_index)),
+            false => 0,
+        },
     };
     for (n, t) in tags.iter().enumerate() {
         if cancel.stop() {

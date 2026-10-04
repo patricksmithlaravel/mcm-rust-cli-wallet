@@ -2183,3 +2183,48 @@ fn an_open_reports_each_account_before_it_asks_the_node_about_it() {
         "the open did not report each account, once, before asking about it"
     );
 }
+
+/// **The ceiling a reconcile reports is counted from its scope's edges, not
+/// by walking the scope**, for every way the window can sit against the
+/// recovery range, and for a range of four billion positions.
+///
+/// Each store is in sync, so nothing walks and the one report is the
+/// account's first. The three shapes: the window around 50 overlapping the
+/// range the operator's 39 raises the ceiling to (30 through 70 against 0
+/// through 39, sharing 30 through 39: 41 + 40 - 10); the window around 100
+/// above the range 9 gives (41 + 10, sharing nothing); and the window around
+/// 0 inside the range `u32::MAX - 1` gives, which is `u32::MAX` positions.
+/// Counted by enumerating the scope, this test took 88 s in the debug build
+/// on an arm64 macOS host, all of it before the node was asked anything;
+/// counted from the edges it takes under a second.
+#[test]
+fn a_reconcile_reports_its_ceiling_from_the_scopes_edges() {
+    use mochimo_crypto::cli::reconcile;
+    use mochimo_crypto::recon::Progress;
+    let m = master();
+    for (local, advance_to, ceiling) in [(50, 39, 71), (100, 9, 51), (0, u32::MAX - 1, u32::MAX)] {
+        let (_dir, mut ks) = store_at("recon-progress-reach", local);
+        let client = MeshClient::new(Chain::new(&[(TAG, ChainState::At(addr_at(local), 1_000))]));
+        let mut seen: Vec<Progress> = Vec::new();
+        let reviewed = reconcile::advance_acknowledged_with_progress(
+            &mut ks,
+            &client,
+            &TAG,
+            Some(&m),
+            advance_to,
+            &Cancel::NEVER,
+            &mut |p| seen.push(p),
+        )
+        .unwrap_or_else(|e| panic!("store at {local}, target {advance_to}: {e:?}"));
+        assert!(
+            matches!(reviewed.outcome, reconcile::Outcome::NothingToReconcile(_)),
+            "store at {local}: {:?}",
+            reviewed.outcome
+        );
+        assert_eq!(
+            seen,
+            vec![Progress { account: 0, accounts: 1, position: 0, ceiling }],
+            "store at {local}, target {advance_to}: the reported ceiling is not the scope's reach"
+        );
+    }
+}

@@ -284,8 +284,28 @@ impl ScanScope {
 
     /// How many positions a walk of this scope around `local` reaches if it
     /// finds nothing: the [`Progress::ceiling`] it reports against.
+    ///
+    /// Counted from the scope's edges, not by walking [`ScanScope::positions`]:
+    /// the window, plus the recovery range, less the members of the range the
+    /// window already holds. A raised ceiling can name four billion
+    /// positions, and enumerating them before the first report -- with no
+    /// cancel asked meanwhile, and for an account in sync that walks none --
+    /// would be the wait this figure exists to describe.
     pub(crate) fn reach(&self, local: Option<WotsIndex>) -> u32 {
-        u32::try_from(self.positions(local).count()).unwrap_or(u32::MAX)
+        let ceiling = u64::from(self.ceiling);
+        let total = match self.window_edges(local) {
+            None => ceiling,
+            Some((lo, hi)) => {
+                let (lo, hi) = (u64::from(lo), u64::from(hi));
+                let window = (hi + 1).saturating_sub(lo);
+                let shared = match ceiling.checked_sub(1) {
+                    None => 0,
+                    Some(last) => (hi.min(last) + 1).saturating_sub(lo),
+                };
+                window + ceiling - shared
+            }
+        };
+        u32::try_from(total).unwrap_or(u32::MAX)
     }
 }
 
