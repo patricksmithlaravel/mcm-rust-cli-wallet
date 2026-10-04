@@ -281,6 +281,32 @@ impl ScanScope {
             .chain((0..ceiling).filter(move |i| !edges.is_some_and(|(lo, hi)| (lo..=hi).contains(i))))
             .map(WotsIndex::from_raw)
     }
+
+    /// How many positions a walk of this scope around `local` reaches if it
+    /// finds nothing: the [`Progress::ceiling`] it reports against.
+    ///
+    /// Counted from the scope's edges, not by walking [`ScanScope::positions`]:
+    /// the window, plus the recovery range, less the members of the range the
+    /// window already holds. A raised ceiling can name four billion
+    /// positions, and enumerating them before the first report -- with no
+    /// cancel asked meanwhile, and for an account in sync that walks none --
+    /// would be the wait this figure exists to describe.
+    pub(crate) fn reach(&self, local: Option<WotsIndex>) -> u32 {
+        let ceiling = u64::from(self.ceiling);
+        let total = match self.window_edges(local) {
+            None => ceiling,
+            Some((lo, hi)) => {
+                let (lo, hi) = (u64::from(lo), u64::from(hi));
+                let window = (hi + 1).saturating_sub(lo);
+                let shared = match ceiling.checked_sub(1) {
+                    None => 0,
+                    Some(last) => (hi.min(last) + 1).saturating_sub(lo),
+                };
+                window + ceiling - shared
+            }
+        };
+        u32::try_from(total).unwrap_or(u32::MAX)
+    }
 }
 
 /// What a reconciled account is: local and chain agree, and what about. No
@@ -658,6 +684,59 @@ pub(crate) fn remembered<R>(cancel: &Cancel<'_>, walk: impl FnOnce(&Cancel<'_>) 
     };
     let result = walk(&Cancel::when(&asked));
     (result, said_stop.get())
+}
+
+/// How far a long operation has got, for a caller that shows it.
+///
+/// **Counted, never estimated.** `account` of `accounts` is the account the
+/// operation is on, counted from zero. `position` of `ceiling` is how many
+/// key positions that account's walk has reached of the most it can reach;
+/// a walk that finds what it is looking for stops short of `ceiling`, and an
+/// operation that walks nothing -- a sweep -- reports a `ceiling` of zero.
+///
+/// It is reported before each account, with `position` zero, and every
+/// [`PROGRESS_EVERY`] positions of a walk. An account in sync needs no walk,
+/// so its one report is the first; `ceiling` there is what a walk would
+/// reach, since whether one runs is known only after the node has answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Progress {
+    pub account: u32,
+    pub accounts: u32,
+    pub position: u32,
+    pub ceiling: u32,
+}
+
+/// How many positions a walk reaches between two reports of its
+/// [`Progress`].
+pub const PROGRESS_EVERY: u32 = 256;
+
+/// Run `walk` under a [`Cancel`] that asks `cancel` and, every
+/// [`PROGRESS_EVERY`] positions, hands `progress` how far it has got. With no
+/// `progress`, `walk` runs under `cancel` itself and nothing is counted.
+///
+/// The count rests on the predicate's obligation above: a walk asks once per
+/// position, so the askings are the positions reached, and no walk grows a
+/// parameter for it.
+pub(crate) fn watched<'p, R>(
+    cancel: &Cancel<'_>,
+    progress: Option<&mut (dyn FnMut(Progress) + 'p)>,
+    at: Progress,
+    walk: impl FnOnce(&Cancel<'_>) -> R,
+) -> R {
+    let Some(progress) = progress else {
+        return walk(cancel);
+    };
+    let reached = core::cell::Cell::new(0u32);
+    let progress = core::cell::RefCell::new(progress);
+    let asked = || {
+        let n = reached.get().saturating_add(1);
+        reached.set(n);
+        if n.is_multiple_of(PROGRESS_EVERY) {
+            (*progress.borrow_mut())(Progress { position: n, ..at });
+        }
+        cancel.stop()
+    };
+    walk(&Cancel::when(&asked))
 }
 
 /// A walk that ended before its scope did: where it stopped, and what stopped
