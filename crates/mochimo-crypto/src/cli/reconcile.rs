@@ -62,7 +62,7 @@ use crate::{Error, Secret};
 /// — so the ceiling is one more. The parser refuses `u32::MAX`, so the add
 /// cannot overflow; `saturating_add` keeps this file free of a panicking
 /// construct regardless.
-fn scope_to(to: Option<u32>) -> ScanScope {
+pub fn scope_to(to: Option<u32>) -> ScanScope {
     match to {
         Some(m) => ScanScope::DIAGNOSTIC.with_ceiling(m.saturating_add(1)),
         None => ScanScope::DIAGNOSTIC,

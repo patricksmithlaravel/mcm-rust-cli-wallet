@@ -7468,3 +7468,132 @@ fn a_reconcile_reports_each_account_and_the_named_one_again_before_the_write() {
         "the reconcile did not report its account, and again before the re-check"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The command line's decisions, called from outside it
+// ---------------------------------------------------------------------------
+
+/// **`status_outcome` is the decision `status` makes**: for each class of
+/// answer the comparison gives, the outcome built from
+/// `reconcile::account_status`'s result equals the one `decide` returns for
+/// the same command over the same state.
+///
+/// In sync, a divergence (the chain at 3 under a store at 0), a tag the
+/// store does not hold, and a chain that cannot be reached -- the four
+/// outcomes `status` has.
+#[test]
+fn status_outcome_is_the_decision_status_makes_for_every_class_of_answer() {
+    use mochimo_crypto::cli::outcome::Outcome;
+    let m = master();
+    let alien = [0x42; ADDR_TAG_LEN];
+    let cases: [(&str, ChainState, [u8; ADDR_TAG_LEN]); 4] = [
+        ("in sync", ChainState::At(addr_at(0), 5_000_000), TAG),
+        ("diverged", ChainState::At(addr_at(3), 5_000_000), TAG),
+        ("not held", ChainState::At(addr_at(0), 5_000_000), alien),
+        ("unreachable", ChainState::Unreachable, TAG),
+    ];
+    let mut kinds = Vec::new();
+    for (what, state, asked) in cases {
+        let (_d1, ks) = store("cli-status-outcome-decide");
+        let decided = cli::decide(ks, MeshClient::new(Chain::new(&[(TAG, state)])), &Command::Status { tag: asked, scan_to: None });
+        let (_d2, ks) = store("cli-status-outcome-direct");
+        let compared = cli::reconcile::account_status(&ks, &MeshClient::new(Chain::new(&[(TAG, state)])), &asked, Some(&m), None);
+        let direct = cli::status_outcome(&asked, compared);
+        assert_eq!(direct, decided.outcome, "{what}: status_outcome decided differently from status");
+        kinds.push(match direct {
+            Outcome::Status { .. } => "Status",
+            Outcome::StatusDiverged { .. } => "StatusDiverged",
+            Outcome::NoSuchAccount { .. } => "NoSuchAccount",
+            Outcome::StatusRefused { .. } => "StatusRefused",
+            _ => "another",
+        });
+    }
+    assert_eq!(kinds, ["Status", "StatusDiverged", "NoSuchAccount", "StatusRefused"], "the cases did not reach every class");
+}
+
+/// **`resign_outcome` is the decision `resign` makes**: over a store holding
+/// a reservation, the outcome built from `Wallet::resign_pending`'s answer
+/// equals the one `decide` returns for the same `resign`, for a spend that is
+/// not the reserved one, a reservation the chain has moved past, and a
+/// reproduction written to the socket. `resign` writes nothing to the store,
+/// so both paths run over the one reservation.
+#[test]
+fn resign_outcome_is_the_decision_resign_makes() {
+    use mochimo_crypto::cli::outcome::Outcome;
+    let m = master();
+    let (dir, _artifact) = send_that_never_left("cli-resign-outcome");
+    let id = id_for_the_spend("cli-resign-outcome-id");
+    let mut wrong = spend();
+    wrong.dsts[0].amount = Some(999);
+    let cases: [(&str, Spend, ChainState); 3] = [
+        ("not the reserved spend", wrong, ChainState::At(addr_at(0), 5_000_000)),
+        ("already landed", spend(), ChainState::At(addr_at(1), 4_998_500)),
+        ("reproduced", spend(), ChainState::At(addr_at(0), 5_000_000)),
+    ];
+    let mut kinds = Vec::new();
+    for (what, s, state) in cases {
+        let chain = || {
+            let c = Chain::new(&[(TAG, state)]);
+            c.accepts_submit(id);
+            c
+        };
+        let ks = reopen("resign outcome decide", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+        let decided = cli::decide(ks, MeshClient::new(chain()), &Command::Resign(s.clone()));
+
+        let ks = reopen("resign outcome direct", dir.path()).result.unwrap_or_else(|e| panic!("{e}"));
+        let mut w = Wallet::open(ks, MeshClient::new(chain()), Some(&m)).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let access = cli::key_access(w.store(), &s.tag, Some(&m)).unwrap_or_else(|e| panic!("{e}"));
+        let dsts: Vec<Destination> = s
+            .dsts
+            .iter()
+            .map(|d| Destination { tag: d.to, reference: d.reference, amount: d.amount.unwrap_or(0) })
+            .collect();
+        let mut listed = dsts.clone();
+        listed.sort_by_key(Destination::mdst_image);
+        let resigned = w.resign_pending(&s.tag, &access, dsts, s.fee_total, s.blk_to_live);
+        let direct = cli::resign_outcome(&w, &s.tag, listed, s.blk_to_live, resigned);
+        assert_eq!(direct, decided.outcome, "{what}: resign_outcome decided differently from resign");
+        kinds.push(match direct {
+            Outcome::NotTheReservedSpend => "NotTheReservedSpend",
+            Outcome::ReservationAlreadyLanded { .. } => "ReservationAlreadyLanded",
+            Outcome::Resigned { .. } => "Resigned",
+            _ => "another",
+        });
+    }
+    assert_eq!(kinds, ["NotTheReservedSpend", "ReservationAlreadyLanded", "Resigned"], "the cases did not reach every class");
+}
+
+/// **The decisions made public answer as the command line does**, through
+/// the names a caller now has: the key access an account's kind needs and
+/// its refusals, the amount `all` sends, the scope `--scan-to` asks for, the
+/// sentence every refusal before `create`'s write ends in, and which node
+/// URLs need `--allow-plaintext-node`.
+#[test]
+fn the_decisions_made_public_answer_as_the_command_line_does() {
+    use mochimo_crypto::recon::ScanScope;
+    use mochimo_crypto::Error;
+    let m = master();
+    let (_dir, ks) = store("cli-public-decisions");
+    assert!(matches!(cli::key_access(&ks, &TAG, Some(&m)), Ok(KeyAccess::Master(_))));
+    assert!(matches!(cli::key_access(&ks, &TAG, None), Err(Error::KeyAccessMismatch { .. })));
+    assert!(matches!(cli::key_access(&ks, &[0x42; ADDR_TAG_LEN], Some(&m)), Err(Error::NoSuchAccount)));
+
+    assert_eq!(cli::spend_all_amount(5_000_000, MFEE), Ok(5_000_000 - MFEE));
+    assert!(matches!(cli::spend_all_amount(MFEE, MFEE), Err(Error::InsufficientBalance { .. })));
+
+    assert_eq!(cli::reconcile::scope_to(None), ScanScope::DIAGNOSTIC);
+    assert_eq!(cli::reconcile::scope_to(Some(500)), ScanScope::DIAGNOSTIC.with_ceiling(501));
+
+    assert_eq!(cli::create::nothing_was_created("the terminal closed"), "the terminal closed. Nothing was created.");
+    assert_eq!(cli::create::nothing_was_created("the terminal closed."), "the terminal closed. Nothing was created.");
+
+    for (url, gated) in [
+        ("http://127.0.0.1:8080", false),
+        ("http://localhost/", false),
+        ("http://[::1]:8080", false),
+        ("http://node.example:8080", true),
+        ("https://node.example", false),
+    ] {
+        assert_eq!(args::plaintext_off_loopback(url), gated, "{url}");
+    }
+}
