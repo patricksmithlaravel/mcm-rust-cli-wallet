@@ -1582,16 +1582,59 @@ pub fn advance_after_operator_review<M: Medium, T: Transport>(
     scope: &ScanScope,
     cancel: &Cancel<'_>,
 ) -> Result<AdvanceReceipt> {
-    if ack.tag != *tag {
-        return Err(Error::AcknowledgementDoesNotMatch);
-    }
-    match reconcile_account_with(store, client, tag, access, scope, cancel) {
-        Ok(_) => Err(Error::NothingToReconcile),
-        Err(d) => {
-            if d.advance_target() != Some(ack.target) {
-                return Err(Error::AcknowledgementDoesNotMatch);
+    // Nothing is asked between the re-check and the write: this route, and
+    // `Wallet::advance_after_operator_review_with` above it, write as soon
+    // as the re-check matches.
+    guarded::advance_after_operator_review(store, client, tag, access, ack, scope, cancel, || Ok(()))
+}
+
+/// The acknowledged advance with one more question, asked after its
+/// re-check has matched and before it writes -- the form an operation that
+/// can be cancelled runs.
+///
+/// The re-check's walk asks its `Cancel` before each position and not after
+/// the last, so a cancel raised while that position is derived reaches no
+/// asking before the write unless one is put there. `before_write` is that
+/// asking: an `Err` from it is returned with nothing written. The public
+/// function is this with a question that always answers `Ok`, so its
+/// behaviour is what it was.
+///
+/// A module of its own so the call keeps the name the CLI containment scan
+/// permits in `cli/reconcile.rs` alone: the store-writing route is one route
+/// however it is reached.
+pub(crate) mod guarded {
+    use super::{reconcile_account_with, Cancel, OperatorAcknowledgement, ScanScope};
+    use crate::account::AdvanceReceipt;
+    use crate::addr::Tag;
+    use crate::error::{Error, Result};
+    use crate::keystore::{KeyAccess, Keystore, Medium};
+    use crate::mesh::{MeshClient, Transport};
+
+    /// Eight arguments: the advance's own seven, and the question asked
+    /// before its write.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn advance_after_operator_review<M: Medium, T: Transport>(
+        store: &mut Keystore<M>,
+        client: &MeshClient<T>,
+        tag: &Tag,
+        access: &KeyAccess<'_>,
+        ack: OperatorAcknowledgement,
+        scope: &ScanScope,
+        cancel: &Cancel<'_>,
+        before_write: impl FnOnce() -> Result<()>,
+    ) -> Result<AdvanceReceipt> {
+        if ack.tag != *tag {
+            return Err(Error::AcknowledgementDoesNotMatch);
+        }
+        match reconcile_account_with(store, client, tag, access, scope, cancel) {
+            Ok(_) => Err(Error::NothingToReconcile),
+            Err(d) => {
+                if d.advance_target() != Some(ack.target) {
+                    return Err(Error::AcknowledgementDoesNotMatch);
+                }
+                before_write()?;
+                store.persist_advance_to(tag, ack.target)
             }
-            store.persist_advance_to(tag, ack.target)
         }
     }
 }

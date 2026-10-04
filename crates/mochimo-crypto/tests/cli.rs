@@ -7320,15 +7320,18 @@ fn a_sweep_cancelled_before_any_index_asks_no_further_and_writes_nothing() {
 ///
 /// The store is at 0 and the chain at 3, and the operator names 3. An
 /// uncancelled run asks its cancel before the account, at the four positions
-/// its walk takes to find 3, before the write, and at the four positions of
-/// the walk the write's own re-check makes: ten askings, measured first, and
-/// the control advances to 3. A cancel landed in that second walk leaves the
-/// account unlocated, which no acknowledgement names, and the re-check
-/// refuses it as not matching; that refusal is the cancel's, and it comes
-/// back as `Cancelled` -- for a cancel said a single time as well, which
-/// answers `false` if it is asked again once the walk has stopped. Every
-/// landing, of either kind, leaves the snapshot the same bytes and the
-/// stored index at 0.
+/// its walk takes to find 3, before the write's own re-check, at the four
+/// positions of that re-check's walk, and once more between the re-check's
+/// match and the write: eleven askings, measured first, and the control
+/// advances to 3. The last is the boundary a walk alone leaves open -- it
+/// asks before each position and not after the one that matches, so a
+/// cancel raised while position 3 is derived would otherwise reach the write
+/// unheard. A cancel landed in the re-check's walk leaves the account
+/// unlocated, which no acknowledgement names, and the re-check refuses it as
+/// not matching; that refusal is the cancel's, and it comes back as
+/// `Cancelled` -- for a cancel said a single time as well, which answers
+/// `false` if it is asked again once the walk has stopped. Every landing, of
+/// either kind, leaves the snapshot the same bytes and the stored index at 0.
 #[test]
 fn a_reconcile_cancelled_at_any_point_writes_nothing() {
     use mochimo_crypto::cli::reconcile;
@@ -7345,7 +7348,7 @@ fn a_reconcile_cancelled_at_any_point_writes_nothing() {
     drop(ks);
     assert_eq!(stored_index(&dir), 3);
     let askings = measure.asked.get();
-    assert_eq!(askings, 10, "the reconcile asked its cancel {askings} time(s), not 10");
+    assert_eq!(askings, 11, "the reconcile asked its cancel {askings} time(s), not 11");
 
     for (at, stop) in (0..askings).flat_map(|at| [(at, StopAt::new(at)), (at, StopAt::once(at))]) {
         let (dir, mut ks) = store("cli-reconcile-cancel");

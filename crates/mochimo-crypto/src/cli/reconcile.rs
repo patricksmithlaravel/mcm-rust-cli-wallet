@@ -137,8 +137,9 @@ pub fn advance_acknowledged<M: Medium, T: Transport>(
 }
 
 /// [`advance_acknowledged`], stoppable from outside: `cancel` is asked
-/// before each account, once per position of each diagnostic walk, and
-/// again before the one write.
+/// before each account, once per position of each diagnostic walk, before
+/// the write's own re-check, and again between that re-check's match and
+/// the write itself.
 ///
 /// A cancel is [`Unfinished::Cancelled`], never an [`Error`] and never a
 /// [`Reviewed`]. A walk it ends leaves a report that is true and incomplete,
@@ -255,8 +256,16 @@ fn review_asking<M: Medium, T: Transport, E: From<Error>>(
     if cancel.stop() {
         cancelled()?;
     }
-    let (advanced, stopped) = recon::remembered(cancel, |cancel| {
-        recon::advance_after_operator_review(store, client, tag, &access, ack, &scope, cancel)
+    // The re-check is asked once more after its walk has matched and before
+    // the write, since the walk asks before each position and not after the
+    // last: a cancel raised while that position is derived is heard there.
+    let (advanced, stopped) = recon::remembered(cancel, |walking| {
+        recon::guarded::advance_after_operator_review(store, client, tag, &access, ack, &scope, walking, || {
+            match cancel.stop() {
+                true => Err(Error::Cancelled),
+                false => Ok(()),
+            }
+        })
     });
     let receipt = match advanced {
         Ok(receipt) => receipt,
@@ -268,6 +277,11 @@ fn review_asking<M: Medium, T: Transport, E: From<Error>>(
         Err(Error::AcknowledgementDoesNotMatch) if stopped => {
             cancelled()?;
             return Err(Error::AcknowledgementDoesNotMatch.into());
+        }
+        // The question between the walk's match and the write said stop.
+        Err(Error::Cancelled) => {
+            cancelled()?;
+            return Err(Error::Cancelled.into());
         }
         Err(e) => return Err(e.into()),
     };
