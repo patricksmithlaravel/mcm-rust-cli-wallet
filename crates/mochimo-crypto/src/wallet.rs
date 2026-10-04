@@ -82,7 +82,7 @@ use crate::error::{Error, Result};
 use crate::keystore::{KeyAccess, Keystore, Medium, SpendAddresses};
 use crate::mesh::spend::{SignedTransaction, SpendPlan};
 use crate::mesh::{MeshClient, Transport, TxId};
-use crate::recon::{self, AccountStatus, Cancel, Divergence, Reservation, ScanScope, Unfinished};
+use crate::recon::{self, AccountStatus, Cancel, Divergence, Progress, Reservation, ScanScope, Unfinished};
 
 /// The acknowledgement type lives in `recon` -- the CLI's `reconcile` runs
 /// before a `Wallet` exists and the gate is the acknowledgement, not this
@@ -191,7 +191,7 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
     ) -> core::result::Result<Wallet<M, T>, StartupRefusal> {
         // `NEVER` is never asked, so `cancelled` is never called; `Ok` is the
         // answer that ends nothing.
-        Self::open_asking(store, client, master, &Cancel::NEVER, || Ok(()))
+        Self::open_asking(store, client, master, &Cancel::NEVER, None, || Ok(()))
     }
 
     /// [`Wallet::open`], stoppable from outside: `cancel` is asked before
@@ -211,18 +211,37 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         master: Option<&Secret<SEED_LEN>>,
         cancel: &Cancel<'_>,
     ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
-        Self::open_asking(store, client, master, cancel, || Err(Unfinished::Cancelled))
+        Self::open_asking(store, client, master, cancel, None, || Err(Unfinished::Cancelled))
     }
 
-    /// The one reconciliation both opens run. `cancelled` is what a cancel
-    /// ends the call with, and it is called only once `cancel` has said stop
-    /// or a walk records that it did.
+    /// [`Wallet::open_with`], telling `progress` how far it has got: before
+    /// each account, and every [`recon::PROGRESS_EVERY`] positions of each
+    /// diagnostic walk ([`Progress`]).
+    ///
+    /// `progress` is called on this thread, between steps, and the call
+    /// waits for it. What it is handed is counted from the walk, not
+    /// predicted, so a report of it is no claim about how long is left.
+    #[allow(clippy::result_large_err)]
+    pub fn open_with_progress(
+        store: Keystore<M>,
+        client: MeshClient<T>,
+        master: Option<&Secret<SEED_LEN>>,
+        cancel: &Cancel<'_>,
+        progress: &mut dyn FnMut(Progress),
+    ) -> core::result::Result<Wallet<M, T>, Unfinished<StartupRefusal>> {
+        Self::open_asking(store, client, master, cancel, Some(progress), || Err(Unfinished::Cancelled))
+    }
+
+    /// The one reconciliation the three opens run. `cancelled` is what a
+    /// cancel ends the call with, and it is called only once `cancel` has
+    /// said stop or a walk records that it did.
     #[allow(clippy::result_large_err)]
     fn open_asking<E: From<StartupRefusal>>(
         store: Keystore<M>,
         client: MeshClient<T>,
         master: Option<&Secret<SEED_LEN>>,
         cancel: &Cancel<'_>,
+        mut progress: Option<&mut dyn FnMut(Progress)>,
         cancelled: impl Fn() -> core::result::Result<(), E>,
     ) -> core::result::Result<Wallet<M, T>, E> {
         let tags = match store.tags() {
@@ -241,14 +260,31 @@ impl<M: Medium, T: Transport> Wallet<M, T> {
         let accounts = tags.len();
         let mut ok: Vec<(Tag, AccountStatus)> = Vec::new();
         let mut diverged: Vec<Divergence> = Vec::new();
-        for tag in tags {
+        for (n, tag) in tags.into_iter().enumerate() {
             if cancel.stop() {
                 cancelled()?;
+            }
+            let at = Progress {
+                account: u32::try_from(n).unwrap_or(u32::MAX),
+                accounts: u32::try_from(accounts).unwrap_or(u32::MAX),
+                position: 0,
+                // Read only for a caller that watches: it is the one figure
+                // here that needs the store's view.
+                ceiling: match progress {
+                    Some(_) => ScanScope::DIAGNOSTIC.reach(store.view(&tag).ok().flatten().map(|v| v.wots_index)),
+                    None => 0,
+                },
+            };
+            if let Some(report) = progress.as_deref_mut() {
+                report(at);
             }
             match Self::access_for(&store, &tag, master) {
                 Err(d) => diverged.push(d),
                 Ok(access) => {
-                    match recon::reconcile_account_with(&store, &client, &tag, &access, &ScanScope::DIAGNOSTIC, cancel) {
+                    let reconciled = recon::watched(cancel, progress.as_deref_mut(), at, |cancel| {
+                        recon::reconcile_account_with(&store, &client, &tag, &access, &ScanScope::DIAGNOSTIC, cancel)
+                    });
+                    match reconciled {
                         Ok(status) => ok.push((tag, status)),
                         Err(d) => {
                             if d.stopped_by_cancel() {
