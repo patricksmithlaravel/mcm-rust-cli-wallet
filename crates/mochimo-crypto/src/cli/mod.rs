@@ -281,8 +281,8 @@ pub fn decide<M: Medium, T: Transport>(
         Command::LookupTransaction { hash } => {
             return before_the_gate(cmd_transaction(&client, hash))
         }
-        Command::RecentTransactions { tag, count } => {
-            return before_the_gate(cmd_recent_transactions(&client, tag, *count))
+        Command::RecentTransactions { tag, count, from } => {
+            return before_the_gate(cmd_recent_transactions_from(&client, tag, *count, *from))
         }
         Command::Block { at } => return before_the_gate(cmd_block(&client, at)),
         Command::Blocks { count } => return before_the_gate(cmd_blocks(&client, *count)),
@@ -1162,7 +1162,9 @@ pub fn run_submit<T: Transport>(client: &MeshClient<T>, artifact_hex: &str) -> R
 pub fn run_explorer<T: Transport>(client: &MeshClient<T>, command: &Command) -> Report {
     let outcome = match command {
         Command::LookupTransaction { hash } => cmd_transaction(client, hash),
-        Command::RecentTransactions { tag, count } => cmd_recent_transactions(client, tag, *count),
+        Command::RecentTransactions { tag, count, from } => {
+            cmd_recent_transactions_from(client, tag, *count, *from)
+        }
         Command::Block { at } => cmd_block(client, at),
         Command::Blocks { count } => cmd_blocks(client, *count),
         other => Outcome::NotAReadOnlyVerb {
@@ -1483,6 +1485,30 @@ pub fn cmd_recent_transactions<T: Transport>(
     match client.search_by_account(tag, count) {
         Ok(page) => Outcome::RecentTransactions {
             tag: *tag,
+            from: 0,
+            page: Box::new(page),
+        },
+        Err(cause) => Outcome::ExplorerFailed { cause },
+    }
+}
+
+/// `recent-transactions <tag> [--count N] [--from M]`: what touched a tag,
+/// newest first, the `from` newest skipped. With `from` 0 it sends the
+/// request [`cmd_recent_transactions`] sends, byte for byte, so the first
+/// page is asked for as it always was.
+pub fn cmd_recent_transactions_from<T: Transport>(
+    client: &MeshClient<T>,
+    tag: &Tag,
+    count: u64,
+    from: u64,
+) -> Outcome {
+    if from == 0 {
+        return cmd_recent_transactions(client, tag, count);
+    }
+    match client.search_by_account_from(tag, count, from) {
+        Ok(page) => Outcome::RecentTransactions {
+            tag: *tag,
+            from,
             page: Box::new(page),
         },
         Err(cause) => Outcome::ExplorerFailed { cause },

@@ -189,8 +189,8 @@ impl fmt::Debug for TxId {
     }
 }
 
-/// The client: one transport, eight operations -- four the wallet needs to
-/// spend, and four read-only ones the explorer verbs use.
+/// The client: one transport, nine operations -- four the wallet needs to
+/// spend, and five read-only ones the explorer verbs use.
 #[derive(Debug)]
 pub struct MeshClient<T: Transport> {
     transport: T,
@@ -264,6 +264,24 @@ impl<T: Transport> MeshClient<T> {
         let reply = self
             .transport
             .post("/search/transactions", &codec::request_search_by_account(tag, limit))?;
+        codec::parse_search(&reply)
+    }
+
+    /// [`Self::search_by_account`] from the `offset`-th newest row on: the
+    /// rows below the newest `offset`, at most `limit` of them. A page's
+    /// [`codec::SearchPage::next_offset`] is the `offset` of the page after
+    /// it.
+    ///
+    /// `limit` is held to `1..=100` as above, and `offset` to
+    /// `0..=i64::MAX`, the handler's `int64`: above that the request does
+    /// not decode and the handler answers code 1. Rows arrive at the newest
+    /// end, so a page asked for after others have landed repeats them and
+    /// skips none.
+    pub fn search_by_account_from(&self, tag: &Tag, limit: u64, offset: u64) -> Result<codec::SearchPage> {
+        let reply = self.transport.post(
+            "/search/transactions",
+            &codec::request_search_by_account_from(tag, limit, offset),
+        )?;
         codec::parse_search(&reply)
     }
 
