@@ -179,8 +179,8 @@ The chain already saw the spend. `settle` only updates **your local store**: cle
 | `submit <artifact-hex>` | Yes | Write a saved artifact to the socket as it is; opens no store, asks no password |
 | `transaction <hash>` | Yes | One transaction from the node's indexer; opens no store |
 | `recent-transactions <tag> [--count N] [--from M]` | Yes | What touched a tag, newest first (N defaults to 5), the M newest skipped (M defaults to 0); opens no store |
-| `block <number \| hash>` | Yes | One block, its reward and what it moved; opens no store |
-| `blocks [--count N]` | Yes | The newest blocks, one row each (N defaults to 5); opens no store |
+| `block <number \| hash>` | Yes | One block: its kind, difficulty and haiku, its reward and what it moved; opens no store |
+| `blocks [--count N]` | Yes | The newest blocks, one row each with its kind (N defaults to 5); opens no store |
 | `status <tag> [--scan-to M]` | Yes | Report sync / divergence without failing closed |
 | `reconcile <tag> --advance-to N` | Yes | Advance after you understand a divergence |
 | `restore --account N [--scan-to M]` | Yes | Re-derive an on-chain account into the store |

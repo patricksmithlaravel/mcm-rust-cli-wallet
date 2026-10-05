@@ -968,6 +968,7 @@ fn block_page(block: &crate::mesh::codec::MeshBlock) -> Report {
         hex_bytes(&block.parent.hash),
         super::stamp(block.timestamp_ms)
     );
+    out.push_str(&block_figures(block));
     match rewards.first().and_then(|t| t.operations.iter().find(|o| o.kind == codec::OP_REWARD)) {
         Some(r) => {
             out.push_str(&format!("  reward   {}\n    to     {}\n", super::nano_and_mcm(r.amount), super::explorer_address(&r.address)));
@@ -1004,12 +1005,68 @@ fn blocks(count: u64, tip: &crate::mesh::ChainTip, rows: &[crate::mesh::codec::M
     let mut out = format!("the {count} newest block(s); the tip is {}\n", tip.index);
     for b in rows {
         out.push_str(&format!(
-            "  {:>9}  {}  {}  {} transaction(s)\n",
+            "  {:>9}  {}  {}  {} transaction(s)  {}\n",
             b.block.index,
             hex_bytes(&b.block.hash),
             super::stamp(b.timestamp_ms),
-            b.transactions.len()
+            b.transactions.len(),
+            kind_word(b.kind())
         ));
     }
     Report::ok(out)
+}
+
+/// A block's kind as a page names it, or that the node sent nothing to tell
+/// it by.
+fn kind_word(kind: Option<crate::mesh::codec::BlockKind>) -> &'static str {
+    use crate::mesh::codec::BlockKind;
+    match kind {
+        Some(BlockKind::Normal) => "normal",
+        Some(BlockKind::Pseudo) => "pseudo",
+        Some(BlockKind::Neogenesis) => "neogenesis",
+        None => "kind not sent",
+    }
+}
+
+/// The lines `block` prints from the block's own figures: its kind and
+/// difficulty, its size, count and minimum fee, its Merkle root and nonce,
+/// and for a normal block the haiku, one display line per line the node
+/// sent, joined. A node that sent no metadata gets one line saying so, and
+/// a neogenesis block is still named from its number.
+fn block_figures(block: &crate::mesh::codec::MeshBlock) -> String {
+    use crate::mesh::codec::BlockKind;
+    let kind = block.kind();
+    let Some(m) = &block.metadata else {
+        return format!(
+            "  type     {}; this node sent no block metadata\n",
+            kind_word(kind)
+        );
+    };
+    let what = match kind {
+        Some(BlockKind::Pseudo) => "pseudo: no transactions, and no proof of work is checked for it",
+        Some(BlockKind::Neogenesis) => "neogenesis: it carries the ledger, at every 256th block",
+        _ => "normal",
+    };
+    let mut out = format!(
+        "  type     {what}\n  work     difficulty {}, nonce {}\n  root     {}\n  size     {} bytes, {} transaction(s) besides the reward, minimum fee {}\n",
+        m.difficulty,
+        hex_bytes(&m.nonce),
+        hex_bytes(&m.root),
+        m.block_size,
+        m.tx_count,
+        super::nano_and_mcm(i128::from(m.fee))
+    );
+    if kind == Some(BlockKind::Normal) {
+        let lines: Vec<String> = m
+            .haiku
+            .split('\n')
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(super::terminal_text)
+            .collect();
+        if !lines.is_empty() {
+            out.push_str(&format!("  haiku    {}\n", lines.join(" / ")));
+        }
+    }
+    out
 }
