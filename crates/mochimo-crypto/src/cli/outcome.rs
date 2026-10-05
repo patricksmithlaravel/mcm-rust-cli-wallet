@@ -244,9 +244,10 @@ pub enum Outcome {
     /// The indexer holds no transaction with that hash -- which is not the
     /// same as there being none.
     TransactionNotFound { hash: [u8; crate::consts::HASHLEN] },
-    /// The indexer's rows for one tag.
+    /// The indexer's rows for one tag, the `from` newest skipped.
     RecentTransactions {
         tag: Tag,
+        from: u64,
         page: Box<codec::SearchPage>,
     },
     /// One block.

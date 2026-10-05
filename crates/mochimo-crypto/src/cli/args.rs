@@ -112,8 +112,8 @@ pub enum Command {
     LookupTransaction { hash: [u8; HASHLEN] },
     /// The newest transactions that touched a tag, newest first
     /// (`/search/transactions` by account). `count` is the endpoint's
-    /// `limit`.
-    RecentTransactions { tag: Tag, count: u64 },
+    /// `limit`, and `from` its `offset`: how many of the newest to skip.
+    RecentTransactions { tag: Tag, count: u64, from: u64 },
     /// One block, by index or by hash (`/block`).
     Block { at: BlockAt },
     /// The `count` newest blocks: the tip from `/network/status`, then
@@ -308,7 +308,9 @@ tawara -h | --help | help
                                            -- reports a divergence rather than stopping
                                            on it; --scan-to searches further along
   transaction <hash>                       one transaction from the node's indexer
-  recent-transactions <tag> [--count N]    what touched a tag, newest first (N: 5)
+  recent-transactions <tag> [--count N] [--from M]
+                                           what touched a tag, newest first (N: 5),
+                                           skipping the M newest (M: 0)
   block <number | hash>                    one block, its reward and what it moved
   blocks [--count N]                       the newest blocks, one row each (N: 5)
 
@@ -318,8 +320,9 @@ the last four verbs READ ONLY: they open no store and ask no password, so they w
 with no wallet on this machine. --dir is still required, and is not touched. --count
 runs 1..=100: the Mesh takes a limit only inside that window and otherwise answers
 with its own default of ten rows without saying so, so a count it would ignore is
-refused here. `block 0` is refused too -- the Mesh serves index 0 as the CURRENT
-block, not as genesis.
+refused here. --from runs 0..=9223372036854775807, the Mesh's own range for an
+offset; a page that has more after it names the --from that reads them. `block 0`
+is refused too -- the Mesh serves index 0 as the CURRENT block, not as genesis.
 
 `--ref TEXT` sets the destination's 16-byte reference field, checked against the
 node's own rule before anything is asked or signed: groups of uppercase letters
@@ -795,6 +798,12 @@ fn check_destinations(dsts: &[SpendTo]) -> Result<(), Usage> {
 /// meaning one thing.
 fn count_flag(rest: &[String]) -> Result<u64, Usage> {
     reject_unknown_flags(rest, &["--count"], &[])?;
+    count_value(rest)
+}
+
+/// [`count_flag`]'s reading of `--count`, for a verb that takes other flags
+/// beside it and has refused any it does not.
+fn count_value(rest: &[String]) -> Result<u64, Usage> {
     let n = u64_flag(rest, "--count")?.unwrap_or(DEFAULT_COUNT);
     if n == 0 || n > MAX_COUNT {
         return Err(Usage(format!(
@@ -805,6 +814,31 @@ fn count_flag(rest: &[String]) -> Result<u64, Usage> {
     }
     Ok(n)
 }
+
+/// `--from M`, the rows `recent-transactions` skips: the endpoint's
+/// `offset`.
+///
+/// Defaults to 0, the newest. The ceiling is the endpoint's again:
+/// `searchTransactionsHandler` decodes `offset` into an `int64`, so a value
+/// above [`MAX_FROM`] does not decode and the whole request is answered
+/// *Invalid request*. It is refused here, before any socket is opened, with
+/// that reason. A value past the tag's last row is not refused: the index
+/// answers an empty page with its total, and the page says so.
+fn from_flag(rest: &[String]) -> Result<u64, Usage> {
+    let m = u64_flag(rest, "--from")?.unwrap_or(0);
+    if m > MAX_FROM {
+        return Err(Usage(format!(
+            "--from: {m} is outside 0..={MAX_FROM}. The Mesh reads an offset as a signed 64-bit \
+             number and answers a larger one as an invalid request, so it is refused here \
+             instead"
+        )));
+    }
+    Ok(m)
+}
+
+/// The largest `--from` `recent-transactions` takes: `i64::MAX`, the
+/// Mesh's own range for an offset.
+pub const MAX_FROM: u64 = i64::MAX as u64;
 
 /// How many rows an explorer verb prints without `--count`.
 pub const DEFAULT_COUNT: u64 = 5;
@@ -1234,10 +1268,16 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
         "transaction" => Command::LookupTransaction {
             hash: hash_arg(rest.first(), "transaction")?,
         },
-        "recent-transactions" => Command::RecentTransactions {
-            tag: leading_tag(&rest, "recent-transactions")?,
-            count: count_flag(rest.get(1..).unwrap_or(&[]))?,
-        },
+        "recent-transactions" => {
+            let tag = leading_tag(&rest, "recent-transactions")?;
+            let tail = rest.get(1..).unwrap_or(&[]);
+            reject_unknown_flags(tail, &["--count", "--from"], &[])?;
+            Command::RecentTransactions {
+                tag,
+                count: count_value(tail)?,
+                from: from_flag(tail)?,
+            }
+        }
         "block" => Command::Block { at: block_at(rest.first())? },
         "blocks" => Command::Blocks {
             count: count_flag(&rest)?,
@@ -1474,6 +1514,45 @@ mod tests {
             assert!(e.contains("its own default of ten rows"), "{e}");
         }
         println!("  --count: defaults to {DEFAULT_COUNT}, takes {MAX_COUNT}, refuses 0 and 101 with the endpoint's reason");
+    }
+
+    /// `recent-transactions`' `--from`: the default, the ceiling, the
+    /// refusal above it, and `--count` beside it in either order.
+    #[test]
+    fn the_from_flag_defaults_to_the_newest_and_refuses_what_the_mesh_cannot_decode() {
+        let tag = "0x05ff0f69d4c1cd682ed3341c0b7773054b58800f";
+        let base = ["--dir", "/d", "--node", "n"];
+        let run = |a: &[&str]| parse(&argv(&[&base[..], a].concat()));
+        let read = |a: &[&str]| match run(a) {
+            Ok(ParsedArgv::Run(i)) => match i.command {
+                Command::RecentTransactions { count, from, .. } => (count, from),
+                other => panic!("not a recent-transactions: {other:?}"),
+            },
+            other => panic!("{a:?} was refused or read as help: {other:?}"),
+        };
+        assert_eq!(read(&["recent-transactions", tag]), (DEFAULT_COUNT, 0));
+        assert_eq!(read(&["recent-transactions", tag, "--from", "100"]), (DEFAULT_COUNT, 100));
+        assert_eq!(read(&["recent-transactions", tag, "--from", "200", "--count", "100"]), (100, 200));
+        assert_eq!(read(&["recent-transactions", tag, "--count", "100", "--from", "200"]), (100, 200));
+        let top = MAX_FROM.to_string();
+        assert_eq!(read(&["recent-transactions", tag, "--from", &top]), (DEFAULT_COUNT, MAX_FROM));
+        assert_eq!(MAX_FROM, 9_223_372_036_854_775_807);
+        // Above the Mesh's int64: refused here, because the endpoint would
+        // not decode the request at all.
+        for bad in ["9223372036854775808", &u64::MAX.to_string()] {
+            let e = refusal(&[&base[..], &["recent-transactions", tag, "--from", bad]].concat());
+            assert!(e.contains(&format!("--from: {bad} is outside 0..=9223372036854775807")), "{e}");
+            assert!(e.contains("invalid request"), "{e}");
+        }
+        // The count's window still holds beside it, and neither flag twice.
+        let e = refusal(&[&base[..], &["recent-transactions", tag, "--from", "1", "--count", "0"]].concat());
+        assert!(e.contains("--count: 0 is outside 1..=100"), "{e}");
+        let e = refusal(&[&base[..], &["recent-transactions", tag, "--from", "1", "--from", "2"]].concat());
+        assert!(e.contains("--from given twice"), "{e}");
+        // `blocks` takes no offset.
+        let e = refusal(&[&base[..], &["blocks", "--from", "1"]].concat());
+        assert!(e.contains("unexpected argument `--from`"), "{e}");
+        println!("  --from: defaults to 0, takes {MAX_FROM}, refuses the next with the endpoint's reason");
     }
 
     /// `discover`'s `--to`: the default, the ceiling, and the two refusals.
