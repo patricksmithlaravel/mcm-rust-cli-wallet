@@ -119,6 +119,10 @@ pub enum Command {
     /// The `count` newest blocks: the tip from `/network/status`, then
     /// `/block` for each index below it.
     Blocks { count: u64 },
+    /// The transactions the node's queue holds, waiting to be mined: the
+    /// ids from `/mempool`, then `/mempool/transaction` for the first
+    /// `count` of them.
+    Mempool { count: u64 },
     /// What the node says about accounts `0..=to` derived from the master
     /// this store holds: one `/call` per index, nothing written. Opens the
     /// store (the master is in it) but constructs no wallet, so it runs on
@@ -176,12 +180,13 @@ impl Command {
             | Command::RecentTransactions { .. }
             | Command::Block { .. }
             | Command::Blocks { .. }
+            | Command::Mempool { .. }
             | Command::Discover { .. } => true,
         }
     }
 
     /// Whether the verb reads a node and **nothing else**: no store is
-    /// opened, no password asked, nothing written. `submit` and the four
+    /// opened, no password asked, nothing written. `submit` and the five
     /// explorer verbs; the binary routes them before the prompt.
     ///
     /// `--dir` is still required of them by the parser, as it is of every
@@ -195,6 +200,7 @@ impl Command {
                 | Command::RecentTransactions { .. }
                 | Command::Block { .. }
                 | Command::Blocks { .. }
+                | Command::Mempool { .. }
         )
     }
 }
@@ -313,10 +319,12 @@ tawara -h | --help | help
                                            skipping the M newest (M: 0)
   block <number | hash>                    one block, its reward and what it moved
   blocks [--count N]                       the newest blocks, one row each (N: 5)
+  mempool [--count N]                      the transactions waiting to be mined, the
+                                           first N read whole (N: 5)
 
 amounts are in nanoMochimo.
 
-the last four verbs READ ONLY: they open no store and ask no password, so they work
+the last five verbs READ ONLY: they open no store and ask no password, so they work
 with no wallet on this machine. --dir is still required, and is not touched. --count
 runs 1..=100: the Mesh takes a limit only inside that window and otherwise answers
 with its own default of ten rows without saying so, so a count it would ignore is
@@ -793,9 +801,9 @@ fn check_destinations(dsts: &[SpendTo]) -> Result<(), Usage> {
 /// to say it had been ignored, which is worse than a refusal; the refusal is
 /// here, before any socket is opened, and it names the window.
 ///
-/// `blocks` is bounded by the same number for a different reason -- one
-/// `/block` call per row -- and the one ceiling keeps the two verbs' flag
-/// meaning one thing.
+/// `blocks` and `mempool` are bounded by the same number for a different
+/// reason -- one `/block` or `/mempool/transaction` call per row -- and the
+/// one ceiling keeps the three verbs' flag meaning one thing.
 fn count_flag(rest: &[String]) -> Result<u64, Usage> {
     reject_unknown_flags(rest, &["--count"], &[])?;
     count_value(rest)
@@ -1280,6 +1288,9 @@ pub fn parse(argv: &[String]) -> Result<ParsedArgv, Usage> {
         }
         "block" => Command::Block { at: block_at(rest.first())? },
         "blocks" => Command::Blocks {
+            count: count_flag(&rest)?,
+        },
+        "mempool" => Command::Mempool {
             count: count_flag(&rest)?,
         },
         "discover" => Command::Discover {

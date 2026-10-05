@@ -1826,7 +1826,7 @@ fn only_create_and_address_parse_without_a_node() {
     let tag = prefixed(&TAG);
     let to = prefixed(&TO);
     let hash = "0x18593f2f13964e5e2a07f147a7d706292f5638b3894daff55eecf3b1b812ccaf";
-    let verbs: [(&str, Vec<&str>, bool); 15] = [
+    let verbs: [(&str, Vec<&str>, bool); 16] = [
         ("create", vec!["create"], false),
         ("address", vec!["address"], false),
         ("balance", vec!["balance"], true),
@@ -1837,15 +1837,16 @@ fn only_create_and_address_parse_without_a_node() {
         ("restore", vec!["restore", "--account", "0"], true),
         ("status", vec!["status", &tag], true),
         ("submit", vec!["submit", "00"], true),
-        // The four read-only verbs. They need a node like every other verb
+        // The five read-only verbs. They need a node like every other verb
         // that asks one anything; what is different about them is that they
         // open no store, which `opens_no_store` says and the pty test drives.
         ("transaction", vec!["transaction", hash], true),
         ("recent-transactions", vec!["recent-transactions", &tag], true),
         ("block", vec!["block", "1078535"], true),
         ("blocks", vec!["blocks"], true),
+        ("mempool", vec!["mempool"], true),
         // `discover` opens a store -- the master is in it -- so it is not one
-        // of `opens_no_store`'s five; it asks a node once per index, so it
+        // of `opens_no_store`'s six; it asks a node once per index, so it
         // needs one.
         ("discover", vec!["discover"], true),
     ];
@@ -1922,6 +1923,15 @@ fn only_create_and_address_parse_without_a_node() {
             Ok(args::ParsedArgv::Run(inv)) => {
                 assert_eq!(inv.node.as_deref(), Some("http://127.0.0.1:8080"), "`{verb}` dropped a supplied --node");
                 assert_eq!(inv.command.needs_node(), *needs, "`{verb}`'s needs_node disagrees with this table");
+                // The verbs the binary runs before the password prompt: the
+                // node is their whole input. A read-only verb missing here
+                // would ask for a password it has no use for.
+                let opens_none = ["submit", "transaction", "recent-transactions", "block", "blocks", "mempool"];
+                assert_eq!(
+                    inv.command.opens_no_store(),
+                    opens_none.contains(verb),
+                    "`{verb}`'s opens_no_store disagrees with the six verbs whose whole input is the node"
+                );
             }
             other => panic!("`{verb}` with --node did not parse to a command: {other:?}"),
         }
@@ -6681,7 +6691,7 @@ fn a_migrated_store_says_its_figures_were_not_recorded_and_is_resealed_by_its_fi
 }
 
 // ---------------------------------------------------------------------------
-// The four read-only verbs
+// The five read-only verbs
 // ---------------------------------------------------------------------------
 
 /// A transport scripted for the explorer endpoints alone.
@@ -6704,11 +6714,44 @@ struct Explorer {
     no_indexer: bool,
     /// When set, `/search/transactions` answers an empty page.
     empty: bool,
+    /// The ids `/mempool` lists, in its order; empty, it answers `null`, as
+    /// the middleware's nil list encodes.
+    queue: Vec<[u8; 32]>,
+    /// Ids `/mempool/transaction` answers code 3 for: the queue no longer
+    /// holds them.
+    gone: Vec<[u8; 32]>,
+    /// Ids `/mempool/transaction` answers code 2 for, and, when it holds the
+    /// all-zero id, what `/mempool` itself answers.
+    broken: Vec<[u8; 32]>,
 }
 
 impl Explorer {
     fn new(tip: u64) -> Explorer {
-        Explorer { tip, paths: RefCell::new(Vec::new()), bodies: RefCell::new(Vec::new()), no_indexer: false, empty: false }
+        Explorer {
+            tip,
+            paths: RefCell::new(Vec::new()),
+            bodies: RefCell::new(Vec::new()),
+            no_indexer: false,
+            empty: false,
+            queue: Vec::new(),
+            gone: Vec::new(),
+            broken: Vec::new(),
+        }
+    }
+    fn with_queue(mut self, queue: &[[u8; 32]], gone: &[[u8; 32]], broken: &[[u8; 32]]) -> Explorer {
+        self.queue = queue.to_vec();
+        self.gone = gone.to_vec();
+        self.broken = broken.to_vec();
+        self
+    }
+    /// One waiting transaction in `/mempool/transaction`'s rendering:
+    /// `/block`'s, status `PENDING`, the reference padded to its sixteen
+    /// bytes as the middleware sends it.
+    fn pending_body(id: &[u8; 32]) -> String {
+        format!(
+            r#"{{"transaction":{{"transaction_identifier":{{"hash":"0x{t}"}},"operations":[{{"operation_identifier":{{"index":0}},"type":"DESTINATION_TRANSFER","status":"PENDING","account":{{"address":"0xdbc01bb8a41f3dc24b0083bb6b9efe910e2477cb"}},"amount":{{"value":"10000000","currency":{{"symbol":"MCM","decimals":9}}}},"metadata":{{"memo":"INVOICE-7"}}}},{{"operation_identifier":{{"index":1}},"type":"SOURCE_TRANSFER","status":"PENDING","account":{{"address":"0x371c388eba10f265c648008e1ad2c94e680c0f4a"}},"amount":{{"value":"-10000500","currency":{{"symbol":"MCM","decimals":9}}}}}},{{"operation_identifier":{{"index":2}},"type":"FEE","status":"PENDING","account":{{"address":"0x0000000000000000000000000000000000000000"}},"amount":{{"value":"500","currency":{{"symbol":"MCM","decimals":9}}}}}}],"metadata":{{"block_to_live":"0"}}}}}}"#,
+            t = hexs(id),
+        )
     }
     fn without_indexer(mut self) -> Explorer {
         self.no_indexer = true;
@@ -6777,6 +6820,32 @@ impl mochimo_crypto::mesh::Transport for Explorer {
                     Explorer::search_row(1_078_535, &tag_hex)
                 )
                 .into_bytes())
+            }
+            "/mempool" => {
+                if self.broken.contains(&[0; 32]) {
+                    return Ok(br#"{"code":2,"message":"Internal general error","retriable":true}"#.to_vec());
+                }
+                if self.queue.is_empty() {
+                    return Ok(br#"{"transaction_identifiers":null}"#.to_vec());
+                }
+                let ids: Vec<String> = self.queue.iter().map(|id| format!(r#"{{"hash":"0x{}"}}"#, hexs(id))).collect();
+                Ok(format!(r#"{{"transaction_identifiers":[{}]}}"#, ids.join(",")).into_bytes())
+            }
+            "/mempool/transaction" => {
+                let v: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+                let asked = v["transaction_identifier"]["hash"].as_str().unwrap_or("").to_owned();
+                let id = self
+                    .queue
+                    .iter()
+                    .find(|id| format!("0x{}", hexs(*id)) == asked)
+                    .unwrap_or_else(|| panic!("asked for {asked}, which /mempool did not list"));
+                if self.gone.contains(id) {
+                    return Ok(br#"{"code":3,"message":"Transaction not found","retriable":true}"#.to_vec());
+                }
+                if self.broken.contains(id) {
+                    return Ok(br#"{"code":2,"message":"Internal general error","retriable":true}"#.to_vec());
+                }
+                Ok(Explorer::pending_body(id).into_bytes())
             }
             other => panic!("the explorer double was asked for {other}"),
         }
@@ -6996,6 +7065,68 @@ fn recent_transactions_is_empty_on_no_history_and_refuses_with_no_indexer() {
     assert!(r.text.contains("indexer database"), "the refusal does not name the indexer:\n{}", r.text);
     assert!(r.text.contains("no store was opened"), "{}", r.text);
     println!("  recent-transactions: an empty index is exit 0 with an empty table; no indexer is exit 3 naming it");
+}
+
+/// **`mempool`**: the queue's size, the first `--count` of it read whole as
+/// `/block` renders a transaction, a transaction that left the queue between
+/// the list and the read said as that, and the endpoint's convention named.
+#[test]
+fn mempool_lists_the_queue_and_reads_the_first_of_it_whole() {
+    let (a, b, c) = ([0xa1u8; 32], [0xb2u8; 32], [0xc3u8; 32]);
+    let client = MeshClient::new(Explorer::new(10).with_queue(&[a, b, c], &[b], &[]));
+    let r = cli::run_explorer(&client, &Command::Mempool { count: 2 });
+    assert_eq!(r.code, Code::Ok, "{}", r.text);
+    assert!(r.text.starts_with("the mempool: 3 transaction(s) waiting to be mined; the first 2 read\n"), "{}", r.text);
+    assert!(r.text.contains(&format!("  {}  1 destination(s)  10000000 nanoMCM (0.010000000 MCM)\n", hexs(&a))), "{}", r.text);
+    assert!(r.text.contains("memo INVOICE-7"), "the destination's reference is not on the page:\n{}", r.text);
+    assert!(r.text.contains("-10000500 nanoMCM"), "the source is not debited net:\n{}", r.text);
+    assert!(
+        r.text.contains(&format!("  {}  left the queue before it was read: mined since the list was read, or dropped\n", hexs(&b))),
+        "{}",
+        r.text
+    );
+    assert!(!r.text.contains(&hexs(&c)), "a third transaction was read:\n{}", r.text);
+    assert!(r.text.contains("  1 more waiting, not read: this page reads the first 2, and --count reads up to 100\n"), "{}", r.text);
+    assert!(r.text.contains("/mempool and /mempool/transaction"), "the page does not name the endpoints:\n{}", r.text);
+    let paths = client.transport().paths.borrow().clone();
+    assert_eq!(paths, ["/mempool", "/mempool/transaction", "/mempool/transaction"]);
+    let bodies: Vec<String> = client.transport().bodies.borrow().iter().map(|b| String::from_utf8_lossy(b).into_owned()).collect();
+    let network = r#""network_identifier":{"blockchain":"mochimo","network":"mainnet"}"#;
+    assert_eq!(
+        bodies,
+        [
+            format!("{{{network}}}"),
+            format!(r#"{{{network},"transaction_identifier":{{"hash":"0x{}"}}}}"#, hexs(&a)),
+            format!(r#"{{{network},"transaction_identifier":{{"hash":"0x{}"}}}}"#, hexs(&b)),
+        ],
+        "the requests are not the bodies the handlers read"
+    );
+    println!("  mempool: 3 waiting, 2 read, one gone since the list, the rest counted, 3 requests with their bodies");
+}
+
+/// An empty queue is a page saying so and exit 0, the middleware's `null`
+/// read as no transactions; a queue that cannot be read, or a transaction in
+/// it that fails for a reason other than having left it, is a refusal that
+/// says which.
+#[test]
+fn mempool_says_an_empty_queue_and_refuses_what_it_could_not_read() {
+    let client = MeshClient::new(Explorer::new(10));
+    let r = cli::run_explorer(&client, &Command::Mempool { count: 5 });
+    assert_eq!(r.code, Code::Ok, "{}", r.text);
+    assert!(r.text.contains("the mempool: 0 transaction(s) waiting to be mined; the first 0 read\n"), "{}", r.text);
+    assert!(r.text.contains("(none: this node's queue is empty.)"), "{}", r.text);
+    assert_eq!(client.transport().paths.borrow().len(), 1, "an empty queue asked for a transaction");
+
+    let r = cli::run_explorer(&MeshClient::new(Explorer::new(10).with_queue(&[], &[], &[[0; 32]])), &Command::Mempool { count: 5 });
+    assert_eq!(r.code, Code::Refused, "{}", r.text);
+    assert!(r.text.contains("no store was opened"), "{}", r.text);
+
+    let (a, b) = ([0xa1u8; 32], [0xb2u8; 32]);
+    let r = cli::run_explorer(&MeshClient::new(Explorer::new(10).with_queue(&[a, b], &[], &[b])), &Command::Mempool { count: 5 });
+    assert_eq!(r.code, Code::Refused, "a page missing a transaction it could not read is not an ok page:\n{}", r.text);
+    assert!(r.text.contains(&format!("The queue's ids were read; transaction {} was not.", hexs(&b))), "{}", r.text);
+    assert!(!r.text.contains("destination(s)"), "the rows read before the failure were printed:\n{}", r.text);
+    println!("  mempool: an empty queue is exit 0 and says so; a queue not read, and a transaction not read, are exit 3 naming which");
 }
 
 /// **`block <number>`**: the reward reported on its own and excluded from
