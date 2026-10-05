@@ -26,7 +26,7 @@ use std::path::PathBuf;
 mod mesh_walk;
 
 use mesh_walk::Plain;
-use mochimo_crypto::mesh::{codec, hex, max_response_bytes, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES, MAX_REQUEST_BYTES};
+use mochimo_crypto::mesh::{self, codec, hex, max_response_bytes, MAX_HISTORY_RESPONSE_BYTES, MAX_RECON_RESPONSE_BYTES, MAX_REQUEST_BYTES};
 use mochimo_crypto::Error;
 
 const N_FILE: &str = "group_n_mesh_live.json";
@@ -726,6 +726,166 @@ fn block_metadata_is_whole_or_absent_and_a_misshapen_value_is_refused_by_name() 
     println!("  block metadata: read whole or as none (absent, null, eight keys one short); 7 shapes and 2 hashes two ways refused by name; pseudo, neogenesis and normal by the reference's test");
 }
 
+/// **The captured status reads whole, and the captured list names its one
+/// network**, every value compared against the capture's own reply.
+#[cfg(not(miri))]
+#[test]
+fn the_captured_status_and_list_read_whole() {
+    let json = fixture_json(N_FILE);
+    let vectors = json["vectors"].as_array().unwrap_or_else(|| panic!("no vectors"));
+    let reply = |id: &str| -> String {
+        vectors
+            .iter()
+            .find(|v| v["id"].as_str() == Some(id))
+            .and_then(|v| v["response_body"].as_str())
+            .unwrap_or_else(|| panic!("no {id}"))
+            .to_owned()
+    };
+    let status = reply("N-network-status");
+    let raw: serde_json::Value = serde_json::from_str(&status).unwrap_or_else(|e| panic!("{e}"));
+    let full = codec::parse_network_status_full(status.as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(Some(full.tip.index), raw["current_block_identifier"]["index"].as_u64());
+    assert_eq!(Some(full.tip_timestamp_ms), raw["current_block_timestamp"].as_i64());
+    assert_eq!(full.tip_timestamp_ms, 1_788_539_881_000);
+    assert_eq!(Some(full.genesis.index), raw["genesis_block_identifier"]["index"].as_u64());
+    assert_eq!(
+        Some(format!("0x{}", hex::encode(&full.genesis.hash)).as_str()),
+        raw["genesis_block_identifier"]["hash"].as_str()
+    );
+    assert_eq!(
+        full.sync,
+        Some(codec::SyncStatus { stage: "synchronized".to_owned(), synced: true })
+    );
+    let list = codec::parse_network_identifiers(reply("N-network-list").as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(list, [codec::NetworkIdentifier { blockchain: "mochimo".to_owned(), network: "mainnet".to_owned() }]);
+    println!(
+        "  captured status: tip {} solved at {} ms, genesis 0, synchronized; captured list: mochimo mainnet",
+        full.tip.index, full.tip_timestamp_ms
+    );
+}
+
+/// **The full status and the network list refuse what does not fit, by
+/// name**, and take an absent sync state as none.
+#[cfg(not(miri))]
+#[test]
+fn the_full_status_and_the_network_list_refuse_by_field() {
+    use serde_json::{json, Value};
+    let zero = format!("0x{}", "00".repeat(32));
+    let status = |edit: &dyn Fn(&mut Value)| -> Vec<u8> {
+        let mut v = json!({
+            "current_block_identifier": {"index": 1_078_875, "hash": zero},
+            "current_block_timestamp": 1_788_539_881_000_i64,
+            "genesis_block_identifier": {"index": 0, "hash": zero},
+            "oldest_block_identifier": {"index": 0, "hash": ""},
+            "sync_status": {"stage": "synchronized", "synced": true},
+        });
+        edit(&mut v);
+        serde_json::to_vec(&v).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let whole = codec::parse_network_status_full(&status(&|_| {})).unwrap_or_else(|e| panic!("{e}"));
+    assert!(whole.sync.is_some());
+    for absent in [None, Some(Value::Null)] {
+        let b = status(&|v| match &absent {
+            None => {
+                v.as_object_mut().map(|m| m.remove("sync_status"));
+            }
+            Some(null) => v["sync_status"] = null.clone(),
+        });
+        let read = codec::parse_network_status_full(&b).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(read.sync, None, "an absent sync state was not read as none");
+    }
+    /// One change to the reply, erased to the shape the table shares.
+    type Edit = dyn Fn(&mut Value);
+    let refused: [(&Edit, &str); 7] = [
+        (&|v| { v.as_object_mut().map(|m| m.remove("current_block_timestamp")); }, "current_block_timestamp"),
+        (&|v| v["current_block_timestamp"] = json!(1.5), "current_block_timestamp"),
+        (&|v| { v.as_object_mut().map(|m| m.remove("genesis_block_identifier")); }, "genesis_block_identifier.index"),
+        (&|v| v["sync_status"] = json!("synchronized"), "sync_status"),
+        (&|v| { v["sync_status"].as_object_mut().map(|m| m.remove("stage")); }, "sync_status.stage"),
+        (&|v| v["sync_status"]["stage"] = json!("x".repeat(codec::MAX_SYNC_STAGE_BYTES + 1)), "sync_status.stage"),
+        (&|v| v["sync_status"]["synced"] = json!("true"), "sync_status.synced"),
+    ];
+    for (edit, want) in refused {
+        match codec::parse_network_status_full(&status(edit)) {
+            Err(Error::MeshResponse { what }) => assert_eq!(what, want),
+            other => panic!("{want} was not refused: {other:?}"),
+        }
+    }
+    let longest = status(&|v| v["sync_status"]["stage"] = json!("x".repeat(codec::MAX_SYNC_STAGE_BYTES)));
+    assert!(codec::parse_network_status_full(&longest).is_ok(), "the longest stage was refused");
+
+    let list = |entries: Value| serde_json::to_vec(&json!({"network_identifiers": entries})).unwrap_or_else(|e| panic!("{e}"));
+    let one = json!({"blockchain": "mochimo", "network": "mainnet"});
+    let many: Vec<Value> = (0..=codec::MAX_NETWORKS).map(|_| one.clone()).collect();
+    let cases: [(Vec<u8>, &str); 4] = [
+        (list(json!(many)), "network_identifiers: too many"),
+        (list(json!([{"blockchain": "mochimo", "network": "x".repeat(codec::MAX_NETWORK_NAME_BYTES + 1)}])), "network_identifiers[].network"),
+        (list(json!([{"network": "mainnet"}])), "network_identifiers[].blockchain"),
+        (list(json!("mainnet")), "network_identifiers: array"),
+    ];
+    for (b, want) in cases {
+        match codec::parse_network_identifiers(&b) {
+            Err(Error::MeshResponse { what }) => assert_eq!(what, want),
+            other => panic!("{want} was not refused: {other:?}"),
+        }
+    }
+    let at_most: Vec<Value> = (0..codec::MAX_NETWORKS).map(|_| one.clone()).collect();
+    assert_eq!(codec::parse_network_identifiers(&list(json!(at_most))).map(|l| l.len()).ok(), Some(codec::MAX_NETWORKS));
+    println!("  network status: 7 refusals by name, an absent or null sync state read as none; network list: 4 refusals by name, {} entries taken", codec::MAX_NETWORKS);
+}
+
+/// **`network_status_full` and `networks` post to their endpoints with the
+/// bodies the codec builds**, and hand back what the replies say.
+#[cfg(not(miri))]
+#[test]
+fn the_two_network_reads_post_where_they_say() {
+    use std::cell::RefCell;
+    struct Recorder {
+        posted: RefCell<Vec<(String, Vec<u8>)>>,
+        status: Vec<u8>,
+        list: Vec<u8>,
+    }
+    impl mesh::Transport for Recorder {
+        fn post(&self, path: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
+            self.posted.borrow_mut().push((path.to_owned(), body.to_vec()));
+            Ok(match path {
+                "/network/status" => self.status.clone(),
+                "/network/list" => self.list.clone(),
+                other => panic!("posted to {other}"),
+            })
+        }
+    }
+    let json = fixture_json(N_FILE);
+    let vectors = json["vectors"].as_array().unwrap_or_else(|| panic!("no vectors"));
+    let reply = |id: &str| -> Vec<u8> {
+        vectors
+            .iter()
+            .find(|v| v["id"].as_str() == Some(id))
+            .and_then(|v| v["response_body"].as_str())
+            .unwrap_or_else(|| panic!("no {id}"))
+            .as_bytes()
+            .to_vec()
+    };
+    let client = mesh::MeshClient::new(Recorder {
+        posted: RefCell::new(Vec::new()),
+        status: reply("N-network-status"),
+        list: reply("N-network-list"),
+    });
+    let full = client.network_status_full().unwrap_or_else(|e| panic!("{e}"));
+    let named = client.networks().unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(full.tip.index, 1_078_875);
+    assert_eq!(named.len(), 1);
+    let posted = client.transport().posted.borrow().clone();
+    assert_eq!(
+        posted,
+        [
+            ("/network/status".to_owned(), codec::request_network_status()),
+            ("/network/list".to_owned(), codec::request_network_list()),
+        ]
+    );
+    println!("  network reads: /network/status and /network/list, each once, with the codec's bodies");
+}
+
 /// **The mempool's two replies parse, and refuse what does not fit, by
 /// name.** No group N vector records either endpoint, so the shapes are the
 /// handlers' at the pinned commit: `/mempool` lists `{"hash": "0x…"}` objects,
@@ -870,7 +1030,7 @@ const _: () = assert!(
 #[cfg(not(miri))]
 #[test]
 fn every_endpoint_resolves_to_the_cap_its_replies_need() {
-    for path in ["/call", "/account/balance", "/network/status", "/construction/submit"] {
+    for path in ["/call", "/account/balance", "/network/status", "/network/list", "/construction/submit"] {
         assert_eq!(max_response_bytes(path), MAX_RECON_RESPONSE_BYTES, "{path}");
     }
     for path in ["/block", "/search/transactions", "/mempool", "/mempool/transaction"] {

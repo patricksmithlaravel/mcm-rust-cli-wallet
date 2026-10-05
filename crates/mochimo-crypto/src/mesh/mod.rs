@@ -195,8 +195,9 @@ impl fmt::Debug for TxId {
     }
 }
 
-/// The client: one transport, eleven operations -- four the wallet needs to
-/// spend, and seven read-only ones the explorer verbs use.
+/// The client: one transport, thirteen operations -- four the wallet needs to
+/// spend, seven read-only ones the explorer verbs use, and two that say which
+/// network a node serves and how current its tip is.
 #[derive(Debug)]
 pub struct MeshClient<T: Transport> {
     transport: T,
@@ -215,6 +216,22 @@ impl<T: Transport> MeshClient<T> {
     pub fn network_status(&self) -> Result<ChainTip> {
         let reply = self.transport.post("/network/status", &codec::request_network_status())?;
         codec::parse_network_status(&reply)
+    }
+
+    /// The same `POST /network/status`, read for a page that shows the
+    /// node: the tip, when it was solved, the genesis block and the
+    /// middleware's sync state ([`codec::parse_network_status_full`]). The
+    /// sync state is the middleware's view of its own node, not of the
+    /// network; see [`codec::SyncStatus`].
+    pub fn network_status_full(&self) -> Result<codec::NetworkStatus> {
+        let reply = self.transport.post("/network/status", &codec::request_network_status())?;
+        codec::parse_network_status_full(&reply)
+    }
+
+    /// `POST /network/list`: every network the middleware serves.
+    pub fn networks(&self) -> Result<Vec<codec::NetworkIdentifier>> {
+        let reply = self.transport.post("/network/list", &codec::request_network_list())?;
+        codec::parse_network_identifiers(&reply)
     }
 
     /// `POST /call tag_resolve`: the ledger's current entry for `tag`. An

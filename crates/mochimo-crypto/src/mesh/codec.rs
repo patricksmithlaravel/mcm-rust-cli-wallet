@@ -319,6 +319,53 @@ pub fn parse_network_list(bytes: &[u8]) -> Result<bool> {
     Ok(serves)
 }
 
+/// A network the middleware serves, as `/network/list` names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkIdentifier {
+    pub blockchain: String,
+    pub network: String,
+}
+
+/// The most networks [`parse_network_identifiers`] copies, and the longest
+/// name it copies. `networkListHandler` lists the one identifier the
+/// middleware serves; the bounds are applied before anything is copied, as
+/// [`parse_network_options`] bounds its strings and its table.
+pub const MAX_NETWORKS: usize = 64;
+/// See [`MAX_NETWORKS`].
+pub const MAX_NETWORK_NAME_BYTES: usize = 64;
+
+/// `/network/list`: every network the middleware serves, in the reply's
+/// order. [`parse_network_list`] answers whether `{mochimo, mainnet}` is
+/// among them; this keeps the names, for a page that shows which network a
+/// node is on.
+pub fn parse_network_identifiers(bytes: &[u8]) -> Result<Vec<NetworkIdentifier>> {
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
+    let list = field(&map, "network_identifiers", "network_identifiers")?
+        .as_array()
+        .ok_or(Error::MeshResponse {
+            what: "network_identifiers: array",
+        })?;
+    if list.len() > MAX_NETWORKS {
+        return Err(Error::MeshResponse { what: "network_identifiers: too many" });
+    }
+    let name = |entry: &Map<String, Value>, key: &str, what: &'static str| -> Result<String> {
+        let s = string(field(entry, key, what)?, what)?;
+        if s.len() > MAX_NETWORK_NAME_BYTES {
+            return Err(Error::MeshResponse { what });
+        }
+        Ok(s.to_owned())
+    };
+    let mut out = Vec::with_capacity(list.len());
+    for entry in list {
+        let entry = object(entry, "network_identifiers[]")?;
+        out.push(NetworkIdentifier {
+            blockchain: name(entry, "blockchain", "network_identifiers[].blockchain")?,
+            network: name(entry, "network", "network_identifiers[].network")?,
+        });
+    }
+    Ok(out)
+}
+
 /// What `/network/options` declares: the three version strings and the
 /// error codes it advertises (`networkOptionsHandler` carries its own copy
 /// of the table in `handlers.go`; the two are compared in the tests).
@@ -368,7 +415,8 @@ pub fn parse_network_options(bytes: &[u8]) -> Result<NetworkOptions> {
 }
 
 /// `/network/status`: the current block. The rest of the reply (genesis,
-/// sync status, the middleware's certificate report) is not read.
+/// sync status, the middleware's certificate report) is not read here;
+/// [`parse_network_status_full`] reads the parts a page shows.
 pub fn parse_network_status(bytes: &[u8]) -> Result<ChainTip> {
     let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
     tip(
@@ -377,6 +425,86 @@ pub fn parse_network_status(bytes: &[u8]) -> Result<ChainTip> {
         "current_block_identifier.index",
         "current_block_identifier.hash",
     )
+}
+
+/// `/network/status` beyond the tip: when the tip was solved, the genesis
+/// block, and the middleware's own sync state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkStatus {
+    /// `current_block_identifier`, as [`parse_network_status`] reads it.
+    pub tip: ChainTip,
+    /// `current_block_timestamp`: when the tip was solved, in milliseconds
+    /// since the epoch (its trailer's `stime`). The middleware moves it only
+    /// when its refresh sees a new tip (`RefreshSync`), so an old one says
+    /// the tip has not moved, whether because the network has not or because
+    /// the node, or the middleware's view of it, is behind.
+    pub tip_timestamp_ms: i64,
+    /// `genesis_block_identifier`: block 0 as the middleware read it from
+    /// its node when it started.
+    pub genesis: ChainTip,
+    /// `sync_status`, or `None` when the reply carries none.
+    pub sync: Option<SyncStatus>,
+}
+
+/// The middleware's own sync state: how its last refresh of its node's tip
+/// went (`RefreshSync`, `bsync.go`).
+///
+/// It is about the middleware and its one node. **It does not say whether
+/// the node is current with the network**: a node that has fallen behind
+/// answers its old tip, and the middleware, having taken it, reports itself
+/// synchronized. [`NetworkStatus::tip_timestamp_ms`] is what shows a tip
+/// that has not moved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncStatus {
+    /// `stage`, in the middleware's words: `synchronized` once a refresh
+    /// has finished, `synchronizing` while one takes a new tip, or the step
+    /// that failed (`latest block error`, `min fee error` and others).
+    pub stage: String,
+    /// `synced`: whether the last refresh finished.
+    pub synced: bool,
+}
+
+/// The longest sync stage [`parse_network_status_full`] copies.
+pub const MAX_SYNC_STAGE_BYTES: usize = 64;
+
+/// `/network/status`, read for a page that shows the node: the tip, when it
+/// was solved, the genesis block, and the middleware's sync state. The tip,
+/// its timestamp and the genesis block are required, as Rosetta requires
+/// them; `sync_status` is optional there and `None` here when it is absent.
+/// The stage is capped before it is copied. `oldest_block_identifier` and
+/// `https_status` are not read.
+pub fn parse_network_status_full(bytes: &[u8]) -> Result<NetworkStatus> {
+    let map = envelope(bytes, MAX_RECON_RESPONSE_BYTES)?;
+    let current = tip(
+        &map,
+        "current_block_identifier",
+        "current_block_identifier.index",
+        "current_block_identifier.hash",
+    )?;
+    let tip_timestamp_ms = field(&map, "current_block_timestamp", "current_block_timestamp")?
+        .as_i64()
+        .ok_or(Error::MeshResponse { what: "current_block_timestamp" })?;
+    let genesis = tip(
+        &map,
+        "genesis_block_identifier",
+        "genesis_block_identifier.index",
+        "genesis_block_identifier.hash",
+    )?;
+    let sync = match map.get("sync_status") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let s = object(v, "sync_status")?;
+            let stage = string(field(s, "stage", "sync_status.stage")?, "sync_status.stage")?;
+            if stage.len() > MAX_SYNC_STAGE_BYTES {
+                return Err(Error::MeshResponse { what: "sync_status.stage" });
+            }
+            let synced = field(s, "synced", "sync_status.synced")?
+                .as_bool()
+                .ok_or(Error::MeshResponse { what: "sync_status.synced" })?;
+            Some(SyncStatus { stage: stage.to_owned(), synced })
+        }
+    };
+    Ok(NetworkStatus { tip: current, tip_timestamp_ms, genesis, sync })
 }
 
 /// `/call tag_resolve`: `result.address` is the full 40-byte ledger address
