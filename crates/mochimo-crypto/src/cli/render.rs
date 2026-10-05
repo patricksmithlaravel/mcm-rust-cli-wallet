@@ -390,6 +390,12 @@ fn outcome(outcome: &Outcome) -> Report {
             "{}\n  The tip was read; block {index} was not.",
             super::explorer_refusal(cause)
         )),
+        Outcome::Mempool { count, total, rows } => mempool(*count, *total, rows),
+        Outcome::MempoolStopped { id, cause } => Report::refused(format!(
+            "{}\n  The queue's ids were read; transaction {} was not.",
+            super::explorer_refusal(cause),
+            hex_bytes(id)
+        )),
         Outcome::ExplorerFailed { cause } => Report::refused(super::explorer_refusal(cause)),
 
         Outcome::StoreUnreadable(e) => Report {
@@ -998,6 +1004,56 @@ fn block_page(block: &crate::mesh::codec::MeshBlock) -> Report {
         ));
     }
     out.push_str(&format!("\n{}\n", super::BLOCK_CONVENTION));
+    Report::ok(out)
+}
+
+/// The sentence every page that reads the node's queue carries.
+const MEMPOOL_CONVENTION: &str = "read from /mempool and /mempool/transaction, which render a waiting \
+     transaction as /block renders one: the source debited its NET amount and the change not an \
+     operation. The queue is the node's own; another node's may differ.";
+
+fn mempool(count: u64, total: usize, rows: &[super::outcome::MempoolRow]) -> Report {
+    use crate::mesh::codec;
+    let mut out = format!(
+        "the mempool: {total} transaction(s) waiting to be mined; the first {} read\n",
+        rows.len()
+    );
+    if total == 0 {
+        out.push_str("  (none: this node's queue is empty.)\n");
+    }
+    for row in rows {
+        match &row.transaction {
+            Some(t) => {
+                let sent: i128 = t
+                    .operations
+                    .iter()
+                    .filter(|o| o.kind == codec::OP_DESTINATION)
+                    .map(|o| o.amount)
+                    .sum();
+                let destinations = t.operations.iter().filter(|o| o.kind == codec::OP_DESTINATION).count();
+                out.push_str(&format!(
+                    "  {}  {} destination(s)  {}\n",
+                    hex_bytes(&row.id),
+                    destinations,
+                    super::nano_and_mcm(sent)
+                ));
+                out.push_str(&super::operation_lines(&t.operations, "    "));
+            }
+            None => out.push_str(&format!(
+                "  {}  left the queue before it was read: mined since the list was read, or dropped\n",
+                hex_bytes(&row.id)
+            )),
+        }
+    }
+    if total > rows.len() {
+        out.push_str(&format!(
+            "  {} more waiting, not read: this page reads the first {count}, and --count reads up to \
+             {}\n",
+            total - rows.len(),
+            super::args::MAX_COUNT
+        ));
+    }
+    out.push_str(&format!("\n{MEMPOOL_CONVENTION}\n"));
     Report::ok(out)
 }
 

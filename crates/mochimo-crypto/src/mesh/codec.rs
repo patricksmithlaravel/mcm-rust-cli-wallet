@@ -216,6 +216,23 @@ pub fn request_search_by_account_from(tag: &Tag, limit: u64, offset: u64) -> Vec
     }))
 }
 
+/// `POST /mempool` (`mempoolHandler`): every transaction id the node's
+/// queue holds.
+pub fn request_mempool() -> Vec<u8> {
+    body(&json!({ "network_identifier": network_identifier() }))
+}
+
+/// `POST /mempool/transaction` (`mempoolTransactionHandler`): one
+/// transaction from the node's queue, by id. The handler compares the id it
+/// is sent with `fmt.Sprintf("0x%x", id)` as strings, so it is sent as that
+/// spells it: `0x` and 64 lower-case hex digits.
+pub fn request_mempool_transaction(id: &[u8; HASHLEN]) -> Vec<u8> {
+    body(&json!({
+        "network_identifier": network_identifier(),
+        "transaction_identifier": { "hash": prefixed(id) },
+    }))
+}
+
 // --- responses ------------------------------------------------------------
 
 /// A response body as an object, the error object already routed to
@@ -887,6 +904,44 @@ pub fn parse_block_transaction(bytes: &[u8]) -> Result<MeshTransaction> {
     let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
     let t = object(field(&map, "transaction", "transaction")?, "transaction")?;
     parse_transaction(t, false)
+}
+
+/// `/mempool`: the ids of the transactions the node's queue holds, in the
+/// queue's order.
+///
+/// The handler reads the node's queue file and lists every entry's id; for
+/// an empty queue its list is Go's nil slice, which encodes as `null`, and
+/// that is read as no transactions. A list longer than the codec's row
+/// bound is refused before anything is copied.
+pub fn parse_mempool(bytes: &[u8]) -> Result<Vec<[u8; HASHLEN]>> {
+    let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
+    let list = match field(&map, "transaction_identifiers", "transaction_identifiers")? {
+        Value::Null => return Ok(Vec::new()),
+        Value::Array(list) => list,
+        _ => return Err(Error::MeshResponse { what: "transaction_identifiers: array" }),
+    };
+    if list.len() > MAX_ROWS {
+        return Err(Error::MeshResponse { what: "transaction_identifiers: too many" });
+    }
+    let mut ids = Vec::with_capacity(list.len());
+    for entry in list {
+        let entry = object(entry, "transaction_identifiers[]")?;
+        ids.push(hex::decode_prefixed::<HASHLEN>(
+            string(field(entry, "hash", "transaction_identifiers[].hash")?, "transaction_identifiers[].hash")?,
+            "transaction_identifiers[].hash",
+        )?);
+    }
+    Ok(ids)
+}
+
+/// `/mempool/transaction`: one transaction from the node's queue, rendered
+/// as `/block` renders one (`getTransactionsFromBlockBody`, its status
+/// `PENDING`): the source debited net, no change operation, each
+/// destination's reference. The reply is `/block/transaction`'s shape, and
+/// is read as that is. An id the queue no longer holds -- mined since, or
+/// dropped -- is answered code 3, *Transaction not found*.
+pub fn parse_mempool_transaction(bytes: &[u8]) -> Result<MeshTransaction> {
+    parse_block_transaction(bytes)
 }
 
 /// `/search/transactions`: the page, each row carrying its own block and

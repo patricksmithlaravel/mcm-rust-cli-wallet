@@ -886,6 +886,97 @@ fn the_two_network_reads_post_where_they_say() {
     println!("  network reads: /network/status and /network/list, each once, with the codec's bodies");
 }
 
+/// **The mempool's two replies parse, and refuse what does not fit, by
+/// name.** No group N vector records either endpoint, so the shapes are the
+/// handlers' at the pinned commit: `/mempool` lists `{"hash": "0x…"}` objects,
+/// and Go's nil list for an empty queue encodes as `null`;
+/// `/mempool/transaction` is `/block/transaction`'s shape.
+#[cfg(not(miri))]
+#[test]
+fn the_mempool_replies_parse_and_refuse_by_field() {
+    use serde_json::json;
+    let id = |b: u8| format!("0x{}", hex::encode(&[b; 32]));
+    let listed = codec::parse_mempool(json!({"transaction_identifiers": [{"hash": id(0xa1)}, {"hash": id(0xb2)}]}).to_string().as_bytes())
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(listed, [[0xa1; 32], [0xb2; 32]], "the ids are not the queue's, in its order");
+    let empty = codec::parse_mempool(br#"{"transaction_identifiers":null}"#).unwrap_or_else(|e| panic!("{e}"));
+    assert!(empty.is_empty(), "an empty queue's null was not read as none");
+    let none = codec::parse_mempool(br#"{"transaction_identifiers":[]}"#).unwrap_or_else(|e| panic!("{e}"));
+    assert!(none.is_empty());
+
+    // Past the row bound with entries small enough to fit the size cap, so
+    // the bound itself is what refuses; at full width a list that long is
+    // already over the cap and refused by size, below.
+    let too_many: Vec<serde_json::Value> = (0..=4096).map(|_| json!({"hash": ""})).collect();
+    let cases: [(String, &str); 4] = [
+        (json!({}).to_string(), "transaction_identifiers"),
+        (json!({"transaction_identifiers": "0x00"}).to_string(), "transaction_identifiers: array"),
+        (json!({"transaction_identifiers": too_many}).to_string(), "transaction_identifiers: too many"),
+        (json!({"transaction_identifiers": [{"id": id(0)}]}).to_string(), "transaction_identifiers[].hash"),
+    ];
+    for (body, want) in cases {
+        match codec::parse_mempool(body.as_bytes()) {
+            Err(Error::MeshResponse { what }) => assert_eq!(what, want),
+            other => panic!("{want} was not refused: {other:?}"),
+        }
+    }
+    let wide: Vec<serde_json::Value> = (0..4000).map(|_| json!({"hash": id(0)})).collect();
+    assert!(
+        matches!(
+            codec::parse_mempool(json!({"transaction_identifiers": wide}).to_string().as_bytes()),
+            Err(Error::PayloadTooLarge { max: MAX_HISTORY_RESPONSE_BYTES, .. })
+        ),
+        "a queue list over the history cap was not refused by size"
+    );
+    assert!(
+        matches!(
+            codec::parse_mempool(json!({"transaction_identifiers": [{"hash": "0x00"}]}).to_string().as_bytes()),
+            Err(Error::Length { what: "transaction_identifiers[].hash", expected: 32, got: 1 })
+        ),
+        "a short id was not refused by its length"
+    );
+    // The handler's own error, through a 200, as every endpoint's.
+    assert!(matches!(
+        codec::parse_mempool(br#"{"code":2,"message":"Internal general error","retriable":true}"#),
+        Err(Error::Mesh { code: 2, .. })
+    ));
+    assert!(matches!(
+        codec::parse_mempool_transaction(br#"{"code":3,"message":"Transaction not found","retriable":true}"#),
+        Err(Error::Mesh { code: 3, .. })
+    ));
+
+    // One waiting transaction: /block's rendering, so /block/transaction's
+    // parser reads it, the reference with it.
+    let pending = json!({"transaction": {
+        "transaction_identifier": {"hash": id(0xa1)},
+        "operations": [
+            {"operation_identifier": {"index": 0}, "type": "DESTINATION_TRANSFER", "status": "PENDING",
+             "account": {"address": "0xdbc01bb8a41f3dc24b0083bb6b9efe910e2477cb"}, "amount": {"value": "10000000"},
+             "metadata": {"memo": "AB-00-EF\0\0\0\0\0\0\0\0"}},
+            {"operation_identifier": {"index": 1}, "type": "SOURCE_TRANSFER", "status": "PENDING",
+             "account": {"address": "0x371c388eba10f265c648008e1ad2c94e680c0f4a"}, "amount": {"value": "-10000500"}},
+            {"operation_identifier": {"index": 2}, "type": "FEE", "status": "PENDING",
+             "account": {"address": "0x0000000000000000000000000000000000000000"}, "amount": {"value": "500"}},
+        ],
+        "metadata": {"block_to_live": "0"},
+    }})
+    .to_string();
+    let t = codec::parse_mempool_transaction(pending.as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(t, codec::parse_block_transaction(pending.as_bytes()).unwrap_or_else(|e| panic!("{e}")));
+    assert_eq!(t.hash, [0xa1; 32]);
+    assert_eq!(t.operations.len(), 3);
+    assert_eq!(t.operations[0].memo, "AB-00-EF\0\0\0\0\0\0\0\0", "the reference is kept as the middleware sent it");
+
+    // The request bodies the handlers read.
+    assert_eq!(codec::request_mempool(), br#"{"network_identifier":{"blockchain":"mochimo","network":"mainnet"}}"#.to_vec());
+    assert_eq!(
+        codec::request_mempool_transaction(&[0xab; 32]),
+        format!(r#"{{"network_identifier":{{"blockchain":"mochimo","network":"mainnet"}},"transaction_identifier":{{"hash":"0x{}"}}}}"#, "ab".repeat(32)).into_bytes(),
+        "the id is not sent as the handler's fmt.Sprintf(\"0x%x\") spells it"
+    );
+    println!("  mempool: ids in the queue's order, null read as none, 4 shapes, a short id and a list over the cap refused, a waiting transaction read as /block renders one");
+}
+
 /// **The response cap and the field-by-field refusal hold for the three new
 /// **The history cap fits what `--count` accepts, and the reconciliation cap
 /// does not have to.**
@@ -942,7 +1033,7 @@ fn every_endpoint_resolves_to_the_cap_its_replies_need() {
     for path in ["/call", "/account/balance", "/network/status", "/network/list", "/construction/submit"] {
         assert_eq!(max_response_bytes(path), MAX_RECON_RESPONSE_BYTES, "{path}");
     }
-    for path in ["/block", "/search/transactions"] {
+    for path in ["/block", "/search/transactions", "/mempool", "/mempool/transaction"] {
         assert_eq!(max_response_bytes(path), MAX_HISTORY_RESPONSE_BYTES, "{path}");
     }
     // A path this table does not name is not a reason to widen an allocation.
