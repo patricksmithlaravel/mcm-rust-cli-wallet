@@ -584,6 +584,148 @@ fn the_captured_block_parses_with_its_reward_and_its_transactions() {
     );
 }
 
+/// **The captured block's own figures parse as the trailer holds them**, and
+/// its kind follows from them by the reference's test.
+///
+/// Every value below is read from the capture's own reply, not from this
+/// codec: `difficulty`, `fee`, `tx_count`, `block_size` and `stime` as JSON
+/// numbers, the nonce and root as `0x` and 64 hex digits, the haiku with the
+/// line breaks the middleware put in it. Four transactions besides the
+/// reward and a block number whose low byte is 7 make it a normal block.
+#[cfg(not(miri))]
+#[test]
+fn the_captured_block_carries_its_own_figures_and_reads_as_normal() {
+    let json = fixture_json(N_FILE);
+    let vectors = json["vectors"].as_array().unwrap_or_else(|| panic!("no vectors"));
+    let v = vectors
+        .iter()
+        .find(|v| v["id"].as_str() == Some("N-submit-block"))
+        .unwrap_or_else(|| panic!("no N-submit-block"));
+    let body = v["response_body"].as_str().unwrap_or("");
+    let block = codec::parse_block(body.as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+    let raw: serde_json::Value = serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}"));
+    let recorded = &raw["block"]["metadata"];
+    let m = block.metadata.as_ref().unwrap_or_else(|| panic!("the captured block's metadata was not read"));
+    assert_eq!(Some(u64::from(m.difficulty)), recorded["difficulty"].as_u64());
+    assert_eq!(Some(m.fee), recorded["fee"].as_u64());
+    assert_eq!(Some(u64::from(m.tx_count)), recorded["tx_count"].as_u64());
+    assert_eq!(Some(m.block_size), recorded["block_size"].as_u64());
+    assert_eq!(Some(m.stime_ms), recorded["stime"].as_i64());
+    assert_eq!(m.stime_ms, block.timestamp_ms, "the trailer's stime is the block's timestamp");
+    assert_eq!(Some(m.haiku.as_str()), recorded["haiku"].as_str());
+    let hexed = |b: &[u8; 32]| format!("0x{}", b.iter().map(|x| format!("{x:02x}")).collect::<String>());
+    assert_eq!(Some(hexed(&m.nonce).as_str()), recorded["nonce"].as_str());
+    assert_eq!(Some(hexed(&m.root).as_str()), recorded["root"].as_str());
+    assert_eq!(m.tx_count, 4, "the captured block no longer counts four transactions");
+    assert_eq!(block.transactions.len(), 5, "four and the reward");
+    assert_eq!(block.block.index & 0xff, 7);
+    assert_eq!(block.kind(), Some(codec::BlockKind::Normal));
+    println!(
+        "  captured block 1,078,535: difficulty {}, {} transaction(s), fee floor {}, {} bytes, normal",
+        m.difficulty, m.tx_count, m.fee, m.block_size
+    );
+}
+
+/// **A block's metadata is read whole or not at all, and a value of the wrong
+/// shape is refused by name**; its kind follows the reference's test.
+///
+/// The reply below is the capture's shape with each case's change. A reply
+/// with no `metadata`, or with one of the eight keys missing, reads with
+/// none, so a deployment that writes fewer still has its blocks read; a
+/// value there that does not fit its field refuses the whole reply, naming
+/// the key, as every other field does.
+#[cfg(not(miri))]
+#[test]
+fn block_metadata_is_whole_or_absent_and_a_misshapen_value_is_refused_by_name() {
+    use serde_json::{json, Value};
+    let zero = format!("0x{}", "00".repeat(32));
+    let body = |index: u64, edit: &dyn Fn(&mut Value)| -> Vec<u8> {
+        let mut v = json!({"block": {
+            "block_identifier": {"index": index, "hash": zero},
+            "parent_block_identifier": {"index": index.saturating_sub(1), "hash": zero},
+            "timestamp": 1_788_500_198_000_i64,
+            "transactions": [],
+            "metadata": {
+                "block_size": 9824, "difficulty": 37, "fee": 500,
+                "haiku": "at night \nsoft snakes \nreturning ",
+                "nonce": format!("0x{}", "0c".repeat(32)), "root": format!("0x{}", "fa".repeat(32)),
+                "stime": 1_788_500_198_000_i64, "tx_count": 4,
+            },
+        }});
+        edit(&mut v);
+        serde_json::to_vec(&v).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let read = |b: Vec<u8>| codec::parse_block(&b).unwrap_or_else(|e| panic!("{e}"));
+
+    let whole = read(body(1_078_535, &|_| {}));
+    assert!(whole.metadata.is_some());
+    assert_eq!(whole.kind(), Some(codec::BlockKind::Normal));
+
+    // Absent, null, or one key short: read as none, and the block still reads.
+    let none = read(body(1_078_535, &|v| {
+        v["block"].as_object_mut().map(|b| b.remove("metadata"));
+    }));
+    assert_eq!(none.metadata, None);
+    assert_eq!(none.kind(), None, "with no count, only a neogenesis number names a kind");
+    let null = read(body(1_078_535, &|v| v["block"]["metadata"] = Value::Null));
+    assert_eq!(null.metadata, None);
+    for key in ["block_size", "difficulty", "fee", "haiku", "nonce", "root", "stime", "tx_count"] {
+        let short = read(body(1_078_535, &|v| {
+            v["block"]["metadata"].as_object_mut().map(|m| m.remove(key));
+        }));
+        assert_eq!(short.metadata, None, "metadata without {key} was read");
+    }
+
+    // The kind, by the reference's test: no transactions is pseudo; a number
+    // whose low byte is zero is neogenesis whatever the count, and with no
+    // metadata at all.
+    let pseudo = read(body(1_078_535, &|v| v["block"]["metadata"]["tx_count"] = json!(0)));
+    assert_eq!(pseudo.kind(), Some(codec::BlockKind::Pseudo));
+    assert_eq!(read(body(1_078_528, &|_| {})).kind(), Some(codec::BlockKind::Neogenesis));
+    let neogenesis_bare = read(body(1_078_528, &|v| {
+        v["block"].as_object_mut().map(|b| b.remove("metadata"));
+    }));
+    assert_eq!(neogenesis_bare.kind(), Some(codec::BlockKind::Neogenesis));
+    assert_eq!(read(body(1_078_529, &|_| {})).kind(), Some(codec::BlockKind::Normal));
+
+    // A value that does not fit is refused, naming the key.
+    let refused: [(&str, Value, &str); 7] = [
+        ("difficulty", json!(4_294_967_296_u64), "metadata.difficulty"),
+        ("tx_count", json!("4"), "metadata.tx_count"),
+        ("fee", json!(-1), "metadata.fee"),
+        ("block_size", json!(1.5), "metadata.block_size"),
+        ("stime", json!("1788500198000"), "metadata.stime"),
+        ("haiku", json!("x".repeat(codec::MAX_HAIKU_BYTES + 1)), "metadata.haiku: too long"),
+        ("haiku", json!(7), "metadata.haiku"),
+    ];
+    for (key, value, want) in refused {
+        let b = body(1_078_535, &|v| v["block"]["metadata"][key] = value.clone());
+        match codec::parse_block(&b) {
+            Err(Error::MeshResponse { what }) => assert_eq!(what, want, "{key}"),
+            other => panic!("{key} = {value} was not refused as {want}: {other:?}"),
+        }
+    }
+    let longest = read(body(1_078_535, &|v| v["block"]["metadata"]["haiku"] = json!("x".repeat(codec::MAX_HAIKU_BYTES))));
+    assert_eq!(longest.metadata.map(|m| m.haiku.len()), Some(codec::MAX_HAIKU_BYTES));
+    // A hash one byte long is refused by its length, and one with no `0x` as
+    // hex at offset 0, each naming the key.
+    for key in ["nonce", "root"] {
+        let b = body(1_078_535, &|v| v["block"]["metadata"][key] = json!("0x00"));
+        assert!(
+            matches!(codec::parse_block(&b), Err(Error::Length { what, expected: 32, got: 1 }) if what == format!("metadata.{key}")),
+            "a short {key} was not refused by name"
+        );
+        let b = body(1_078_535, &|v| v["block"]["metadata"][key] = json!("00".repeat(32)));
+        assert!(
+            matches!(codec::parse_block(&b), Err(Error::Hex { what, offset: 0 }) if what == format!("metadata.{key}")),
+            "a {key} with no 0x was not refused by name"
+        );
+    }
+    let b = body(1_078_535, &|v| v["block"]["metadata"] = json!([1, 2]));
+    assert!(matches!(codec::parse_block(&b), Err(Error::MeshResponse { what: "metadata" })), "metadata that is not an object was not refused");
+    println!("  block metadata: read whole or as none (absent, null, eight keys one short); 7 shapes and 2 hashes two ways refused by name; pseudo, neogenesis and normal by the reference's test");
+}
+
 /// **The response cap and the field-by-field refusal hold for the three new
 /// **The history cap fits what `--count` accepts, and the reconciliation cap
 /// does not have to.**

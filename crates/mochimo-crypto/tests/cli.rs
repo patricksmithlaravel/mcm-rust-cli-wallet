@@ -6978,6 +6978,74 @@ fn blocks_walks_down_from_the_tip_one_row_each() {
     println!("  blocks: the tip and the two below it, one row each, one /block call per row");
 }
 
+/// **`block` and `blocks` name a block's kind and print its own figures**:
+/// a normal block's difficulty, root, size, count, minimum fee and haiku; a
+/// pseudo-block's without the haiku; a neogenesis block named from its
+/// number even with no metadata; and a node that sent none, said as that.
+#[test]
+fn block_and_blocks_name_the_kind_and_print_the_blocks_own_figures() {
+    use serde_json::{json, Value};
+    let with = |index: u64, metadata: Option<Value>| -> Value {
+        let mut body: Value = serde_json::from_str(&Explorer::block_body(index)).unwrap_or_else(|e| panic!("{e}"));
+        if let Some(m) = metadata {
+            body["block"]["metadata"] = m;
+        }
+        body
+    };
+    let figures = |tx_count: u64| {
+        json!({
+            "block_size": 9824, "difficulty": 37, "fee": 500,
+            "haiku": "at night \nsoft snakes \nreturning ",
+            "nonce": format!("0x{}", "0c".repeat(32)), "root": format!("0x{}", "fa".repeat(32)),
+            "stime": 1_788_500_198_000_i64, "tx_count": tx_count,
+        })
+    };
+    let page = |index: u64, metadata: Option<Value>| {
+        let r = render_explorer_reply("/block", &with(index, metadata), &Command::Block { at: args::BlockAt::Index(index) });
+        assert_eq!(r.code, Code::Ok, "{}", r.text);
+        r.text
+    };
+
+    let normal = page(1_078_535, Some(figures(4)));
+    for line in [
+        "  type     normal\n",
+        &format!("  work     difficulty 37, nonce {}\n", "0c".repeat(32)),
+        &format!("  root     {}\n", "fa".repeat(32)),
+        "  size     9824 bytes, 4 transaction(s) besides the reward, minimum fee 500 nanoMCM (0.000000500 MCM)\n",
+        "  haiku    at night / soft snakes / returning\n",
+    ] {
+        assert!(normal.contains(line), "missing {line:?}:\n{normal}");
+    }
+    assert!(normal.contains("reward   12065840589 nanoMCM"), "the page's other lines moved:\n{normal}");
+
+    let pseudo = page(1_078_535, Some(figures(0)));
+    assert!(pseudo.contains("  type     pseudo: no transactions, and no proof of work is checked for it\n"), "{pseudo}");
+    assert!(!pseudo.contains("haiku"), "a pseudo-block's nonce is not a haiku:\n{pseudo}");
+
+    let neogenesis = page(1_078_528, None);
+    assert!(neogenesis.contains("  type     neogenesis; this node sent no block metadata\n"), "{neogenesis}");
+    let bare = page(1_078_535, None);
+    assert!(bare.contains("  type     kind not sent; this node sent no block metadata\n"), "{bare}");
+    assert!(!bare.contains("  work "), "{bare}");
+
+    // A haiku the node sent with control characters stays on its own line.
+    let mut odd = figures(4);
+    odd["haiku"] = json!("one\u{1b}[2J \n\u{202e}two");
+    let escaped = page(1_078_535, Some(odd));
+    assert!(escaped.contains("  haiku    one\\u{1b}[2J / \\u{202e}two\n"), "{escaped}");
+
+    // `blocks`: each row ends with its kind; the double sends no metadata,
+    // so only the neogenesis number is named.
+    let r = cli::run_explorer(&MeshClient::new(Explorer::new(1_078_529)), &Command::Blocks { count: 3 });
+    assert_eq!(r.code, Code::Ok, "{}", r.text);
+    let rows: Vec<&str> = r.text.lines().skip(1).collect();
+    assert_eq!(rows.len(), 3, "{}", r.text);
+    assert!(rows[0].trim_start().starts_with("1078529") && rows[0].ends_with("  kind not sent"), "{}", r.text);
+    assert!(rows[1].trim_start().starts_with("1078528") && rows[1].ends_with("  neogenesis"), "{}", r.text);
+    assert!(rows[2].ends_with("  kind not sent"), "{}", r.text);
+    println!("  block: normal with its figures and haiku, pseudo without, neogenesis by number, none said; blocks rows end with the kind");
+}
+
 // ---------------------------------------------------------------------------
 // The partition: a diverged account is refused, its siblings are not
 // ---------------------------------------------------------------------------

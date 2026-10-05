@@ -468,6 +468,76 @@ pub struct MeshBlock {
     pub parent: ChainTip,
     pub timestamp_ms: i64,
     pub transactions: Vec<MeshTransaction>,
+    /// The block's own figures, from its trailer; `None` when the reply
+    /// carries no `block.metadata`, or carries it without one of the eight
+    /// keys [`BlockMetadata`] reads.
+    pub metadata: Option<BlockMetadata>,
+}
+
+/// A block's own figures, as `/block` sends them in `block.metadata`.
+///
+/// `getBlock` writes eight keys, every one read from the block's trailer
+/// except the size: `block_size` (the block's length in bytes),
+/// `difficulty`, `fee` (the trailer's `mfee`), `haiku`, `nonce`, `root`
+/// (`mroot`), `stime` (in milliseconds) and `tx_count` (`tcount`). The
+/// group N capture of a sealed block carries all eight, numbers as JSON
+/// numbers and the two hashes as `0x` and 64 hex digits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockMetadata {
+    /// The block's length in bytes, as the node holds it.
+    pub block_size: u64,
+    /// The trailer's difficulty.
+    pub difficulty: u32,
+    /// The trailer's `mfee`, the least fee a transaction in it pays, in
+    /// nanoMCM (`types.h:657`, "minimum transaction fee").
+    pub fee: u64,
+    /// The trailer's nonce expanded into words by the middleware. It is sent
+    /// for every block, and it is the solve's haiku only for a normal one:
+    /// the reference prints it for no other (`bup.c:98`).
+    pub haiku: String,
+    /// The trailer's nonce (`types.h:662`, "solving nonce of standard
+    /// blocks").
+    pub nonce: [u8; HASHLEN],
+    /// The trailer's Merkle root over the block's contents (`mroot`).
+    pub root: [u8; HASHLEN],
+    /// When the block was solved, in milliseconds since the epoch: the
+    /// trailer's `stime`, which `/block` also sends as the block's
+    /// `timestamp`.
+    pub stime_ms: i64,
+    /// The trailer's transaction count, the miner's reward not among them:
+    /// `/block` lists the reward as a transaction of its own.
+    pub tx_count: u32,
+}
+
+/// What kind of block a block is, by the reference's own test.
+///
+/// `print_bup` names a block whose trailer counts no transactions
+/// `Pseudo`, and then names a block whose number's low byte is zero
+/// `Neogen`, which wins (`bup.c:88-89`). A pseudo-block carries no
+/// transactions and no proof of work is checked for it (`bval.c:240`,
+/// `:280`); a neogenesis block carries the ledger (`bval.c:33`) and comes
+/// every 256th block; block 0 passes the same test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockKind {
+    /// Transactions, solved by proof of work.
+    Normal,
+    /// No transactions.
+    Pseudo,
+    /// The ledger, at a block number whose low byte is zero.
+    Neogenesis,
+}
+
+impl MeshBlock {
+    /// The block's kind, by [`BlockKind`]'s test: from its number alone for
+    /// a neogenesis block, and otherwise from the transaction count in
+    /// [`Self::metadata`], so `None` when the node sent none.
+    pub fn kind(&self) -> Option<BlockKind> {
+        if self.block.index & 0xff == 0 {
+            return Some(BlockKind::Neogenesis);
+        }
+        let metadata = self.metadata.as_ref()?;
+        Some(if metadata.tx_count == 0 { BlockKind::Pseudo } else { BlockKind::Normal })
+    }
 }
 
 /// A page of `/search/transactions`.
@@ -585,9 +655,8 @@ fn parse_transaction(map: &Map<String, Value>, with_block: bool) -> Result<MeshT
     })
 }
 
-/// `/block`: the block, its parent, its timestamp and every transaction in
-/// it. The block's own `metadata` (size, difficulty, haiku, nonce, root) is
-/// not read.
+/// `/block`: the block, its parent, its timestamp, every transaction in it,
+/// and its own figures ([`BlockMetadata`]).
 pub fn parse_block(bytes: &[u8]) -> Result<MeshBlock> {
     let map = envelope(bytes, MAX_HISTORY_RESPONSE_BYTES)?;
     let block = object(field(&map, "block", "block")?, "block")?;
@@ -611,7 +680,48 @@ pub fn parse_block(bytes: &[u8]) -> Result<MeshBlock> {
     for t in list {
         transactions.push(parse_transaction(object(t, "transactions[]")?, false)?);
     }
-    Ok(MeshBlock { block: identifier, parent, timestamp_ms, transactions })
+    let metadata = parse_block_metadata(block)?;
+    Ok(MeshBlock { block: identifier, parent, timestamp_ms, transactions, metadata })
+}
+
+/// The eight keys `getBlock` writes into `block.metadata`.
+const BLOCK_METADATA_KEYS: [&str; 8] =
+    ["block_size", "difficulty", "fee", "haiku", "nonce", "root", "stime", "tx_count"];
+
+/// The longest haiku this codec copies. The reference expands a nonce into
+/// a 256-byte buffer (`bup.c:84`), and the bound is applied before anything
+/// is copied, as every other string this codec keeps is bounded.
+pub const MAX_HAIKU_BYTES: usize = 256;
+
+/// `block.metadata`, read only when it carries all eight of
+/// [`BLOCK_METADATA_KEYS`]: a deployment that writes fewer, or none, is read
+/// as sending none, so its blocks still read. A key that is there with a
+/// value of the wrong shape is refused naming it, as any other field is.
+fn parse_block_metadata(block: &Map<String, Value>) -> Result<Option<BlockMetadata>> {
+    let m = match block.get("metadata") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(v) => object(v, "metadata")?,
+    };
+    if BLOCK_METADATA_KEYS.iter().any(|k| !m.contains_key(*k)) {
+        return Ok(None);
+    }
+    let narrow = |key: &str, what: &'static str| -> Result<u32> {
+        u32::try_from(unsigned(&m[key], what)?).map_err(|_| Error::MeshResponse { what })
+    };
+    let haiku = string(&m["haiku"], "metadata.haiku")?;
+    if haiku.len() > MAX_HAIKU_BYTES {
+        return Err(Error::MeshResponse { what: "metadata.haiku: too long" });
+    }
+    Ok(Some(BlockMetadata {
+        block_size: unsigned(&m["block_size"], "metadata.block_size")?,
+        difficulty: narrow("difficulty", "metadata.difficulty")?,
+        fee: unsigned(&m["fee"], "metadata.fee")?,
+        haiku: haiku.to_owned(),
+        nonce: hex::decode_prefixed::<HASHLEN>(string(&m["nonce"], "metadata.nonce")?, "metadata.nonce")?,
+        root: hex::decode_prefixed::<HASHLEN>(string(&m["root"], "metadata.root")?, "metadata.root")?,
+        stime_ms: m["stime"].as_i64().ok_or(Error::MeshResponse { what: "metadata.stime" })?,
+        tx_count: narrow("tx_count", "metadata.tx_count")?,
+    }))
 }
 
 /// `/block/transaction`: the one transaction, without a block identifier of
