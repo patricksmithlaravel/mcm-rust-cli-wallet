@@ -372,7 +372,7 @@ fn outcome(outcome: &Outcome) -> Report {
              node.",
             hex_bytes(hash)
         )),
-        Outcome::RecentTransactions { tag, page } => recent_transactions(tag, page),
+        Outcome::RecentTransactions { tag, from, page } => recent_transactions(tag, *from, page),
         Outcome::Block { block } => block_page(block),
         Outcome::BlockNotServed { by_hash, cause } => {
             let mut text = super::explorer_refusal(cause);
@@ -855,6 +855,7 @@ fn transaction(page: &crate::mesh::codec::SearchPage) -> Report {
 
 fn recent_transactions(
     tag: &crate::addr::Tag,
+    from: u64,
     page: &crate::mesh::codec::SearchPage,
 ) -> Report {
     use crate::mesh::codec;
@@ -862,16 +863,36 @@ fn recent_transactions(
         Ok(d) => d,
         Err(e) => return cannot_render(tag, &e),
     };
-    let mut out = format!(
-        "recent transactions for {shown}\n  {} of {} row(s), newest first\n",
-        page.transactions.len(),
-        page.total_count
-    );
-    if page.transactions.is_empty() {
+    let rows = page.transactions.len() as u64;
+    let mut out = if from == 0 {
+        format!(
+            "recent transactions for {shown}\n  {} of {} row(s), newest first\n",
+            rows, page.total_count
+        )
+    } else if rows == 0 {
+        format!(
+            "recent transactions for {shown}\n  0 of {} row(s) after the {from} newest\n",
+            page.total_count
+        )
+    } else {
+        format!(
+            "recent transactions for {shown}\n  rows {} to {} of {}, newest first: the {from} newest \
+             are skipped\n",
+            from.saturating_add(1),
+            from.saturating_add(rows),
+            page.total_count
+        )
+    };
+    if page.transactions.is_empty() && from == 0 {
         out.push_str(
             "  (none: this node's index holds no transaction for this tag. A tag never paid has \
              none; so has every tag when the deployment runs no indexer.)\n",
         );
+    } else if page.transactions.is_empty() {
+        out.push_str(&format!(
+            "  (none after the {from} newest: this node's index holds {} for this tag.)\n",
+            page.total_count
+        ));
     }
     for tx in &page.transactions {
         let touched: i128 = tx
@@ -910,7 +931,9 @@ fn recent_transactions(
         }
     }
     if let Some(n) = page.next_offset {
-        out.push_str(&format!("  more rows exist; the endpoint's next offset is {n}\n"));
+        out.push_str(&format!(
+            "  more rows exist; the endpoint's next offset is {n}, and `--from {n}` reads them\n"
+        ));
     }
     out.push_str(&format!("\n{}\n", super::SEARCH_CONVENTION));
     Report::ok(out)

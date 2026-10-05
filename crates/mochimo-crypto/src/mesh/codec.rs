@@ -179,7 +179,8 @@ pub fn request_search_by_hash(hash: &[u8; HASHLEN]) -> Vec<u8> {
 /// so an out-of-range count would silently
 /// return ten rows rather than be clamped. No `offset` is sent: the rows
 /// come back `ORDER BY bm.block_height DESC, tm.id DESC`,
-/// so offset 0 already names the newest.
+/// so offset 0 already names the newest. [`request_search_by_account_from`]
+/// is the same request starting further down.
 ///
 /// No group N vector records this shape either; it is built from the Go.
 pub fn request_search_by_account(tag: &Tag, limit: u64) -> Vec<u8> {
@@ -187,6 +188,31 @@ pub fn request_search_by_account(tag: &Tag, limit: u64) -> Vec<u8> {
         "account_identifier": { "address": prefixed(tag) },
         "limit": limit,
         "network_identifier": network_identifier(),
+    }))
+}
+
+/// [`request_search_by_account`] with an `offset`: the rows from the
+/// `offset`-th newest on, skipping the `offset` newest.
+///
+/// The handler decodes `offset` into an `int64` and takes it when it is not
+/// negative (`searchTransactionsHandler`), and the indexer applies it as SQL
+/// `OFFSET` after the same newest-first ordering. A value above
+/// `i64::MAX` does not decode, and the handler answers code 1, *Invalid
+/// request*; the caller keeps to the range, as it does for `limit`.
+///
+/// The offset counts rows as they stand when the request is served. The
+/// index grows at the newest end, so a later page asked for with the
+/// `next_offset` an earlier one gave repeats the rows that arrived between
+/// the two requests and skips none.
+///
+/// The key is sent even when it is 0, so the request says what it asked
+/// for. No group N vector records this shape; it is built from the Go.
+pub fn request_search_by_account_from(tag: &Tag, limit: u64, offset: u64) -> Vec<u8> {
+    body(&json!({
+        "account_identifier": { "address": prefixed(tag) },
+        "limit": limit,
+        "network_identifier": network_identifier(),
+        "offset": offset,
     }))
 }
 
@@ -530,7 +556,10 @@ fn parse_operations(v: &Value) -> Result<Vec<Operation>> {
             string(field(amount, "value", "operations[].amount.value")?, "operations[].amount.value")?,
             "operations[].amount.value",
         )?;
-        // `metadata` is absent on a REWARD and on every /search operation.
+        // `metadata` is absent on a REWARD. On /search it is present only
+        // on a destination whose stored reference is not empty
+        // (`SearchTransactions` sets `memo` from the transfer's reference
+        // and nothing else), so an operation with none carries no key.
         let memo = match op.get("metadata").and_then(Value::as_object) {
             Some(m) => match m.get("memo") {
                 Some(v) => string(v, "operations[].metadata.memo")?.to_owned(),

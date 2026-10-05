@@ -6859,7 +6859,7 @@ fn recent_transactions_escapes_memos_and_preserves_unicode() {
     row["operations"][1]["metadata"]["memo"] = json!("café 東京\nnext\t\u{1b}\u{9b}\u{202e}");
     let body = json!({"transactions": [row], "total_count": 1});
     let report = render_explorer_reply(
-        "/search/transactions", &body, &Command::RecentTransactions { tag: TAG, count: 5 },
+        "/search/transactions", &body, &Command::RecentTransactions { tag: TAG, count: 5, from: 0 },
     );
     assert_eq!(report.code, Code::Ok);
     assert!(report.text.contains("                    memo café 東京\\nnext\\t\\u{1b}\\u{9b}\\u{202e}\n"));
@@ -6908,7 +6908,7 @@ fn transaction_prints_the_indexers_rendering_and_names_the_endpoint() {
 #[test]
 fn recent_transactions_prints_a_row_per_transaction_with_its_direction() {
     let e = Explorer::new(1_078_600);
-    let r = cli::run_explorer(&MeshClient::new(e), &Command::RecentTransactions { tag: TAG, count: 5 });
+    let r = cli::run_explorer(&MeshClient::new(e), &Command::RecentTransactions { tag: TAG, count: 5, from: 0 });
     assert_eq!(r.code, Code::Ok, "{}", r.text);
     assert!(r.text.contains("1 of 1 row(s), newest first"), "{}", r.text);
     assert!(r.text.contains("block   1078535"), "{}", r.text);
@@ -6919,13 +6919,70 @@ fn recent_transactions_prints_a_row_per_transaction_with_its_direction() {
     println!("  recent-transactions: one row, direction `both`, the tag's own net -10,000,500");
 }
 
+/// **`recent-transactions --from M`**: the first page is asked for as it
+/// always was, with no offset in the body; a later one carries the offset
+/// the Mesh's handler reads, and the page says which rows it shows and how
+/// to read on.
+#[test]
+fn recent_transactions_from_sends_the_offset_and_says_which_rows_it_shows() {
+    let tag_hex = hexs(&TAG);
+    let network = r#""network_identifier":{"blockchain":"mochimo","network":"mainnet"}"#;
+    let client = MeshClient::new(Explorer::new(1_078_600));
+    let r = cli::run_explorer(&client, &Command::RecentTransactions { tag: TAG, count: 5, from: 0 });
+    assert_eq!(r.code, Code::Ok, "{}", r.text);
+    let r = cli::run_explorer(&client, &Command::RecentTransactions { tag: TAG, count: 100, from: 200 });
+    assert_eq!(r.code, Code::Ok, "{}", r.text);
+    let bodies: Vec<String> = client
+        .transport()
+        .bodies
+        .borrow()
+        .iter()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
+        .collect();
+    assert_eq!(
+        bodies,
+        [
+            format!(r#"{{"account_identifier":{{"address":"0x{tag_hex}"}},"limit":5,{network}}}"#),
+            format!(r#"{{"account_identifier":{{"address":"0x{tag_hex}"}},"limit":100,{network},"offset":200}}"#),
+        ],
+        "the first page's body changed, or a later one does not carry its offset"
+    );
+    // The builder itself says what it asked for, 0 included; the verb asks
+    // for the first page without it, as above.
+    assert_eq!(
+        mochimo_crypto::mesh::codec::request_search_by_account_from(&TAG, 5, 0),
+        format!(r#"{{"account_identifier":{{"address":"0x{tag_hex}"}},"limit":5,{network},"offset":0}}"#).into_bytes(),
+        "the builder does not send an offset of 0"
+    );
+
+    // A middle page: which rows, how many in all, and the flag that reads on.
+    use serde_json::{json, Value};
+    let row: Value = serde_json::from_str(&Explorer::search_row(1_078_535, &tag_hex)).unwrap_or_else(|e| panic!("{e}"));
+    let cmd = Command::RecentTransactions { tag: TAG, count: 1, from: 100 };
+    let body = json!({"transactions": [row], "total_count": 250, "next_offset": 101});
+    let page = render_explorer_reply("/search/transactions", &body, &cmd);
+    assert_eq!(page.code, Code::Ok, "{}", page.text);
+    assert!(page.text.contains("  rows 101 to 101 of 250, newest first: the 100 newest are skipped\n"), "{}", page.text);
+    assert!(page.text.contains("the endpoint's next offset is 101, and `--from 101` reads them"), "{}", page.text);
+    assert!(!page.text.contains("(none"), "{}", page.text);
+
+    // Past the last row: an empty page, said as one, and not a refusal.
+    let cmd = Command::RecentTransactions { tag: TAG, count: 5, from: 300 };
+    let page = render_explorer_reply("/search/transactions", &json!({"transactions": [], "total_count": 250}), &cmd);
+    assert_eq!(page.code, Code::Ok, "{}", page.text);
+    assert!(page.text.contains("  0 of 250 row(s) after the 300 newest\n"), "{}", page.text);
+    assert!(page.text.contains("(none after the 300 newest: this node's index holds 250 for this tag.)"), "{}", page.text);
+    assert!(!page.text.contains("never paid"), "an offset past the end is not a tag with no history:\n{}", page.text);
+    println!("  recent-transactions --from: page 1's body unchanged, the offset sent after it, rows 101 to 101 of 250 named, --from 101 offered");
+}
+
 /// A tag the index has never seen prints an empty table and exits 0; a
 /// deployment with no indexer is a refusal that says so.
 #[test]
 fn recent_transactions_is_empty_on_no_history_and_refuses_with_no_indexer() {
     let r = cli::run_explorer(
         &MeshClient::new(Explorer::new(10).with_no_rows()),
-        &Command::RecentTransactions { tag: TAG, count: 5 },
+        &Command::RecentTransactions { tag: TAG, count: 5, from: 0 },
     );
     assert_eq!(r.code, Code::Ok, "an empty history is not a refusal:\n{}", r.text);
     assert!(r.text.contains("0 of 0 row(s)"), "{}", r.text);
@@ -6933,7 +6990,7 @@ fn recent_transactions_is_empty_on_no_history_and_refuses_with_no_indexer() {
 
     let r = cli::run_explorer(
         &MeshClient::new(Explorer::new(10).without_indexer()),
-        &Command::RecentTransactions { tag: TAG, count: 5 },
+        &Command::RecentTransactions { tag: TAG, count: 5, from: 0 },
     );
     assert_eq!(r.code, Code::Refused, "a missing indexer is not an ok page:\n{}", r.text);
     assert!(r.text.contains("indexer database"), "the refusal does not name the indexer:\n{}", r.text);
